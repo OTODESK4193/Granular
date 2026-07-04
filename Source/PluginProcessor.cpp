@@ -4,7 +4,16 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+// サードパーティ(Signalsmith)内部の無害な警告を抑制
+// C4244: double→float変換(DSPライブラリの意図的設計) / C4456,4458: 変数の隠蔽(スタイル)
+#if defined(_MSC_VER)
+ #pragma warning(push)
+ #pragma warning(disable: 4244 4456 4458)
+#endif
 #include "signalsmith-stretch/signalsmith-stretch.h"
+#if defined(_MSC_VER)
+ #pragma warning(pop)
+#endif
 
 // ------------------------------------------
 // パラメータレイアウト

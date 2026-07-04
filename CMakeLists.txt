@@ -77,6 +77,10 @@ target_include_directories(Granular PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Source
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/DSP
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/GUI
+)
+
+# サードパーティは SYSTEM 扱い (/external:I) にして警告対象から外す
+target_include_directories(Granular SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/third_party
 )
 
@@ -131,6 +135,7 @@ if(MSVC)
         /utf-8
         /W3
         /wd4819
+        /external:W0          # SYSTEMインクルード(third_party)の警告を抑制
         $<$<CONFIG:Release>:/O2>
     )
 endif()
