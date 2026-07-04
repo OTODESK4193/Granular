@@ -12,6 +12,7 @@
 #include "GUI/MainPanel.h"
 #include "GUI/ArpPanel.h"
 #include "GUI/ConfigPanel.h"
+#include "GUI/FxPanel.h"
 #include "GUI/ColorPalette.h"
 
 // 未実装タブのプレースホルダー
@@ -68,8 +69,8 @@ private:
     MainPanel mainPanel;
     ArpPanel arpPanel;
     ConfigPanel configPanel;
+    FxPanel fxPanel;
     StubPanel modPanel { "MOD MATRIX", "LFO x4  +  ENV x2  +  16 slots  -  coming in the next update" };
-    StubPanel fxPanel  { "FX RACK",    "Shimmer Reverb / Tape Delay / Ensemble Chorus / Freeze  -  coming soon" };
 
     // --- ヘッダー ---
     juce::TextButton loadButton    { "LOAD" };

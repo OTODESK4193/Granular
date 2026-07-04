@@ -29,6 +29,8 @@ JUCE 8.0系 / VST3 + Standalone / C++20。
 - **PadEnvelope**: Attackはべき乗カーブ最大10秒（ゆっくり立ち上がるPAD）〜
   最短0.5ms（歯切れのよい発音）。Decay/Releaseは指数カーブ
 - **Start/End**: ノブ＋波形上のマーカードラッグでサンプル範囲を調整
+- **プレイヘッド表示**: 発音中の実再生位置をミント色ラインで波形上に表示
+  （ピンク線=Position起点、ミント線=動くプレイヘッド）
 - **MOTION**: プレイヘッドの動きを Forward / Backward / Ping-Pong / Random から選択。
   S-SYNCオンで「Start-End領域を指定音価（1拍〜8小節）でスキャン」するDAWテンポ追随。
   グレインは領域内をラップ再生（Positionが常に発火起点として尊重される）
@@ -91,8 +93,10 @@ Granular/
 2. [ ] **MODタブ**: LFO×4（テンポ同期、Sine/Tri/Saw/Sqr/S&H/Chaos）＋ ループ可能Env×2
        ＋ 16スロットマトリクス（Velocity/Note/ModWheel/Random/Macro×4）
        ※量子化は変調後に行われるため、Pitchへの変調もすべてスケールに乗る
-3. [ ] **FXタブ**: 4スロット式 — Shimmer Reverb / Tape Delay / Ensemble Chorus /
-       Freeze・Smear。**適用順はD&Dで並べ替え可能**
+3. [x] **FXタブ**: 4スロット式 — **ADAA Saturation（アルゴリズム10種・NextGenKick2移植）**/
+       Ensemble Chorus / Tape Delay（テンポ同期＋ダッキング）/ Freeze /
+       Shimmer Reverb（16ch FDN＋オクターブシフター）。
+       **適用順はスロットヘッダーのD&Dで並べ替え可能**。チェーンはLimiter前段に挿入
 4. [ ] **Configタブ**: カラーテーマ変更、同時発音数、Limiter Ceiling、解析ロジック設定
 5. [ ] グレインループのSIMD化（グレイン主導ブロック処理への再設計、2〜3倍高速化見込み）
 6. [ ] プリセットブラウザ、リサイズGUI、MPE/ピッチベンド

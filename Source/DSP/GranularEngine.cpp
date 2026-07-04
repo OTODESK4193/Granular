@@ -251,6 +251,7 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
     const double L = (double)validLength;
     const double posBase = L * (double)p.position;
+    double lastRel = 0.0;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -292,6 +293,7 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         }
 
         const double wrappedPlayhead = (double)trimStart + juce::jlimit(0.0, L - 1.0, rel);
+        lastRel = rel;
 
         // グレイン発火スケジューリング
         if (--samplesToNextSpawn <= 0)
@@ -376,6 +378,8 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
     for (int ch = 0; ch < outputBuffer.getNumChannels(); ++ch)
         outputBuffer.addFrom(ch, 0, voiceInternalBuffer, ch % 2, 0, numSamples);
+
+    lastRelNorm = (float)(lastRel / L); // GUI用の実プレイヘッド位置
 }
 
 // ==========================================
@@ -413,7 +417,6 @@ void GranularSynth::prepareToPlay(double sr, int spb)
         filterHPF[ch].reset();
         filterLPF[ch].reset();
     }
-    limiter.prepare(sr);
     for (auto& v : voices) v.prepareToPlay(sr, spb);
 }
 
@@ -486,6 +489,19 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
         if (v.isActive())
             v.renderNextBlock(buf, src, trimStart, trimEnd, windowTables, p, &visualizer, spawnBudget);
 
+    // 最新ノートの実プレイヘッド位置をGUIへ公開
+    {
+        float ph = -1.0f;
+        uint64_t newest = 0;
+        for (const auto& v : voices)
+            if (v.isActive() && v.getNoteStamp() >= newest)
+            {
+                newest = v.getNoteStamp();
+                ph = v.getPlayheadNorm();
+            }
+        playheadDisplay.store(ph, std::memory_order_relaxed);
+    }
+
     // マスターフィルター
     for (int ch = 0; ch < 2; ++ch)
     {
@@ -501,15 +517,8 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
 
     buf.applyGain(juce::Decibels::decibelsToGain(p.outGainDb));
 
-    // マスターブリックウォールリミッター (Ceiling: デフォルト -0.1dB) + NaN/Inf ガード
+    // ※ FXチェーンとマスターリミッターはこの後段 (Processor側) で適用される
     const int channels = buf.getNumChannels();
-    const float ceilingLin = juce::Decibels::decibelsToGain(juce::jlimit(-6.0f, 0.0f, p.ceiling));
-    {
-        float* dL = buf.getWritePointer(0);
-        float* dR = channels > 1 ? buf.getWritePointer(1) : dL;
-        for (int i = 0; i < buf.getNumSamples(); ++i)
-            limiter.process(dL[i], dR[i], ceilingLin);
-    }
 
     if (buf.getNumSamples() > 0)
     {

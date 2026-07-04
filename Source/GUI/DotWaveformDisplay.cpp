@@ -221,6 +221,17 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
     g.setColour(GranularColors::pink);
     g.fillRect(posX - 0.75f, wave.getY(), 1.5f, wave.getHeight());
 
+    // --- 動くプレイヘッド (発音中の実再生位置 / ミント色) ---
+    const float ph = proc.synth.playheadDisplay.load(std::memory_order_relaxed);
+    if (ph >= 0.0f)
+    {
+        const float phX = geo.effX + juce::jlimit(0.0f, 1.0f, ph) * geo.effW;
+        g.setColour(GranularColors::mint.withAlpha(0.20f));
+        g.fillRect(phX - 2.0f, wave.getY(), 4.0f, wave.getHeight());
+        g.setColour(GranularColors::mint.withAlpha(0.9f));
+        g.fillRect(phX - 0.75f, wave.getY(), 1.5f, wave.getHeight());
+    }
+
     // --- ライブ・グレインドット ---
     const double nowMs = juce::Time::getMillisecondCounterHiRes();
     for (const auto& d : liveDots)

@@ -77,6 +77,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("ceiling", "Ceiling",
         juce::NormalisableRange<float>(-6.0f, 0.0f, 0.01f), -0.1f));
 
+    // --- FXチェーン (4スロット、順序はD&Dで入替=値のスワップ) ---
+    for (int i = 1; i <= FxChain::kNumSlots; ++i)
+    {
+        const juce::String idx(i);
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("fx" + idx + "Type", "FX " + idx + " Type",
+            FxChain::getTypeNames(), 0));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("fx" + idx + "Amount", "FX " + idx + " Amount",
+            0.0f, 100.0f, 0.0f));
+    }
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("satAlgo", "Saturation Algo",
+        FxChain::getSatAlgoNames(), 0));
+
     // --- アルペジエイター ---
     params.push_back(std::make_unique<juce::AudioParameterBool>("arpEnable", "Arp On", false));
     params.push_back(std::make_unique<juce::AudioParameterChoice>("arpPattern", "Arp Pattern",
@@ -131,6 +143,8 @@ void GranularAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     currentSampleRate = sampleRate;
     synth.prepareToPlay(sampleRate, samplesPerBlock);
     arp.prepare(sampleRate);
+    fxChain.prepare(sampleRate);
+    masterLimiter.prepare(sampleRate);
 }
 
 void GranularAudioProcessor::releaseResources() { synth.releaseResources(); }
@@ -228,6 +242,40 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     }
 
     synth.processBlock(buffer, midiMessages, &sharedAudioBuffer, effS, effE, p);
+
+    // --- FXチェーン (シンセ後段) ---
+    FxChain::Params fxP;
+    for (int i = 0; i < FxChain::kNumSlots; ++i)
+    {
+        const juce::String idx(i + 1);
+        fxP.type[(size_t)i]   = (int)apvts.getRawParameterValue("fx" + idx + "Type")->load();
+        fxP.amount[(size_t)i] = apvts.getRawParameterValue("fx" + idx + "Amount")->load() / 100.0f;
+    }
+    fxP.satAlgo = (int)apvts.getRawParameterValue("satAlgo")->load();
+    fxP.bpm = bpm;
+    fxChain.process(buffer, fxP);
+
+    // --- マスターブリックウォールリミッター + NaN/Infガード ---
+    {
+        const int channels = buffer.getNumChannels();
+        const float ceilingLin = juce::Decibels::decibelsToGain(
+            juce::jlimit(-6.0f, 0.0f, apvts.getRawParameterValue("ceiling")->load()));
+        float* dL = buffer.getWritePointer(0);
+        float* dR = channels > 1 ? buffer.getWritePointer(1) : dL;
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            masterLimiter.process(dL[i], dR[i], ceilingLin);
+
+        const int lastIdx = buffer.getNumSamples() - 1;
+        if (lastIdx >= 0)
+        {
+            const float cL = dL[lastIdx], cR = dR[lastIdx];
+            if (std::isnan(cL) || std::isinf(cL) || std::isnan(cR) || std::isinf(cR))
+            {
+                buffer.clear();
+                fxChain.prepare(currentSampleRate); // FX内部状態をリセット
+            }
+        }
+    }
 }
 
 bool GranularAudioProcessor::hasEditor() const { return true; }

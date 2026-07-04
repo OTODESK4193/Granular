@@ -11,6 +11,7 @@
 #include "DSP/GranularEngine.h"
 #include "DSP/PitchAnalyzer.h"
 #include "DSP/Arpeggiator.h"
+#include "DSP/FxChain.h"
 
 enum class IngestState
 {
@@ -76,6 +77,8 @@ public:
 
     GranularSynth synth; // synth.visualizer を GUI が参照する
     Arpeggiator arp;
+    FxChain fxChain;
+    BrickLimiter masterLimiter;
 
     juce::CriticalSection stateLock;
     juce::String hudLineFile = "File: ---";

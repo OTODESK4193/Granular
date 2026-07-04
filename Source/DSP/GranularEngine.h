@@ -246,6 +246,9 @@ public:
         return n;
     }
 
+    // 直近ブロック末の実プレイヘッド位置 (領域内正規化 0..1、無効=-1)
+    float getPlayheadNorm() const noexcept { return lastRelNorm; }
+
 private:
     void spawnGrain(int trimStart, int trimEnd,
                     double currentPlayhead, const GranularParams& p,
@@ -262,6 +265,7 @@ private:
     double playheadOffset = 0.0;
     double randomTargetRel = 0.0;   // Randomモード: 現在のジャンプ先（領域内相対）
     float  panSide = 1.0f;          // Pan交互配置用（グレイン毎にL/R反転）
+    float  lastRelNorm = -1.0f;     // GUI表示用の実プレイヘッド位置
     int    samplesToNextSpawn = 0;
 
     PadEnvelope env;
@@ -303,6 +307,7 @@ public:
     }
 
     GrainVisualizerData visualizer;
+    std::atomic<float> playheadDisplay { -1.0f }; // 最新ボイスの実プレイヘッド (GUI用)
 
     static constexpr int NUM_VOICES = 24;
     static constexpr int MAX_TOTAL_GRAINS = 1200; // 全ボイス合計のCPUバジェット
@@ -316,7 +321,6 @@ private:
 
     juce::IIRFilter filterHPF[2];
     juce::IIRFilter filterLPF[2];
-    BrickLimiter limiter;
 
     double currentSampleRate = 44100.0;
     uint64_t noteCounter = 0;
