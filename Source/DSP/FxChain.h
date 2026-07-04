@@ -478,9 +478,12 @@ namespace gfx
             dL = lpStateL;
             dR = lpStateR;
 
+            // ループ書き込みはソフトクリップで安全化（持続音×高FBの蓄積を抑える）
             const float fb = juce::jlimit(0.0f, 0.95f, feedback);
-            delayBuffer[(size_t)writeIndex * 2] = (inOutL * duckingGain) + (dL * fb);
-            delayBuffer[(size_t)writeIndex * 2 + 1] = (inOutR * duckingGain) + (dR * fb);
+            delayBuffer[(size_t)writeIndex * 2] =
+                gfx::antiDenormal(gfx::safeLoopSaturate((inOutL * duckingGain) + (dL * fb)));
+            delayBuffer[(size_t)writeIndex * 2 + 1] =
+                gfx::antiDenormal(gfx::safeLoopSaturate((inOutR * duckingGain) + (dR * fb)));
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
@@ -532,9 +535,14 @@ namespace gfx
             smL = lpStateL;
             smR = lpStateR;
 
+            // クロスフェード蓄積器: in×(1-fb) + loop×fb
+            //  定常ゲインが常に1倍に収束し、音を鳴らし続けても暴発しない
+            //  (旧: in + loop×fb は 1/(1-fb) 倍まで蓄積 → fb0.99で+40dBの爆音バグ)
             const float fb = juce::jlimit(0.0f, 0.99f, feedback);
-            buffer[(size_t)writeIndex * 2] = gfx::antiDenormal(inOutL + smL * fb);
-            buffer[(size_t)writeIndex * 2 + 1] = gfx::antiDenormal(inOutR + smR * fb);
+            buffer[(size_t)writeIndex * 2] =
+                gfx::antiDenormal(gfx::safeLoopSaturate(inOutL * (1.0f - fb) + smL * fb));
+            buffer[(size_t)writeIndex * 2 + 1] =
+                gfx::antiDenormal(gfx::safeLoopSaturate(inOutR * (1.0f - fb) + smR * fb));
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
