@@ -1,0 +1,459 @@
+// ==========================================
+// File: GranularEngine.cpp
+// ==========================================
+#include "GranularEngine.h"
+
+// ------------------------------------------
+// 4点 Hermite 補間（グレイン読み出しの音質の要）
+// ------------------------------------------
+static inline float hermite4(float frac, float y0, float y1, float y2, float y3) noexcept
+{
+    const float c0 = y1;
+    const float c1 = 0.5f * (y2 - y0);
+    const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+    const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+    return ((c3 * frac + c2) * frac + c1) * frac + c0;
+}
+
+static inline float readHermiteClamped(const float* src, int numSamples, double pos) noexcept
+{
+    const int i1 = (int)pos;
+    const float frac = (float)(pos - (double)i1);
+    const int i0 = juce::jlimit(0, numSamples - 1, i1 - 1);
+    const int ic = juce::jlimit(0, numSamples - 1, i1);
+    const int i2 = juce::jlimit(0, numSamples - 1, i1 + 1);
+    const int i3 = juce::jlimit(0, numSamples - 1, i1 + 2);
+    return hermite4(frac, src[i0], src[ic], src[i2], src[i3]);
+}
+
+// ==========================================
+// GranularVoice
+// ==========================================
+void GranularVoice::prepareToPlay(double sampleRate, int samplesPerBlock)
+{
+    currentSampleRate = sampleRate;
+    adsr.setSampleRate(sampleRate);
+    voiceInternalBuffer.setSize(2, samplesPerBlock, false, true, true);
+    random.setSeed((uint32_t)(reinterpret_cast<uintptr_t>(this) & 0xFFFFFFFF));
+
+    // TONE用コムバッファ (最低15Hzまで対応)
+    const int combSize = (int)(sampleRate / 15.0) + 8;
+    combBufL.assign((size_t)combSize, 0.0f);
+    combBufR.assign((size_t)combSize, 0.0f);
+    combWriteIdx = 0;
+    combLpL = combLpR = 0.0f;
+}
+
+void GranularVoice::releaseResources()
+{
+    voiceInternalBuffer.setSize(0, 0);
+}
+
+void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, const GranularParams& p)
+{
+    currentMidiNote = midiNote;
+    playing = true;
+    heldDown = true;
+    noteStamp = stamp;
+    velocityGain = 0.25f + 0.75f * juce::jlimit(0.0f, 1.0f, velocity);
+    playheadOffset = 0.0;
+    samplesToNextSpawn = 0; // 即時に最初のグレインを発火
+
+    for (auto& g : grains) g.isActive = false;
+
+    // コム状態リセット（前ノートの残響を持ち越さない）
+    std::fill(combBufL.begin(), combBufL.end(), 0.0f);
+    std::fill(combBufR.begin(), combBufR.end(), 0.0f);
+    combLpL = combLpR = 0.0f;
+
+    juce::ADSR::Parameters ap;
+    ap.attack = p.attack;
+    ap.decay = p.decay;
+    ap.sustain = p.sustain;
+    ap.release = p.release;
+    adsr.setParameters(ap);
+    adsr.noteOn();
+}
+
+void GranularVoice::stopNote(bool allowTailOff)
+{
+    heldDown = false;
+    if (allowTailOff) adsr.noteOff();
+    else clearCurrentNote();
+}
+
+void GranularVoice::clearCurrentNote()
+{
+    playing = false;
+    heldDown = false;
+    currentMidiNote = -1;
+    adsr.reset();
+}
+
+void GranularVoice::spawnGrain(int trimStart, int trimEnd,
+                               double currentPlayhead, const GranularParams& p,
+                               float overlap, int baseLife,
+                               GrainVisualizerData* visualizer, int& spawnBudget)
+{
+    if (spawnBudget <= 0) return; // 全体バジェット超過（CPU保護）
+
+    Grain* slot = nullptr;
+    for (auto& g : grains)
+        if (!g.isActive) { slot = &g; break; }
+    if (slot == nullptr) return; // 全スロット使用中
+
+    const int validLength = trimEnd - trimStart;
+
+    Grain& grain = *slot;
+    grain.isActive = true;
+    grain.age = 0;
+    // Pitch-Sync時は周期整数倍の長さを維持（ランダム化すると周期性が壊れる）
+    grain.life = p.pitchSync ? baseLife
+                             : baseLife + random.nextInt(juce::jmax(1, baseLife / 2));
+
+    // --------------------------------------
+    // グレインピッチ量子化（変調後に適用）
+    //   最終ピッチ = ノート + オクターブ/セミ/ファイン + ランダムジッター
+    //   これを丸ごと Key/Scale へスナップする
+    // --------------------------------------
+    const float globalSemis = (float)p.octave * 12.0f + (float)p.pitchSt + p.fineTune / 100.0f;
+    const float jitterSemis = ((random.nextFloat() * 2.0f - 1.0f) * p.pitchJitter) / 100.0f;
+
+    float totalAbsSemis = (float)currentMidiNote + globalSemis + jitterSemis; // C3=60 基準の絶対ピッチ
+
+    if (p.scale > 0)
+    {
+        const int root = (p.key == 0) ? p.detectedRoot : (p.key - 1); // 0..11
+        totalAbsSemis = ScaleQuantizer::quantize(totalAbsSemis, root, p.scale);
+    }
+
+    const double pitchRatio = std::pow(2.0, ((double)totalAbsSemis - 60.0) / 12.0);
+    grain.step = p.reverseGrain ? -pitchRatio : pitchRatio;
+
+    // --------------------------------------
+    // スポーン位置（スプレー + 境界セーフティ）
+    // --------------------------------------
+    const double sprayOffset = ((double)random.nextFloat() * 2.0 - 1.0) * (double)validLength * (double)p.positionSpray;
+    double rawPos = currentPlayhead + sprayOffset;
+
+    const double playRange = (double)grain.life * pitchRatio;
+    double minPos = (double)trimStart;
+    double maxPos = (double)trimEnd - playRange - 1.0;
+
+    if (p.reverseGrain)
+    {
+        rawPos += playRange;
+        minPos = (double)trimStart + playRange;
+        maxPos = (double)trimEnd - 1.0;
+    }
+    if (maxPos < minPos) maxPos = minPos;
+    grain.position = juce::jlimit(minPos, maxPos, rawPos);
+
+    // --------------------------------------
+    // パン & 音量
+    // --------------------------------------
+    const float panOffset = (random.nextFloat() * 2.0f - 1.0f) * 0.5f * p.panSpread;
+    const float pan = juce::jlimit(0.0f, 1.0f, 0.5f + panOffset);
+    grain.panL = std::sqrt(1.0f - pan);
+    grain.panR = std::sqrt(pan);
+
+    // 高密度時の音量爆発を防ぐ 1/√overlap 正規化
+    grain.amp = velocityGain / std::sqrt(juce::jmax(1.0f, overlap));
+
+    --spawnBudget;
+
+    // GUIへ発火イベントを通知（ロックフリー）
+    if (visualizer != nullptr && validLength > 0)
+    {
+        const float normPos = (float)((grain.position - (double)trimStart) / (double)validLength);
+        visualizer->push(juce::jlimit(0.0f, 1.0f, normPos), pan,
+                         totalAbsSemis - 60.0f,
+                         (float)grain.life / (float)currentSampleRate);
+    }
+}
+
+void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
+                                    const juce::AudioBuffer<float>* sharedSourceBuffer,
+                                    int trimStart, int trimEnd,
+                                    const std::array<std::array<float, 4096>, 4>& windowTables,
+                                    const GranularParams& p,
+                                    GrainVisualizerData* visualizer,
+                                    int& spawnBudget)
+{
+    if (!adsr.isActive() || sharedSourceBuffer == nullptr)
+    {
+        if (playing) clearCurrentNote();
+        return;
+    }
+
+    const int numSamples = outputBuffer.getNumSamples();
+    const int validLength = trimEnd - trimStart;
+    if (validLength <= 512 || numSamples <= 0) return;
+    if (numSamples > voiceInternalBuffer.getNumSamples())
+        voiceInternalBuffer.setSize(2, numSamples, false, true, true);
+
+    voiceInternalBuffer.clear();
+    const int srcLen = sharedSourceBuffer->getNumSamples();
+    const float* srcL = sharedSourceBuffer->getReadPointer(0);
+    const float* srcR = sharedSourceBuffer->getNumChannels() > 1 ? sharedSourceBuffer->getReadPointer(1) : srcL;
+
+    // ノート周波数（オクターブ/セミ/ファイン込み、ジッター前）
+    const double globalSemis = (double)p.octave * 12.0 + (double)p.pitchSt + (double)p.fineTune / 100.0;
+    const double noteFreq = 440.0 * std::pow(2.0, ((double)currentMidiNote + globalSemis - 69.0) / 12.0);
+    const double notePeriod = currentSampleRate / juce::jlimit(15.0, 8000.0, noteFreq);
+
+    // 決定論的スケジューラ:
+    //   density → 同時オーバーラップ量 指数カーブ 0.25..64 (100グレイン/ボイス上限)
+    //   interval = grainLife / overlap （±25% のゆらぎ付き）
+    //   Pitch-Sync時: interval = ノート周期（発火の周期性がピッチとして知覚される）
+    int baseLife = juce::jmax(64, (int)(currentSampleRate * (double)p.grainSize));
+    const float overlap = 0.25f * std::pow(2.0f, p.density * 8.0f); // 0.25 .. 64
+
+    if (p.pitchSync)
+    {
+        // グレイン長をノート周期の整数倍に丸める（周期性を最大化）
+        const int periods = juce::jmax(2, juce::roundToInt((double)baseLife / notePeriod));
+        baseLife = juce::jmax(64, (int)((double)periods * notePeriod));
+    }
+
+    const size_t shapeIdx = (size_t)juce::jlimit(0, 3, p.windowShape);
+    const auto& window = windowTables[shapeIdx];
+
+    // TONE: コムレゾネーター係数
+    const bool  toneOn = p.tone > 0.001f && !combBufL.empty();
+    const int   combSize = (int)combBufL.size();
+    const float combDelay = (float)juce::jmin(notePeriod, (double)(combSize - 4));
+    const float combFb = 0.55f + 0.40f * p.tone;   // tone↑でレゾナンス強化
+    const float combDamp = 0.35f;                  // 高域減衰（金属的な響きを抑制）
+    const float toneMix = p.tone;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        // プレイヘッド移動（トリム区間内でループ）
+        const double currentPlayhead = (double)trimStart + (double)validLength * (double)p.position + playheadOffset;
+        playheadOffset += (double)p.speed;
+        if (playheadOffset > (double)validLength)  playheadOffset -= (double)validLength;
+        if (playheadOffset < -(double)validLength) playheadOffset += (double)validLength;
+
+        double wrappedPlayhead = currentPlayhead;
+        while (wrappedPlayhead >= (double)trimEnd)   wrappedPlayhead -= (double)validLength;
+        while (wrappedPlayhead < (double)trimStart)  wrappedPlayhead += (double)validLength;
+
+        // グレイン発火スケジューリング
+        if (--samplesToNextSpawn <= 0)
+        {
+            spawnGrain(trimStart, trimEnd, wrappedPlayhead, p, overlap, baseLife, visualizer, spawnBudget);
+
+            if (p.pitchSync)
+            {
+                // ノート周期に同期（ゆらぎなし＝ピッチ知覚が最大）
+                samplesToNextSpawn = juce::jmax(8, (int)notePeriod);
+            }
+            else
+            {
+                const float jitter = 0.75f + random.nextFloat() * 0.5f; // ±25%
+                samplesToNextSpawn = juce::jmax(32, (int)((float)baseLife / overlap * jitter));
+            }
+        }
+
+        // アクティブグレインのミックス
+        float mixL = 0.0f, mixR = 0.0f;
+        for (auto& grain : grains)
+        {
+            if (!grain.isActive) continue;
+
+            const float phaseRatio = (float)grain.age / (float)juce::jmax(1, grain.life);
+            const size_t phaseIdx = (size_t)juce::jlimit(0, 4095, (int)(phaseRatio * 4095.0f));
+            const float windowValue = window[phaseIdx];
+
+            const float sL = readHermiteClamped(srcL, srcLen, grain.position);
+            const float sR = readHermiteClamped(srcR, srcLen, grain.position);
+
+            mixL += sL * windowValue * grain.panL * grain.amp;
+            mixR += sR * windowValue * grain.panR * grain.amp;
+
+            grain.position += grain.step;
+            if (++grain.age >= grain.life) grain.isActive = false;
+        }
+
+        // TONE: ノート同調コムレゾネーター (Karplus-Strong系)
+        if (toneOn)
+        {
+            auto processComb = [combSize, combDelay, combFb, combDamp](std::vector<float>& buf,
+                                                                       int writeIdx, float in, float& lpState)
+            {
+                float readPos = (float)writeIdx - combDelay;
+                if (readPos < 0.0f) readPos += (float)combSize;
+                const int i1 = (int)readPos;
+                const float frac = readPos - (float)i1;
+                const int i2 = (i1 + 1) % combSize;
+                const float delayed = buf[(size_t)i1] * (1.0f - frac) + buf[(size_t)i2] * frac;
+
+                lpState += combDamp * (delayed - lpState);            // フィードバック内LPF
+                buf[(size_t)writeIdx] = in + lpState * combFb;
+                return lpState;
+            };
+
+            const float wetL = processComb(combBufL, combWriteIdx, mixL, combLpL);
+            const float wetR = processComb(combBufR, combWriteIdx, mixR, combLpR);
+            combWriteIdx = (combWriteIdx + 1) % combSize;
+
+            mixL = mixL * (1.0f - toneMix * 0.5f) + wetL * toneMix;
+            mixR = mixR * (1.0f - toneMix * 0.5f) + wetR * toneMix;
+        }
+
+        voiceInternalBuffer.setSample(0, i, mixL);
+        voiceInternalBuffer.setSample(1, i, mixR);
+    }
+
+    adsr.applyEnvelopeToBuffer(voiceInternalBuffer, 0, numSamples);
+
+    for (int ch = 0; ch < outputBuffer.getNumChannels(); ++ch)
+        outputBuffer.addFrom(ch, 0, voiceInternalBuffer, ch % 2, 0, numSamples);
+}
+
+// ==========================================
+// GranularSynth
+// ==========================================
+GranularSynth::GranularSynth()
+{
+    generateWindowTables();
+}
+
+void GranularSynth::generateWindowTables()
+{
+    const double pi = juce::MathConstants<double>::pi;
+    for (size_t i = 0; i < 4096; ++i)
+    {
+        const float phase = (float)i / 4095.0f;
+        // 0: Hanning
+        windowTables[0][i] = (float)(0.5 * (1.0 - std::cos(2.0 * pi * (double)phase)));
+        // 1: Triangle
+        windowTables[1][i] = 1.0f - std::abs(2.0f * phase - 1.0f);
+        // 2: Square (1%ランプでクリック回避)
+        windowTables[2][i] = (phase < 0.01f) ? (phase * 100.0f)
+                            : ((phase > 0.99f) ? ((1.0f - phase) * 100.0f) : 1.0f);
+        // 3: Asymmetric (速いアタック→遅いディケイ)
+        windowTables[3][i] = (phase <= 0.2f) ? (phase / 0.2f)
+                                             : (1.0f - ((phase - 0.2f) / 0.8f));
+    }
+}
+
+void GranularSynth::prepareToPlay(double sr, int spb)
+{
+    currentSampleRate = sr;
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        filterHPF[ch].reset();
+        filterLPF[ch].reset();
+    }
+    for (auto& v : voices) v.prepareToPlay(sr, spb);
+}
+
+void GranularSynth::releaseResources()
+{
+    for (auto& v : voices) v.releaseResources();
+}
+
+void GranularSynth::handleMidi(const juce::MidiBuffer& midi, const GranularParams& p)
+{
+    for (const auto& m : midi)
+    {
+        const auto msg = m.getMessage();
+
+        if (msg.isNoteOn())
+        {
+            GranularVoice* target = nullptr;
+
+            // 1) 空きボイス
+            for (auto& v : voices)
+                if (!v.isActive()) { target = &v; break; }
+
+            // 2) リリース中の最古ボイス
+            if (target == nullptr)
+            {
+                uint64_t oldest = UINT64_MAX;
+                for (auto& v : voices)
+                    if (v.isReleasing() && v.getNoteStamp() < oldest) { oldest = v.getNoteStamp(); target = &v; }
+            }
+
+            // 3) 最古ノートを強制スチール
+            if (target == nullptr)
+            {
+                uint64_t oldest = UINT64_MAX;
+                for (auto& v : voices)
+                    if (v.getNoteStamp() < oldest) { oldest = v.getNoteStamp(); target = &v; }
+            }
+
+            if (target != nullptr)
+                target->startNote(msg.getNoteNumber(), msg.getFloatVelocity(), ++noteCounter, p);
+        }
+        else if (msg.isNoteOff())
+        {
+            const int n = msg.getNoteNumber();
+            for (auto& v : voices)
+                if (v.getCurrentlyPlayingNote() == n && !v.isReleasing()) v.stopNote(true);
+        }
+        else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+        {
+            for (auto& v : voices) v.stopNote(false);
+        }
+    }
+}
+
+void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
+                                 juce::MidiBuffer& midi,
+                                 const juce::AudioBuffer<float>* src,
+                                 int trimStart, int trimEnd,
+                                 const GranularParams& p)
+{
+    handleMidi(midi, p);
+
+    // 全体グレインバジェット: 現在のアクティブ数を引いた残りをボイス間で共有
+    int activeTotal = 0;
+    for (const auto& v : voices)
+        if (v.isActive()) activeTotal += v.getActiveGrainCount();
+    int spawnBudget = juce::jmax(0, MAX_TOTAL_GRAINS - activeTotal);
+
+    for (auto& v : voices)
+        if (v.isActive())
+            v.renderNextBlock(buf, src, trimStart, trimEnd, windowTables, p, &visualizer, spawnBudget);
+
+    // マスターフィルター
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        filterHPF[ch].setCoefficients(juce::IIRCoefficients::makeHighPass(currentSampleRate, juce::jlimit(20.0f, 2000.0f, p.masterHPF)));
+        filterLPF[ch].setCoefficients(juce::IIRCoefficients::makeLowPass(currentSampleRate, juce::jlimit(200.0f, 20000.0f, p.masterLPF)));
+    }
+    for (int ch = 0; ch < buf.getNumChannels() && ch < 2; ++ch)
+    {
+        float* d = buf.getWritePointer(ch);
+        filterHPF[ch].processSamples(d, buf.getNumSamples());
+        filterLPF[ch].processSamples(d, buf.getNumSamples());
+    }
+
+    buf.applyGain(juce::Decibels::decibelsToGain(p.outGainDb));
+
+    // ソフトセーフティクリップ + NaN/Inf ガード
+    const int channels = buf.getNumChannels();
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        float* d = buf.getWritePointer(ch);
+        for (int i = 0; i < buf.getNumSamples(); ++i)
+        {
+            float x = d[i];
+            if (x > 1.5f)  x = 1.5f + std::tanh(x - 1.5f) * 0.1f;
+            if (x < -1.5f) x = -1.5f + std::tanh(x + 1.5f) * 0.1f;
+            d[i] = x;
+        }
+    }
+
+    if (buf.getNumSamples() > 0)
+    {
+        const int lastIdx = buf.getNumSamples() - 1;
+        const float checkL = buf.getSample(0, lastIdx);
+        const float checkR = channels > 1 ? buf.getSample(1, lastIdx) : checkL;
+        if (std::isnan(checkL) || std::isinf(checkL) || std::isnan(checkR) || std::isinf(checkR))
+            buf.clear(); // 破損ブロックを即ミュート
+    }
+}

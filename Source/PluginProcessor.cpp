@@ -1,0 +1,364 @@
+// ==========================================
+// File: PluginProcessor.cpp
+// ==========================================
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+
+#include "signalsmith-stretch/signalsmith-stretch.h"
+
+// ------------------------------------------
+// パラメータレイアウト
+// ------------------------------------------
+juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::createParameterLayout()
+{
+    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
+
+    // --- エンベロープ ---
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("attack",  "Attack",  juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.2f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("decay",   "Decay",   juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.1f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("sustain", "Sustain", 0.0f, 1.0f, 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("release", "Release", juce::NormalisableRange<float>(0.001f, 5.0f, 0.001f, 0.3f), 0.5f));
+
+    // --- グレイン ---
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("grainSize",     "Grain Size", 0.02f, 0.5f, 0.15f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("density",       "Density",    0.0f, 1.0f, 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("position",      "Position",   0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("positionSpray", "Spray",      0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("pitchJitter",   "Pitch Jitter", 0.0f, 2400.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("panSpread",     "Pan Spread", 0.0f, 1.0f, 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("speed",         "Speed",      -2.0f, 2.0f, 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterBool> ("reverseGrain",  "Rev Grain",  false));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("windowShape",  "Window Shape",
+        juce::StringArray { "Hanning", "Triangle", "Square", "Asymmetric" }, 0));
+
+    // --- ピッチ ---
+    params.push_back(std::make_unique<juce::AudioParameterInt>  ("octave",   "Octave",    -3, 3, 0));
+    params.push_back(std::make_unique<juce::AudioParameterInt>  ("pitchSt",  "Semi (st)", -24, 24, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("fineTune", "Fine Tune", -100.0f, 100.0f, 0.0f));
+
+    // --- Key / Scale 量子化 ---
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("key", "Key",
+        juce::StringArray { "Auto", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
+
+    juce::StringArray scaleChoices;
+    for (const auto& s : ScaleQuantizer::getScales())
+        scaleChoices.add(s.name);
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("scale", "Scale", scaleChoices, 0));
+
+    // --- 音程感強調 ---
+    params.push_back(std::make_unique<juce::AudioParameterBool>("pitchSync", "Pitch Sync", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("tone", "Tone", 0.0f, 1.0f, 0.0f));
+
+    // --- 素材解析モード ---
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("materialMode", "Material",
+        juce::StringArray { "Auto (Detect)", "Percussive", "Melodic", "Vocal" }, 0));
+
+    // --- マスター ---
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("masterHPF", "HPF (Hz)", juce::NormalisableRange<float>(20.0f, 2000.0f, 1.0f, 0.3f), 20.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("masterLPF", "LPF (Hz)", juce::NormalisableRange<float>(200.0f, 20000.0f, 1.0f, 0.3f), 20000.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("outGain",   "Out Gain", -36.0f, 12.0f, -12.0f));
+
+    return { params.begin(), params.end() };
+}
+
+// ------------------------------------------
+// コンストラクタほか
+// ------------------------------------------
+GranularAudioProcessor::GranularAudioProcessor()
+    : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      juce::Thread("SampleIngestThread"),
+      apvts(*this, nullptr, "Parameters", createParameterLayout())
+{
+    formatManager.registerBasicFormats();
+    waveformPeaks.fill(0.0f);
+}
+
+GranularAudioProcessor::~GranularAudioProcessor() { stopThread(4000); }
+
+const juce::String GranularAudioProcessor::getName() const { return juce::String(JucePlugin_Name); }
+bool GranularAudioProcessor::acceptsMidi() const { return true; }
+bool GranularAudioProcessor::producesMidi() const { return false; }
+bool GranularAudioProcessor::isMidiEffect() const { return false; }
+double GranularAudioProcessor::getTailLengthSeconds() const { return 0.0; }
+int GranularAudioProcessor::getNumPrograms() { return 1; }
+int GranularAudioProcessor::getCurrentProgram() { return 0; }
+void GranularAudioProcessor::setCurrentProgram(int) {}
+const juce::String GranularAudioProcessor::getProgramName(int) { return {}; }
+void GranularAudioProcessor::changeProgramName(int, const juce::String&) {}
+
+void GranularAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+{
+    currentSampleRate = sampleRate;
+    synth.prepareToPlay(sampleRate, samplesPerBlock);
+}
+
+void GranularAudioProcessor::releaseResources() { synth.releaseResources(); }
+
+bool GranularAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+{
+    return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::mono()
+        || layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
+}
+
+// ------------------------------------------
+// processBlock
+// ------------------------------------------
+void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+{
+    juce::ScopedNoDenormals noDenormals;
+    for (int i = 0; i < getTotalNumOutputChannels(); ++i)
+        buffer.clear(i, 0, buffer.getNumSamples());
+
+    if (ingestState.load() != IngestState::Ready)
+        return;
+
+    GranularParams p;
+    p.attack        = apvts.getRawParameterValue("attack")->load();
+    p.decay         = apvts.getRawParameterValue("decay")->load();
+    p.sustain       = apvts.getRawParameterValue("sustain")->load();
+    p.release       = apvts.getRawParameterValue("release")->load();
+    p.grainSize     = apvts.getRawParameterValue("grainSize")->load();
+    p.density       = apvts.getRawParameterValue("density")->load();
+    p.position      = apvts.getRawParameterValue("position")->load();
+    p.positionSpray = apvts.getRawParameterValue("positionSpray")->load();
+    p.pitchJitter   = apvts.getRawParameterValue("pitchJitter")->load();
+    p.panSpread     = apvts.getRawParameterValue("panSpread")->load();
+    p.speed         = apvts.getRawParameterValue("speed")->load();
+    p.octave        = (int)apvts.getRawParameterValue("octave")->load();
+    p.pitchSt       = (int)apvts.getRawParameterValue("pitchSt")->load();
+    p.fineTune      = apvts.getRawParameterValue("fineTune")->load();
+    p.outGainDb     = apvts.getRawParameterValue("outGain")->load();
+    p.reverseGrain  = apvts.getRawParameterValue("reverseGrain")->load() > 0.5f;
+    p.windowShape   = (int)apvts.getRawParameterValue("windowShape")->load();
+    p.key           = (int)apvts.getRawParameterValue("key")->load();
+    p.scale         = (int)apvts.getRawParameterValue("scale")->load();
+    p.pitchSync     = apvts.getRawParameterValue("pitchSync")->load() > 0.5f;
+    p.tone          = apvts.getRawParameterValue("tone")->load();
+    p.masterHPF     = apvts.getRawParameterValue("masterHPF")->load();
+    p.masterLPF     = apvts.getRawParameterValue("masterLPF")->load();
+    p.detectedRoot  = currentDetectedRoot.load();
+
+    synth.processBlock(buffer, midiMessages,
+                       &sharedAudioBuffer,
+                       trimStartSample.load(), trimEndSample.load(),
+                       p);
+}
+
+bool GranularAudioProcessor::hasEditor() const { return true; }
+juce::AudioProcessorEditor* GranularAudioProcessor::createEditor() { return new GranularAudioProcessorEditor(*this); }
+
+// ------------------------------------------
+// 状態保存 / 復元
+// ------------------------------------------
+void GranularAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
+{
+    auto state = apvts.copyState();
+    std::unique_ptr<juce::XmlElement> xml(state.createXml());
+
+    juce::ScopedLock sl(stateLock);
+    xml->setAttribute("AudioFilePath", fileToIngest.getFullPathName());
+    copyXmlToBinary(*xml, destData);
+}
+
+void GranularAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
+{
+    std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
+    if (xmlState != nullptr)
+    {
+        if (xmlState->hasTagName(apvts.state.getType()))
+            apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
+
+        juce::String savedFilePath;
+        {
+            juce::ScopedLock sl(stateLock);
+            savedFilePath = xmlState->getStringAttribute("AudioFilePath", "");
+        }
+        if (savedFilePath.isNotEmpty())
+        {
+            juce::File savedFile(savedFilePath);
+            if (savedFile.existsAsFile()) loadFileForIngest(savedFile);
+        }
+    }
+}
+
+// ------------------------------------------
+// サンプル読み込み（背景スレッド）
+// ------------------------------------------
+void GranularAudioProcessor::loadFileForIngest(const juce::File& file)
+{
+    if (isThreadRunning()) stopThread(2000);
+    waveformReady.store(false);
+    fileToIngest = file;
+    {
+        juce::ScopedLock sl(stateLock);
+        hudLineFile = "File: " + file.getFileName();
+        hudLineOrig = "Original: ---";
+        hudLineCorr = "Corrected: ---";
+    }
+    startThread();
+}
+
+void GranularAudioProcessor::run()
+{
+    ingestState.store(IngestState::Loading);
+    ingestProgress.store(0.02f);
+    { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Loading..."; }
+
+    const int materialMode = (int)apvts.getRawParameterValue("materialMode")->load();
+
+    // DAWのファイルロック解除待ちを含むリトライ読み込み
+    std::unique_ptr<juce::AudioFormatReader> reader;
+    for (int i = 0; i < 200 && !threadShouldExit(); ++i)
+    {
+        if (fileToIngest.existsAsFile() && fileToIngest.getSize() > 0)
+        {
+            auto stream = fileToIngest.createInputStream();
+            if (stream != nullptr && !stream->isExhausted())
+            {
+                reader.reset(formatManager.createReaderFor(std::move(stream)));
+                if (reader != nullptr && reader->lengthInSamples > 0) break;
+            }
+        }
+        juce::Thread::sleep(100);
+    }
+
+    if (!reader || reader->lengthInSamples == 0)
+    {
+        ingestState.store(IngestState::Failed);
+        { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Failed (Timeout or Empty)"; }
+        return;
+    }
+
+    ingestProgress.store(0.10f);
+
+    // 読み込み（最大60秒に制限）
+    const double fileSampleRate = reader->sampleRate;
+    const int maxSamples = (int)juce::jmin<juce::int64>(reader->lengthInSamples, (juce::int64)(fileSampleRate * 60.0));
+    juce::AudioBuffer<float> tempRaw((int)reader->numChannels, maxSamples);
+    reader->read(&tempRaw, 0, maxSamples, 0, true, true);
+
+    // ホストSRへリサンプル
+    if (fileSampleRate != currentSampleRate && fileSampleRate > 0.0)
+    {
+        const double ratio = fileSampleRate / currentSampleRate;
+        const int newLength = (int)((double)tempRaw.getNumSamples() / ratio);
+        juce::AudioBuffer<float> resampled(tempRaw.getNumChannels(), newLength);
+        for (int ch = 0; ch < tempRaw.getNumChannels(); ++ch)
+        {
+            juce::LagrangeInterpolator interpolator;
+            interpolator.process(ratio, tempRaw.getReadPointer(ch), resampled.getWritePointer(ch), newLength);
+        }
+        tempRaw = resampled;
+    }
+    ingestProgress.store(0.25f);
+
+    // --- ピッチ解析 (Omni-Analyzer) ---
+    ingestState.store(IngestState::Analyzing);
+    { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Analyzing Pitch..."; }
+
+    currentPitch = PitchAnalyzer::analyzeOmni(tempRaw.getReadPointer(0), tempRaw.getNumSamples(),
+                                              currentSampleRate, fileToIngest.getFileName(), materialMode);
+    currentDetectedRoot.store(currentPitch.detectedRoot);
+    currentIsMajor.store(currentPitch.isMajor);
+    ingestProgress.store(0.45f);
+
+    {
+        juce::ScopedLock sl(stateLock);
+        if (currentPitch.isDetected)
+        {
+            const juce::String sign = currentPitch.centsOffset >= 0 ? "+" : "";
+            hudLineOrig = "Original: " + currentPitch.noteName + " | "
+                        + juce::String(currentPitch.frequency, 2) + " Hz | "
+                        + sign + juce::String(juce::roundToInt(currentPitch.centsOffset)) + " Cents";
+        }
+        else
+        {
+            hudLineOrig = "Original: Unpitched / Pure Noise";
+        }
+    }
+
+    // --- Signalsmith Stretch で C3 へピッチ補正（オフライン） ---
+    ingestState.store(IngestState::Correcting);
+    { juce::ScopedLock sl(stateLock); hudLineTask = "Task: HQ Pitch Correction (Signalsmith)..."; }
+
+    juce::AudioBuffer<float> corrected;
+
+    if (currentPitch.isDetected && currentPitch.frequency > 5.0)
+    {
+        const float pitchScale = (float)(261.625565 / currentPitch.frequency); // → C3
+        const int numCh = tempRaw.getNumChannels();
+        const int inLen = tempRaw.getNumSamples();
+
+        signalsmith::stretch::SignalsmithStretch<float> stretch;
+        stretch.presetDefault(numCh, (float)currentSampleRate);
+        // tonalityLimit(約8kHz)でフォルマントの破綻を軽減
+        stretch.setTransposeFactor(pitchScale, 8000.0f / (float)currentSampleRate);
+
+        // 総レイテンシ(入力+出力)分だけ末尾にゼロを足して1:1で処理し、
+        // 先頭のレイテンシ分を捨てることで正確な位置合わせを行う
+        const int totalLat = stretch.inputLatency() + stretch.outputLatency();
+        const int padLen = inLen + totalLat;
+
+        juce::AudioBuffer<float> padded(numCh, padLen);
+        padded.clear();
+        for (int ch = 0; ch < numCh; ++ch)
+            padded.copyFrom(ch, 0, tempRaw, ch, 0, inLen);
+
+        juce::AudioBuffer<float> stretched(numCh, padLen);
+        stretched.clear();
+        stretch.process(padded.getArrayOfReadPointers(), padLen,
+                        stretched.getArrayOfWritePointers(), padLen);
+
+        corrected.setSize(numCh, inLen);
+        for (int ch = 0; ch < numCh; ++ch)
+            corrected.copyFrom(ch, 0, stretched, ch, totalLat, inLen);
+
+        juce::ScopedLock sl(stateLock);
+        hudLineCorr = "Corrected: C3 | " + currentPitch.scaleName + " (Signalsmith)";
+    }
+    else
+    {
+        corrected.makeCopyOf(tempRaw);
+        juce::ScopedLock sl(stateLock);
+        hudLineCorr = "Corrected: N/A";
+    }
+    ingestProgress.store(0.75f);
+
+    // --- ステレオ化 → 正規化 → トリム → 波形ピーク ---
+    ingestState.store(IngestState::Normalizing);
+    { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Normalizing..."; }
+
+    const int len = corrected.getNumSamples();
+    sharedAudioBuffer.setSize(2, len, false, true, true);
+    sharedAudioBuffer.copyFrom(0, 0, corrected, 0, 0, len);
+    sharedAudioBuffer.copyFrom(1, 0, corrected, corrected.getNumChannels() > 1 ? 1 : 0, 0, len);
+    validSampleCount.store(len);
+
+    int s = 0, e = len - 1;
+    const float thresh = 0.005f;
+    const float* d = sharedAudioBuffer.getReadPointer(0);
+    for (int i = 0; i < len; ++i)          { if (std::abs(d[i]) > thresh) { s = i; break; } }
+    for (int i = len - 1; i >= s; --i)     { if (std::abs(d[i]) > thresh) { e = i; break; } }
+    trimStartSample.store(s);
+    trimEndSample.store(e);
+
+    const float mag = sharedAudioBuffer.getMagnitude(s, e - s + 1);
+    if (mag > 0.0f) sharedAudioBuffer.applyGain(s, e - s + 1, 0.5f / mag); // -6dB 正規化
+
+    waveformPeaks.fill(0.0f);
+    const int stepSize = juce::jmax(1, len / 1000);
+    for (int i = 0; i < 1000; ++i)
+    {
+        const int startIdx = i * stepSize;
+        const int seg = juce::jmin(stepSize, len - startIdx);
+        if (seg > 0) waveformPeaks[(size_t)i] = sharedAudioBuffer.getMagnitude(startIdx, seg);
+    }
+    waveformReady.store(true);
+
+    ingestProgress.store(1.0f);
+    ingestState.store(IngestState::Ready);
+    { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Ready"; }
+    sendChangeMessage();
+}
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new GranularAudioProcessor(); }
