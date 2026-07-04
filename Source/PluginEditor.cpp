@@ -2,74 +2,32 @@
 // File: PluginEditor.cpp
 // ==========================================
 #include "PluginEditor.h"
-#include "GUI/ColorPalette.h"
 
 namespace
 {
-    constexpr int kKnobW = 78;
-    constexpr int kKnobH = 74;
-    constexpr int kLabelH = 16;
+    constexpr int kTabY = 312;
+    constexpr int kTabH = 26;
+    constexpr int kPanelY = 344;
 }
 
 GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcessor& p)
-    : AudioProcessorEditor(&p), proc(p), waveDisplay(p)
+    : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p)
 {
     setLookAndFeel(&lnf);
+
     addAndMakeVisible(waveDisplay);
+    addAndMakeVisible(mainPanel);
+    addChildComponent(modPanel);  // 非表示で追加
+    addChildComponent(fxPanel);
 
-    using GC = juce::Colour;
-    const GC grain = GranularColors::accentGrain;
-    const GC pitch = GranularColors::accentPitch;
-    const GC env = GranularColors::accentEnv;
-    const GC master = GranularColors::accentMaster;
+    // --- タブボタン ---
+    for (auto* b : { &mainTabButton, &modTabButton, &fxTabButton })
+        addAndMakeVisible(*b);
 
-    // --- GRAIN ---
-    setupKnob(sizeKnob,    sizeLabel,    "SIZE",    "grainSize",     grain);
-    setupKnob(densityKnob, densityLabel, "DENSITY", "density",       grain);
-    setupKnob(sprayKnob,   sprayLabel,   "SPRAY",   "positionSpray", grain);
-    setupKnob(jitterKnob,  jitterLabel,  "JITTER",  "pitchJitter",   grain);
-    setupKnob(panKnob,     panLabel,     "PAN",     "panSpread",     grain);
-    setupKnob(speedKnob,   speedLabel,   "SPEED",   "speed",         grain);
-
-    // --- PITCH ---
-    setupKnob(octaveKnob, octaveLabel, "OCTAVE", "octave",   pitch);
-    setupKnob(semiKnob,   semiLabel,   "SEMI",   "pitchSt",  pitch);
-    setupKnob(fineKnob,   fineLabel,   "FINE",   "fineTune", pitch);
-
-    // --- ENV ---
-    setupKnob(attackKnob,  attackLabel,  "A", "attack",  env);
-    setupKnob(decayKnob,   decayLabel,   "D", "decay",   env);
-    setupKnob(sustainKnob, sustainLabel, "S", "sustain", env);
-    setupKnob(releaseKnob, releaseLabel, "R", "release", env);
-
-    // --- MASTER ---
-    setupKnob(hpfKnob,  hpfLabel,  "HPF",  "masterHPF", master);
-    setupKnob(lpfKnob,  lpfLabel,  "LPF",  "masterLPF", master);
-    setupKnob(gainKnob, gainLabel, "GAIN", "outGain",   master);
-
-    // --- コンボボックス ---
-    setupCombo(keyBox, "key");
-    setupCombo(scaleBox, "scale");
-    setupCombo(windowBox, "windowShape");
-    setupCombo(materialBox, "materialMode");
-
-    auto setupComboLabel = [this](juce::Label& l, const juce::String& text)
-    {
-        l.setText(text, juce::dontSendNotification);
-        l.setJustificationType(juce::Justification::centredLeft);
-        l.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-        l.setColour(juce::Label::textColourId, GranularColors::textDim);
-        addAndMakeVisible(l);
-    };
-    setupComboLabel(keyLabel,      "KEY");
-    setupComboLabel(scaleLabel,    "SCALE");
-    setupComboLabel(windowLabel,   "WINDOW");
-    setupComboLabel(materialLabel, "MATERIAL");
-
-    // --- REVトグル ---
-    addAndMakeVisible(revButton);
-    revAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        proc.apvts, "reverseGrain", revButton);
+    mainTabButton.onClick = [this] { setActiveTab(Tab::Main); };
+    modTabButton.onClick  = [this] { setActiveTab(Tab::Mod); };
+    fxTabButton.onClick   = [this] { setActiveTab(Tab::Fx); };
+    setActiveTab(Tab::Main);
 
     // --- LOADボタン ---
     loadButton.setColour(juce::TextButton::buttonColourId, GranularColors::knobTrack);
@@ -97,35 +55,27 @@ GranularAudioProcessorEditor::~GranularAudioProcessorEditor()
 }
 
 // ------------------------------------------
-// セットアップヘルパー
+// タブ切り替え
 // ------------------------------------------
-void GranularAudioProcessorEditor::setupKnob(juce::Slider& s, juce::Label& l, const juce::String& text,
-                                             const juce::String& paramID, juce::Colour accent)
+void GranularAudioProcessorEditor::styleTabButton(juce::TextButton& b, bool active)
 {
-    s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    s.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    s.setColour(juce::Slider::rotarySliderFillColourId, accent);
-    s.setPopupDisplayEnabled(true, true, this);
-    addAndMakeVisible(s);
-
-    l.setText(text, juce::dontSendNotification);
-    l.setJustificationType(juce::Justification::centred);
-    l.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-    l.setColour(juce::Label::textColourId, GranularColors::textDim);
-    addAndMakeVisible(l);
-
-    sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        proc.apvts, paramID, s));
+    b.setColour(juce::TextButton::buttonColourId,
+                active ? GranularColors::panel : juce::Colours::transparentBlack);
+    b.setColour(juce::TextButton::textColourOffId,
+                active ? GranularColors::text : GranularColors::textDim);
 }
 
-void GranularAudioProcessorEditor::setupCombo(juce::ComboBox& c, const juce::String& paramID)
+void GranularAudioProcessorEditor::setActiveTab(Tab t)
 {
-    if (auto* choiceParam = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter(paramID)))
-        c.addItemList(choiceParam->choices, 1);
+    activeTab = t;
+    mainPanel.setVisible(t == Tab::Main);
+    modPanel.setVisible(t == Tab::Mod);
+    fxPanel.setVisible(t == Tab::Fx);
 
-    addAndMakeVisible(c);
-    comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        proc.apvts, paramID, c));
+    styleTabButton(mainTabButton, t == Tab::Main);
+    styleTabButton(modTabButton,  t == Tab::Mod);
+    styleTabButton(fxTabButton,   t == Tab::Fx);
+    repaint(0, kTabY, getWidth(), kTabH + 8);
 }
 
 // ------------------------------------------
@@ -176,23 +126,18 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText(hudOrig, 430, 36, 560, 13, juce::Justification::centredRight);
     g.drawText(hudCorr, 430, 50, 560, 13, juce::Justification::centredRight);
 
-    // --- セクションラベル ---
-    auto drawSection = [&g](const juce::String& name, int x, int y, int w, juce::Colour accent)
+    // --- アクティブタブのアンダーライン ---
+    auto underline = [&g](const juce::TextButton& b, juce::Colour c)
     {
-        g.setColour(accent);
-        g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
-        g.drawText(name, x, y, w, 14, juce::Justification::centredLeft);
-        g.setColour(accent.withAlpha(0.35f));
-        g.fillRect(x, y + 16, w, 1);
+        const auto r = b.getBounds();
+        g.setColour(c);
+        g.fillRoundedRectangle((float)r.getX() + 6.0f, (float)r.getBottom() + 2.0f,
+                               (float)r.getWidth() - 12.0f, 2.5f, 1.25f);
     };
 
-    drawSection("GRAIN",    20,  316, 6 * kKnobW - 8, GranularColors::accentGrain);
-    drawSection("PITCH",    516, 316, 3 * kKnobW - 8, GranularColors::accentPitch);
-    drawSection("ENVELOPE", 772, 316, 4 * kKnobW - 8, GranularColors::accentEnv);
-    drawSection("QUANTIZE", 20,  478, 300,            GranularColors::accentPitch);
-    drawSection("TEXTURE",  350, 478, 230,            GranularColors::accentGrain);
-    drawSection("SAMPLE",   600, 478, 150,            GranularColors::accentMaster);
-    drawSection("MASTER",   772, 478, 3 * kKnobW - 8, GranularColors::accentMaster);
+    if (activeTab == Tab::Main) underline(mainTabButton, GranularColors::mint);
+    if (activeTab == Tab::Mod)  underline(modTabButton,  GranularColors::lavender);
+    if (activeTab == Tab::Fx)   underline(fxTabButton,   GranularColors::pink);
 }
 
 // ------------------------------------------
@@ -200,56 +145,15 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
 // ------------------------------------------
 void GranularAudioProcessorEditor::resized()
 {
-    // 波形ディスプレイ
     waveDisplay.setBounds(16, 68, getWidth() - 32, 236);
-
-    // LOADボタン（ヘッダー右端）
     loadButton.setBounds(getWidth() - 76, 40, 60, 22);
 
-    auto placeKnob = [this](juce::Slider& s, juce::Label& l, int x, int y)
-    {
-        s.setBounds(x, y, kKnobW - 8, kKnobH);
-        l.setBounds(x, y + kKnobH, kKnobW - 8, kLabelH);
-    };
+    mainTabButton.setBounds(20,  kTabY, 100, kTabH);
+    modTabButton.setBounds(126, kTabY, 100, kTabH);
+    fxTabButton.setBounds(232, kTabY, 100, kTabH);
 
-    // --- Row 1 (y=340) ---
-    const int row1 = 340;
-    // GRAIN
-    placeKnob(sizeKnob,    sizeLabel,    20 + 0 * kKnobW, row1);
-    placeKnob(densityKnob, densityLabel, 20 + 1 * kKnobW, row1);
-    placeKnob(sprayKnob,   sprayLabel,   20 + 2 * kKnobW, row1);
-    placeKnob(jitterKnob,  jitterLabel,  20 + 3 * kKnobW, row1);
-    placeKnob(panKnob,     panLabel,     20 + 4 * kKnobW, row1);
-    placeKnob(speedKnob,   speedLabel,   20 + 5 * kKnobW, row1);
-    // PITCH
-    placeKnob(octaveKnob, octaveLabel, 516 + 0 * kKnobW, row1);
-    placeKnob(semiKnob,   semiLabel,   516 + 1 * kKnobW, row1);
-    placeKnob(fineKnob,   fineLabel,   516 + 2 * kKnobW, row1);
-    // ENV
-    placeKnob(attackKnob,  attackLabel,  772 + 0 * kKnobW, row1);
-    placeKnob(decayKnob,   decayLabel,   772 + 1 * kKnobW, row1);
-    placeKnob(sustainKnob, sustainLabel, 772 + 2 * kKnobW, row1);
-    placeKnob(releaseKnob, releaseLabel, 772 + 3 * kKnobW, row1);
-
-    // --- Row 2 (y=502) ---
-    const int row2 = 502;
-    // QUANTIZE: Key + Scale
-    keyLabel.setBounds(20, row2, 60, 14);
-    keyBox.setBounds(20, row2 + 16, 90, 26);
-    scaleLabel.setBounds(126, row2, 80, 14);
-    scaleBox.setBounds(126, row2 + 16, 190, 26);
-
-    // TEXTURE: Window + Rev
-    windowLabel.setBounds(350, row2, 80, 14);
-    windowBox.setBounds(350, row2 + 16, 140, 26);
-    revButton.setBounds(506, row2 + 16, 70, 26);
-
-    // SAMPLE: Material
-    materialLabel.setBounds(600, row2, 90, 14);
-    materialBox.setBounds(600, row2 + 16, 150, 26);
-
-    // MASTER
-    placeKnob(hpfKnob,  hpfLabel,  772 + 0 * kKnobW, row2 + 4);
-    placeKnob(lpfKnob,  lpfLabel,  772 + 1 * kKnobW, row2 + 4);
-    placeKnob(gainKnob, gainLabel, 772 + 2 * kKnobW, row2 + 4);
+    const auto panelBounds = juce::Rectangle<int>(0, kPanelY, getWidth(), getHeight() - kPanelY);
+    mainPanel.setBounds(panelBounds);
+    modPanel.setBounds(panelBounds);
+    fxPanel.setBounds(panelBounds);
 }

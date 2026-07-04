@@ -3,6 +3,8 @@
 // ==========================================
 #include "GranularEngine.h"
 
+#include <algorithm>
+
 // ------------------------------------------
 // 4点 Hermite 補間（グレイン読み出しの音質の要）
 // ------------------------------------------
@@ -212,7 +214,9 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     if (p.pitchSync)
     {
         // グレイン長をノート周期の整数倍に丸める（周期性を最大化）
-        const int periods = juce::jmax(2, juce::roundToInt((double)baseLife / notePeriod));
+        // 周期数は2..16にキャップ: 高音時に同時グレイン数(≒周期数)が
+        // 爆発してバジェットを食い潰すのを防ぐ
+        const int periods = juce::jlimit(2, 16, juce::roundToInt((double)baseLife / notePeriod));
         baseLife = juce::jmax(64, (int)((double)periods * notePeriod));
     }
 

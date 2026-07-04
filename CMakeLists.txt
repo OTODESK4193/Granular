@@ -64,6 +64,8 @@ target_sources(Granular PRIVATE
     Source/GUI/ArcDial.cpp
     Source/GUI/DotWaveformDisplay.h
     Source/GUI/DotWaveformDisplay.cpp
+    Source/GUI/MainPanel.h
+    Source/GUI/MainPanel.cpp
 )
 
 # ----------------------------------------------------------------------------

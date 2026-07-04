@@ -17,6 +17,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <vector>
 
 #include "ScaleQuantizer.h"
 #include "GrainVisualizerData.h"

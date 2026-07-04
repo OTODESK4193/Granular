@@ -5,11 +5,33 @@
 
 #include <JuceHeader.h>
 #include <memory>
-#include <vector>
 
 #include "PluginProcessor.h"
 #include "GUI/ArcDial.h"
 #include "GUI/DotWaveformDisplay.h"
+#include "GUI/MainPanel.h"
+#include "GUI/ColorPalette.h"
+
+// 未実装タブのプレースホルダー
+class StubPanel : public juce::Component
+{
+public:
+    StubPanel(juce::String titleIn, juce::String descIn)
+        : title(std::move(titleIn)), desc(std::move(descIn)) {}
+
+    void paint(juce::Graphics& g) override
+    {
+        g.setColour(GranularColors::textDim.withAlpha(0.7f));
+        g.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
+        g.drawText(title, getLocalBounds().withTrimmedBottom(40), juce::Justification::centred);
+        g.setFont(juce::Font(juce::FontOptions(12.0f)));
+        g.setColour(GranularColors::textDim.withAlpha(0.5f));
+        g.drawText(desc, getLocalBounds().withTrimmedTop(20), juce::Justification::centred);
+    }
+
+private:
+    juce::String title, desc;
+};
 
 class GranularAudioProcessorEditor : public juce::AudioProcessorEditor,
                                      private juce::Timer
@@ -22,47 +44,31 @@ public:
     void resized() override;
 
 private:
-    void timerCallback() override;
+    enum class Tab { Main, Mod, Fx };
 
-    void setupKnob(juce::Slider& s, juce::Label& l, const juce::String& text,
-                   const juce::String& paramID, juce::Colour accent);
-    void setupCombo(juce::ComboBox& c, const juce::String& paramID);
+    void timerCallback() override;
+    void setActiveTab(Tab t);
+    void styleTabButton(juce::TextButton& b, bool active);
 
     GranularAudioProcessor& proc;
     ArcDialLookAndFeel lnf;
 
     DotWaveformDisplay waveDisplay;
 
-    // --- GRAIN ---
-    juce::Slider sizeKnob, densityKnob, sprayKnob, jitterKnob, panKnob, speedKnob;
-    juce::Label  sizeLabel, densityLabel, sprayLabel, jitterLabel, panLabel, speedLabel;
+    // --- タブ ---
+    juce::TextButton mainTabButton { "MAIN" };
+    juce::TextButton modTabButton  { "MOD" };
+    juce::TextButton fxTabButton   { "FX" };
+    Tab activeTab = Tab::Main;
 
-    // --- PITCH ---
-    juce::Slider octaveKnob, semiKnob, fineKnob;
-    juce::Label  octaveLabel, semiLabel, fineLabel;
+    MainPanel mainPanel;
+    StubPanel modPanel { "MOD MATRIX", "LFO x4  +  ENV x2  +  16 slots  -  coming in the next update" };
+    StubPanel fxPanel  { "FX RACK",    "Shimmer Reverb / Tape Delay / Ensemble Chorus / Freeze  -  coming soon" };
 
-    // --- ENV ---
-    juce::Slider attackKnob, decayKnob, sustainKnob, releaseKnob;
-    juce::Label  attackLabel, decayLabel, sustainLabel, releaseLabel;
-
-    // --- MASTER ---
-    juce::Slider hpfKnob, lpfKnob, gainKnob;
-    juce::Label  hpfLabel, lpfLabel, gainLabel;
-
-    // --- コンボ / トグル ---
-    juce::ComboBox keyBox, scaleBox, windowBox, materialBox;
-    juce::Label    keyLabel, scaleLabel, windowLabel, materialLabel;
-    juce::ToggleButton revButton { "REV" };
+    // --- ヘッダー ---
     juce::TextButton loadButton { "LOAD" };
-
     std::unique_ptr<juce::FileChooser> fileChooser;
-
-    // --- HUD ---
     juce::String hudFile, hudTask, hudOrig, hudCorr;
-
-    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>>   sliderAttachments;
-    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>                revAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GranularAudioProcessorEditor)
 };
