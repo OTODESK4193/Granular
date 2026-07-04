@@ -77,7 +77,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("ceiling", "Ceiling",
         juce::NormalisableRange<float>(-6.0f, 0.0f, 0.01f), -0.1f));
 
-    // --- FXチェーン (4スロット、順序はD&Dで入替=値のスワップ) ---
+    // --- FXチェーン (5スロット、順序はD&Dで入替=値のスワップ) ---
     for (int i = 1; i <= FxChain::kNumSlots; ++i)
     {
         const juce::String idx(i);
@@ -86,8 +86,38 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
         params.push_back(std::make_unique<juce::AudioParameterFloat>("fx" + idx + "Amount", "FX " + idx + " Amount",
             0.0f, 100.0f, 0.0f));
     }
-    params.push_back(std::make_unique<juce::AudioParameterChoice>("satAlgo", "Saturation Algo",
+
+    // --- FX詳細 (スロット選択時に表示されるパラメータ群) ---
+    // Saturation
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("satAlgo", "Sat Algo",
         FxChain::getSatAlgoNames(), 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("satDrive", "Sat Drive",
+        juce::NormalisableRange<float>(1.0f, 12.0f, 0.01f, 0.5f), 2.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("satPreHz", "Sat Pre-HPF",
+        juce::NormalisableRange<float>(20.0f, 2000.0f, 1.0f, 0.3f), 20.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("satTrim", "Sat Trim",
+        -12.0f, 12.0f, 0.0f));
+    // Chorus
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("choRate", "Chorus Rate",
+        juce::NormalisableRange<float>(0.05f, 4.0f, 0.01f, 0.5f), 0.8f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("choDepth", "Chorus Depth", 0.0f, 1.0f, 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("choWidth", "Chorus Width", 0.0f, 1.0f, 1.0f));
+    // Delay
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("dlyTime", "Delay Time",
+        FxChain::getDelayTimeNames(), 4)); // 1/8.
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("dlyFeedback", "Delay Feedback", 0.0f, 0.95f, 0.45f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("dlyDuck", "Delay Duck", 0.0f, 1.0f, 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("dlyDamp", "Delay Damp", 0.0f, 1.0f, 0.3f));
+    // Freeze
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("frzSize", "Freeze Size",
+        juce::NormalisableRange<float>(20.0f, 1000.0f, 1.0f, 0.4f), 100.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("frzFeedback", "Freeze Feedback", 0.0f, 0.99f, 0.9f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("frzDamp", "Freeze Damp", 0.0f, 1.0f, 0.2f));
+    // Reverb
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("revDecay",   "Reverb Decay",   0.0f, 1.0f, 0.7f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("revShimmer", "Reverb Shimmer", 0.0f, 1.0f, 0.4f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("revDamp",    "Reverb Damp",    0.0f, 1.0f, 0.3f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("revMod",     "Reverb Mod",     0.0f, 1.0f, 0.4f));
 
     // --- アルペジエイター ---
     params.push_back(std::make_unique<juce::AudioParameterBool>("arpEnable", "Arp On", false));
@@ -251,8 +281,25 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         fxP.type[(size_t)i]   = (int)apvts.getRawParameterValue("fx" + idx + "Type")->load();
         fxP.amount[(size_t)i] = apvts.getRawParameterValue("fx" + idx + "Amount")->load() / 100.0f;
     }
-    fxP.satAlgo = (int)apvts.getRawParameterValue("satAlgo")->load();
     fxP.bpm = bpm;
+    fxP.satAlgo     = (int)apvts.getRawParameterValue("satAlgo")->load();
+    fxP.satDrive    = apvts.getRawParameterValue("satDrive")->load();
+    fxP.satPreHz    = apvts.getRawParameterValue("satPreHz")->load();
+    fxP.satTrimDb   = apvts.getRawParameterValue("satTrim")->load();
+    fxP.choRate     = apvts.getRawParameterValue("choRate")->load();
+    fxP.choDepth    = apvts.getRawParameterValue("choDepth")->load();
+    fxP.choWidth    = apvts.getRawParameterValue("choWidth")->load();
+    fxP.dlyTime     = (int)apvts.getRawParameterValue("dlyTime")->load();
+    fxP.dlyFeedback = apvts.getRawParameterValue("dlyFeedback")->load();
+    fxP.dlyDuck     = apvts.getRawParameterValue("dlyDuck")->load();
+    fxP.dlyDamp     = apvts.getRawParameterValue("dlyDamp")->load();
+    fxP.frzSize     = apvts.getRawParameterValue("frzSize")->load();
+    fxP.frzFeedback = apvts.getRawParameterValue("frzFeedback")->load();
+    fxP.frzDamp     = apvts.getRawParameterValue("frzDamp")->load();
+    fxP.revDecay    = apvts.getRawParameterValue("revDecay")->load();
+    fxP.revShimmer  = apvts.getRawParameterValue("revShimmer")->load();
+    fxP.revDamp     = apvts.getRawParameterValue("revDamp")->load();
+    fxP.revMod      = apvts.getRawParameterValue("revMod")->load();
     fxChain.process(buffer, fxP);
 
     // --- マスターブリックウォールリミッター + NaN/Infガード ---

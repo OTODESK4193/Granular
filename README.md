@@ -93,10 +93,14 @@ Granular/
 2. [ ] **MODタブ**: LFO×4（テンポ同期、Sine/Tri/Saw/Sqr/S&H/Chaos）＋ ループ可能Env×2
        ＋ 16スロットマトリクス（Velocity/Note/ModWheel/Random/Macro×4）
        ※量子化は変調後に行われるため、Pitchへの変調もすべてスケールに乗る
-3. [x] **FXタブ**: 4スロット式 — **ADAA Saturation（アルゴリズム10種・NextGenKick2移植）**/
+3. [x] **FXタブ**: **5スロット式**（FX数と一致）— **ADAA Saturation（アルゴリズム10種・NextGenKick2移植）**/
        Ensemble Chorus / Tape Delay（テンポ同期＋ダッキング）/ Freeze /
        Shimmer Reverb（16ch FDN＋オクターブシフター）。
-       **適用順はスロットヘッダーのD&Dで並べ替え可能**。チェーンはLimiter前段に挿入
+       **適用順はスロットヘッダーのD&Dで並べ替え可能**。チェーンはLimiter前段に挿入。
+       **スロット選択で下部に詳細パラメータが出現**:
+       Sat=ALGO/DRIVE/PRE-HPF/TRIM、Chorus=RATE/DEPTH/WIDTH、
+       Delay=TIME(1/2〜1/16T)/FEEDBACK/DUCK/DAMP、Freeze=SIZE/FEEDBACK/DAMP、
+       Reverb=DECAY/SHIMMER/DAMP/MOD
 4. [ ] **Configタブ**: カラーテーマ変更、同時発音数、Limiter Ceiling、解析ロジック設定
 5. [ ] グレインループのSIMD化（グレイン主導ブロック処理への再設計、2〜3倍高速化見込み）
 6. [ ] プリセットブラウザ、リサイズGUI、MPE/ピッチベンド

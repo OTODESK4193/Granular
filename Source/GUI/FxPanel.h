@@ -1,6 +1,7 @@
 // ==========================================
 // File: FxPanel.h
-// FXタブ: 4スロットカード（D&Dで適用順を並べ替え = パラメータ値のスワップ）
+// FXタブ: 5スロットカード（D&Dで適用順を並べ替え）
+//        + スロット選択で下部に選択FXの詳細パラメータが出現
 // ==========================================
 #pragma once
 
@@ -22,11 +23,19 @@ class FxSlotCard : public juce::Component,
 {
 public:
     FxSlotCard(GranularAudioProcessor& processor, int slotIndex,
-               std::function<void(int, int)> onSwapCallback);
+               std::function<void(int, int)> onSwapCallback,
+               std::function<void(int)> onSelectCallback,
+               std::function<void()> onTypeChangedCallback);
 
     void paint(juce::Graphics& g) override;
     void resized() override;
 
+    void setSelected(bool shouldBeSelected)
+    {
+        if (selected != shouldBeSelected) { selected = shouldBeSelected; repaint(); }
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
 
     // --- DragAndDropTarget ---
@@ -39,12 +48,15 @@ private:
     GranularAudioProcessor& proc;
     const int slot; // 0-based
     std::function<void(int, int)> onSwap;
+    std::function<void(int)> onSelect;
+    std::function<void()> onTypeChanged;
 
     juce::ComboBox typeBox;
     ValueKnob amountKnob;
     juce::Label amountLabel;
 
     bool dragOver = false;
+    bool selected = false;
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> typeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> amountAttachment;
@@ -65,15 +77,25 @@ public:
     void resized() override;
 
 private:
-    void swapSlots(int a, int b); // 1-based ではなく 0-based
+    void swapSlots(int a, int b);
+    void selectSlot(int slot);
+    void rebuildDetails();      // 選択スロットのFX種に応じて詳細コントロールを再構築
+    void layoutDetails();
+    int  getSlotType(int slot) const;
 
     GranularAudioProcessor& proc;
 
     std::array<std::unique_ptr<FxSlotCard>, FxChain::kNumSlots> cards;
+    int selectedSlot = 0;
 
-    juce::ComboBox satAlgoBox;
-    juce::Label    satAlgoLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> satAlgoAttachment;
+    // --- 動的な詳細コントロール ---
+    std::unique_ptr<juce::ComboBox> detailCombo;
+    std::unique_ptr<juce::Label>    detailComboLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> detailComboAttachment;
+
+    std::vector<std::unique_ptr<ValueKnob>>   detailKnobs;
+    std::vector<std::unique_ptr<juce::Label>> detailKnobLabels;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> detailKnobAttachments;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FxPanel)
 };

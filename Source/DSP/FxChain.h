@@ -228,7 +228,10 @@ namespace gfx
             }
         }
 
-        void process(float& inOutL, float& inOutR, float amount) noexcept
+        // amount=Wet量, decay=残響の長さ, shimmer=オクターブ上成分,
+        // damp=高域減衰, mod=モジュレーション深さ
+        void process(float& inOutL, float& inOutR, float amount,
+                     float decay, float shimmer, float damp, float mod) noexcept
         {
             if (amount <= 0.0f) return;
 
@@ -241,16 +244,16 @@ namespace gfx
             const float monoIn = (vL + vR) * 0.5f;
             const float shimmerSig = shifter.process(monoIn);
 
-            const float shimmerMix = amount * 0.5f;
+            const float shimmerMix = shimmer * 0.7f;
             const float injectL = vL + shimmerSig * shimmerMix;
             const float injectR = vR + shimmerSig * shimmerMix;
 
             float delayOutputs[16] = {};
             float feedbackInputs[16] = {};
 
-            const float lfoDepth = amount * 12.0f;
-            const float dampFactor = 0.1f + (1.0f - amount) * 0.4f;
-            const float feedback = std::min(0.98f, 0.5f + amount * 0.48f);
+            const float lfoDepth = mod * 15.0f;
+            const float dampFactor = 0.05f + damp * 0.6f;
+            const float feedback = std::min(0.98f, 0.5f + decay * 0.48f);
 
             for (int i = 0; i < NUM_CHANNELS; ++i)
             {
@@ -323,12 +326,14 @@ namespace gfx
             lfoPhase1 = lfoPhase2 = 0.0f;
         }
 
-        void process(float& inOutL, float& inOutR, float amount) noexcept
+        // amount=Wet量, rate=LFO速度(Hz), depth=揺れ幅, width=ステレオ幅
+        void process(float& inOutL, float& inOutR, float amount,
+                     float rate, float depth, float width) noexcept
         {
             if (amount <= 0.0f) return;
 
-            const float lfoRate1 = 0.4f + (amount * 1.5f);
-            const float lfoRate2 = 0.6f + (amount * 2.0f);
+            const float lfoRate1 = rate;
+            const float lfoRate2 = rate * 1.5f;
 
             lfoPhase1 += lfoRate1 / (float)sampleRate;
             if (lfoPhase1 >= 1.0f) lfoPhase1 -= 1.0f;
@@ -357,7 +362,7 @@ namespace gfx
 
             for (int i = 0; i < 4; ++i)
             {
-                const float delayMs = 12.0f + (mods[i] * 4.0f * amount) + ((float)i * 3.0f);
+                const float delayMs = 12.0f + (mods[i] * 5.0f * depth) + ((float)i * 3.0f);
                 const float delaySamps = delayMs * (float)(sampleRate / 1000.0);
 
                 float readPos = (float)writeIndex - delaySamps;
@@ -394,8 +399,15 @@ namespace gfx
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
-            inOutL = inOutL * (1.0f - mix) + (outL * 0.25f) * mix;
-            inOutR = inOutR * (1.0f - mix) + (outR * 0.25f) * mix;
+            // WIDTH: ウェット信号の Mid/Side バランスでステレオ幅を調整
+            float wetL = outL * 0.25f;
+            float wetR = outR * 0.25f;
+            const float mono = (wetL + wetR) * 0.5f;
+            wetL = mono + (wetL - mono) * width;
+            wetR = mono + (wetR - mono) * width;
+
+            inOutL = inOutL * (1.0f - mix) + wetL * mix;
+            inOutR = inOutR * (1.0f - mix) + wetR * mix;
         }
 
     private:
@@ -420,7 +432,10 @@ namespace gfx
             currentDelaySamps = 0.0f;
         }
 
-        void process(float& inOutL, float& inOutR, float amount, double bpm) noexcept
+        // amount=Wet量, timeBeats=ディレイタイム(拍), feedback=0..0.95,
+        // duck=入力ダッキング量, damp=フィードバック高域減衰
+        void process(float& inOutL, float& inOutR, float amount, double bpm,
+                     float timeBeats, float feedback, float duck, float damp) noexcept
         {
             if (amount <= 0.0f) return;
 
@@ -430,15 +445,14 @@ namespace gfx
             if (inSum > envelope) envelope += attack * (inSum - envelope);
             else envelope += release * (inSum - envelope);
 
-            const float duckingGain = 1.0f - juce::jlimit(0.0f, 0.7f, envelope * (1.0f + amount * 4.0f));
-            const float feedback = 0.3f + (amount * 0.5f);
+            const float duckingGain = 1.0f - juce::jlimit(0.0f, 0.85f, envelope * 4.0f * duck);
 
             const double effectiveBpm = bpm > 0.0 ? bpm : 120.0;
             const double beatSec = 60.0 / effectiveBpm;
             const int halfSize = (int)(delayBuffer.size() / 2);
 
-            float targetDelaySamps = (float)(sampleRate * beatSec * 0.75); // 付点8分
-            if (targetDelaySamps > (float)(halfSize - 2)) targetDelaySamps = (float)(halfSize - 2);
+            float targetDelaySamps = (float)(sampleRate * beatSec * (double)timeBeats);
+            targetDelaySamps = juce::jlimit(32.0f, (float)(halfSize - 2), targetDelaySamps);
 
             if (currentDelaySamps == 0.0f) currentDelaySamps = targetDelaySamps;
             currentDelaySamps += 0.002f * (targetDelaySamps - currentDelaySamps);
@@ -454,11 +468,19 @@ namespace gfx
             int idx2 = idx1 + 1;
             if (idx2 >= halfSize) idx2 -= halfSize;
 
-            const float dL = delayBuffer[(size_t)idx1 * 2] * (1.0f - frac) + delayBuffer[(size_t)idx2 * 2] * frac;
-            const float dR = delayBuffer[(size_t)idx1 * 2 + 1] * (1.0f - frac) + delayBuffer[(size_t)idx2 * 2 + 1] * frac;
+            float dL = delayBuffer[(size_t)idx1 * 2] * (1.0f - frac) + delayBuffer[(size_t)idx2 * 2] * frac;
+            float dR = delayBuffer[(size_t)idx1 * 2 + 1] * (1.0f - frac) + delayBuffer[(size_t)idx2 * 2 + 1] * frac;
 
-            delayBuffer[(size_t)writeIndex * 2] = (inOutL * duckingGain) + (dL * feedback);
-            delayBuffer[(size_t)writeIndex * 2 + 1] = (inOutR * duckingGain) + (dR * feedback);
+            // DAMP: フィードバックループ内の高域減衰（テープ的な丸まり）
+            const float lpCoef = 1.0f - damp * 0.85f;
+            lpStateL += lpCoef * (dL - lpStateL);
+            lpStateR += lpCoef * (dR - lpStateR);
+            dL = lpStateL;
+            dR = lpStateR;
+
+            const float fb = juce::jlimit(0.0f, 0.95f, feedback);
+            delayBuffer[(size_t)writeIndex * 2] = (inOutL * duckingGain) + (dL * fb);
+            delayBuffer[(size_t)writeIndex * 2 + 1] = (inOutR * duckingGain) + (dR * fb);
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
@@ -472,6 +494,7 @@ namespace gfx
         int writeIndex = 0;
         float envelope = 0.0f;
         float currentDelaySamps = 0.0f;
+        float lpStateL = 0.0f, lpStateR = 0.0f;
     };
 
     // ------------------------------------------
@@ -487,21 +510,31 @@ namespace gfx
             writeIndex = 0;
         }
 
-        void process(float& inOutL, float& inOutR, float amount) noexcept
+        // amount=Wet量, sizeMs=ループ長(20..1000ms), feedback=0..0.99, damp=高域減衰
+        void process(float& inOutL, float& inOutR, float amount,
+                     float sizeMs, float feedback, float damp) noexcept
         {
             if (amount <= 0.0f) return;
 
             const int halfSize = (int)(buffer.size() / 2);
-            const int delaySamps = (int)(sampleRate * 0.1);
+            const int delaySamps = juce::jlimit(64, halfSize - 2,
+                                                (int)(sampleRate * (double)sizeMs * 0.001));
             int readIndex = writeIndex - delaySamps;
             if (readIndex < 0) readIndex += halfSize;
 
-            const float smL = buffer[(size_t)readIndex * 2];
-            const float smR = buffer[(size_t)readIndex * 2 + 1];
+            float smL = buffer[(size_t)readIndex * 2];
+            float smR = buffer[(size_t)readIndex * 2 + 1];
 
-            const float freezeFeedback = amount * 0.98f;
-            buffer[(size_t)writeIndex * 2] = inOutL + smL * freezeFeedback;
-            buffer[(size_t)writeIndex * 2 + 1] = inOutR + smR * freezeFeedback;
+            // DAMP: ループ内の高域減衰（にじみの質感）
+            const float lpCoef = 1.0f - damp * 0.85f;
+            lpStateL += lpCoef * (smL - lpStateL);
+            lpStateR += lpCoef * (smR - lpStateR);
+            smL = lpStateL;
+            smR = lpStateR;
+
+            const float fb = juce::jlimit(0.0f, 0.99f, feedback);
+            buffer[(size_t)writeIndex * 2] = gfx::antiDenormal(inOutL + smL * fb);
+            buffer[(size_t)writeIndex * 2 + 1] = gfx::antiDenormal(inOutR + smR * fb);
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
@@ -513,6 +546,7 @@ namespace gfx
         double sampleRate = 44100.0;
         std::array<float, 96000 * 2> buffer {};
         int writeIndex = 0;
+        float lpStateL = 0.0f, lpStateR = 0.0f;
     };
 
     // ------------------------------------------
@@ -640,7 +674,7 @@ class FxChain
 public:
     FxChain() = default;
 
-    static constexpr int kNumSlots = 4;
+    static constexpr int kNumSlots = 5; // FXの数と一致
 
     enum FxType { None = 0, Saturation, Chorus, Delay, Freeze, Reverb };
 
@@ -660,12 +694,51 @@ public:
         return map[juce::jlimit(0, 9, combo)];
     }
 
+    // Delayタイム表 (拍数)
+    static juce::StringArray getDelayTimeNames()
+    {
+        return { "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16", "1/16T" };
+    }
+    static float delayTimeToBeats(int idx) noexcept
+    {
+        static const float beats[10] = { 2.0f, 1.5f, 1.0f, 2.0f / 3.0f, 0.75f,
+                                         0.5f, 1.0f / 3.0f, 0.375f, 0.25f, 1.0f / 6.0f };
+        return beats[juce::jlimit(0, 9, idx)];
+    }
+
     struct Params
     {
-        std::array<int, kNumSlots> type { 0, 0, 0, 0 };
-        std::array<float, kNumSlots> amount { 0.0f, 0.0f, 0.0f, 0.0f }; // 0..1
-        int satAlgo = 0;
+        std::array<int, kNumSlots> type {};
+        std::array<float, kNumSlots> amount {};   // 0..1 (Wet量)
         double bpm = 120.0;
+
+        // --- Saturation 詳細 ---
+        int   satAlgo = 0;
+        float satDrive = 2.0f;      // 1..12
+        float satPreHz = 20.0f;     // 20..2000 (20≒スルー)
+        float satTrimDb = 0.0f;     // -12..+12
+
+        // --- Chorus 詳細 ---
+        float choRate = 0.8f;       // Hz
+        float choDepth = 0.5f;      // 0..1
+        float choWidth = 1.0f;      // 0..1
+
+        // --- Delay 詳細 ---
+        int   dlyTime = 4;          // getDelayTimeNames() インデックス
+        float dlyFeedback = 0.45f;  // 0..0.95
+        float dlyDuck = 0.5f;       // 0..1
+        float dlyDamp = 0.3f;       // 0..1
+
+        // --- Freeze 詳細 ---
+        float frzSize = 100.0f;     // ms
+        float frzFeedback = 0.9f;   // 0..0.99
+        float frzDamp = 0.2f;       // 0..1
+
+        // --- Reverb 詳細 ---
+        float revDecay = 0.7f;      // 0..1
+        float revShimmer = 0.4f;    // 0..1
+        float revDamp = 0.3f;       // 0..1
+        float revMod = 0.4f;        // 0..1
     };
 
     void prepare(double sr)
@@ -694,6 +767,10 @@ public:
         float* dR = channels > 1 ? buf.getWritePointer(1) : dL;
 
         const int satType = satAlgoToType(p.satAlgo);
+        const float trimGain = juce::Decibels::decibelsToGain(juce::jlimit(-12.0f, 12.0f, p.satTrimDb));
+        const float preAlpha = 1.0f / (1.0f + juce::MathConstants<float>::twoPi
+                                       * juce::jlimit(20.0f, 2000.0f, p.satPreHz) / (float)sampleRate);
+        const float dlyBeats = delayTimeToBeats(p.dlyTime);
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -707,11 +784,21 @@ public:
 
                 switch (p.type[(size_t)s])
                 {
-                case Saturation: saturate(l, r, amt, satType); break;
-                case Chorus:     chorus.process(l, r, amt); break;
-                case Delay:      delay.process(l, r, amt, p.bpm); break;
-                case Freeze:     freeze.process(l, r, amt); break;
-                case Reverb:     reverb.process(l, r, amt); break;
+                case Saturation:
+                    saturate(l, r, amt, satType, p.satDrive, preAlpha, trimGain);
+                    break;
+                case Chorus:
+                    chorus.process(l, r, amt, p.choRate, p.choDepth, p.choWidth);
+                    break;
+                case Delay:
+                    delay.process(l, r, amt, p.bpm, dlyBeats, p.dlyFeedback, p.dlyDuck, p.dlyDamp);
+                    break;
+                case Freeze:
+                    freeze.process(l, r, amt, p.frzSize, p.frzFeedback, p.frzDamp);
+                    break;
+                case Reverb:
+                    reverb.process(l, r, amt, p.revDecay, p.revShimmer, p.revDamp, p.revMod);
+                    break;
                 default: break;
                 }
             }
@@ -722,19 +809,25 @@ public:
     }
 
 private:
-    inline void saturate(float& l, float& r, float amount, int satType) noexcept
+    // amount=Dry/Wet, drive=1..12, preAlpha=プリHPF係数, trimGain=出力トリム
+    inline void saturate(float& l, float& r, float amount, int satType,
+                         float drive, float preAlpha, float trimGain) noexcept
     {
-        const float drive = 1.0f + amount * 11.0f;           // amount → ドライブ
-        const float comp = 1.0f / std::sqrt(drive);          // 音量補償
-        const float mix = juce::jmin(1.0f, amount * 2.0f);   // 前半で素早くウェットへ
+        const float comp = 1.0f / std::sqrt(juce::jmax(1.0f, drive)); // 音量補償
+        const float mix = amount;
 
         auto one = [&](float x, int ch) noexcept
         {
-            float sat = gfx::processSaturationSampleADAA(x, satType, drive, satState[ch]);
+            // 1次HPFプリフィルター (NextGenKick2と同構成)
+            const float hpfOut = preAlpha * (preY1[ch] + x - preX1[ch]);
+            preX1[ch] = x;
+            preY1[ch] = hpfOut;
+
+            float sat = gfx::processSaturationSampleADAA(hpfOut, satType, drive, satState[ch]);
             // DCブロッカー (Triode等の非対称カーブ対策)
             dcState[ch] = dcCoef * dcState[ch] + (1.0f - dcCoef) * sat;
             sat -= dcState[ch];
-            return x * (1.0f - mix) + sat * comp * mix;
+            return x * (1.0f - mix) + sat * comp * trimGain * mix;
         };
 
         l = one(l, 0);
@@ -750,6 +843,8 @@ private:
 
     gfx::SaturationState satState[2];
     float dcState[2] = { 0.0f, 0.0f };
+    float preX1[2] = { 0.0f, 0.0f };
+    float preY1[2] = { 0.0f, 0.0f };
     float dcCoef = 0.995f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FxChain)
