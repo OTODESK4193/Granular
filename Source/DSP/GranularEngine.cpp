@@ -125,7 +125,9 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
     }
 
     // Root Note Tracking: サンプルの元ピッチ(rootNote)を弾くと原音で再生
-    const double pitchRatio = std::pow(2.0, ((double)totalAbsSemis - (double)p.rootNote) / 12.0);
+    // srComp: バッファSRとホストSRの差を補正（DAWのSR変更でもピッチ不変）
+    const double pitchRatio = std::pow(2.0, ((double)totalAbsSemis - (double)p.rootNote) / 12.0)
+                            * (double)p.srComp;
     grain.step = p.reverseGrain ? -pitchRatio : pitchRatio;
 
     // --------------------------------------
@@ -238,7 +240,9 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     }
     else
     {
-        speedMag = std::abs((double)p.speed);
+        // srComp: SPEED=1で「原音の1倍速スキャン」をSRに依らず維持
+        // (S-SYNC時は領域長/時間から算出するため補正不要)
+        speedMag = std::abs((double)p.speed) * (double)p.srComp;
     }
 
     // TONE: コムレゾネーター係数

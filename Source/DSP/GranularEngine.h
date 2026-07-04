@@ -91,6 +91,10 @@ struct GranularParams
     int   detectedRoot = 0;       // 解析で得たルート (key==Auto時に使用)
     int   rootNote = 60;          // Root Note Tracking: サンプルの元ピッチ(MIDI)
                                   // このノートを弾くと原音の高さで再生される
+
+    // SR補償: バッファ作成時SR / ホストSR。
+    // DAWのSR変更時(44.1k-192k)でもピッチと速度を不変に保つ
+    float srComp = 1.0f;
 };
 
 // ==========================================

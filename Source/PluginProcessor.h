@@ -74,6 +74,7 @@ public:
     std::atomic<int> currentDetectedRoot { 0 };
     std::atomic<bool> currentIsMajor { true };
     std::atomic<int> rootMidiNote { 60 };   // Root Note Tracking (Ableton: C3=60)
+    std::atomic<double> bufferSampleRate { 44100.0 }; // sharedAudioBufferが作られたSR
 
     GranularSynth synth; // synth.visualizer を GUI が参照する
     Arpeggiator arp;

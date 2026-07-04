@@ -175,6 +175,16 @@ void GranularAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     arp.prepare(sampleRate);
     fxChain.prepare(sampleRate);
     masterLimiter.prepare(sampleRate);
+
+    // DAWのSRが変わった場合は新SRへ自動再インジェスト（最高音質へ復帰）
+    // 完了までの間は processBlock 側の srComp 補正がピッチを守る
+    if (ingestState.load() == IngestState::Ready
+        && std::abs(bufferSampleRate.load() - sampleRate) > 0.5
+        && hasSampleFile()
+        && !isThreadRunning())
+    {
+        reingestCurrentFile();
+    }
 }
 
 void GranularAudioProcessor::releaseResources() { synth.releaseResources(); }
@@ -255,6 +265,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     p.bpm           = bpm;
     p.detectedRoot  = currentDetectedRoot.load();
     p.rootNote      = rootMidiNote.load();
+    p.srComp        = (float)(bufferSampleRate.load() / currentSampleRate); // SR補償
 
     // ユーザーStart/End: 自動トリム領域内の相対指定 → 実効トリムを算出
     const int autoS = trimStartSample.load();
@@ -410,6 +421,10 @@ void GranularAudioProcessor::run()
     ingestProgress.store(0.02f);
     { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Loading..."; }
 
+    // このインジェストが対象とするSRをスレッド開始時に確定
+    // (処理中にprepareToPlayでSRが変わっても混在しない)
+    const double targetSR = currentSampleRate;
+
     const int materialMode = (int)apvts.getRawParameterValue("materialMode")->load();
 
     // DAWのファイルロック解除待ちを含むリトライ読み込み
@@ -444,9 +459,9 @@ void GranularAudioProcessor::run()
     reader->read(&tempRaw, 0, maxSamples, 0, true, true);
 
     // ホストSRへリサンプル
-    if (fileSampleRate != currentSampleRate && fileSampleRate > 0.0)
+    if (fileSampleRate != targetSR && fileSampleRate > 0.0)
     {
-        const double ratio = fileSampleRate / currentSampleRate;
+        const double ratio = fileSampleRate / targetSR;
         const int newLength = (int)((double)tempRaw.getNumSamples() / ratio);
         juce::AudioBuffer<float> resampled(tempRaw.getNumChannels(), newLength);
         for (int ch = 0; ch < tempRaw.getNumChannels(); ++ch)
@@ -463,7 +478,7 @@ void GranularAudioProcessor::run()
     { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Analyzing Pitch..."; }
 
     currentPitch = PitchAnalyzer::analyzeOmni(tempRaw.getReadPointer(0), tempRaw.getNumSamples(),
-                                              currentSampleRate, fileToIngest.getFileName(), materialMode);
+                                              targetSR, fileToIngest.getFileName(), materialMode);
     currentDetectedRoot.store(currentPitch.detectedRoot);
     currentIsMajor.store(currentPitch.isMajor);
     ingestProgress.store(0.45f);
@@ -512,8 +527,8 @@ void GranularAudioProcessor::run()
             const int inLen = tempRaw.getNumSamples();
 
             signalsmith::stretch::SignalsmithStretch<float> stretch;
-            stretch.presetDefault(numCh, (float)currentSampleRate);
-            stretch.setTransposeFactor(pitchScale, 8000.0f / (float)currentSampleRate);
+            stretch.presetDefault(numCh, (float)targetSR);
+            stretch.setTransposeFactor(pitchScale, 8000.0f / (float)targetSR);
 
             // 総レイテンシ分を末尾にパディングして1:1処理→先頭を捨てて位置合わせ
             const int totalLat = stretch.inputLatency() + stretch.outputLatency();
@@ -585,6 +600,7 @@ void GranularAudioProcessor::run()
     }
     waveformReady.store(true);
 
+    bufferSampleRate.store(targetSR); // このバッファのSRを記録 (srComp補正の基準)
     ingestProgress.store(1.0f);
     ingestState.store(IngestState::Ready);
     { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Ready"; }
