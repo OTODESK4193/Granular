@@ -77,9 +77,10 @@ Granular/
 
 ## ロードマップ（Quanta 2超えに向けて / 優先順）
 
-1. [ ] **ARP**: アルペジエイター10種以上（Up/Down/UpDown/Converge/Diverge/Random/
-       RandomWalk/Played/Chord/Pedal等）、TempoSync、Duration（音符）、
-       Quantize Key/Scale反映
+1. [x] **ARP**: アルペジエイター13種（Up/Down/Up-Down/Down-Up/Up-Down Incl/
+       Converge/Diverge/Pedal Low/Pedal High/As Played/Random/Random Walk/Chord）、
+       TempoSync（付点・三連対応）/Free(Hz)、Duration（Gate%/音符）、Latch、
+       Octaveレンジ1-4、出力ノートはQuantize Key/Scaleへスナップ
 2. [ ] **MODタブ**: LFO×4（テンポ同期、Sine/Tri/Saw/Sqr/S&H/Chaos）＋ ループ可能Env×2
        ＋ 16スロットマトリクス（Velocity/Note/ModWheel/Random/Macro×4）
        ※量子化は変調後に行われるため、Pitchへの変調もすべてスケールに乗る

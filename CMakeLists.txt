@@ -57,6 +57,8 @@ target_sources(Granular PRIVATE
     Source/DSP/PitchAnalyzer.h
     Source/DSP/PitchAnalyzer.cpp
     Source/DSP/GrainVisualizerData.h
+    Source/DSP/Arpeggiator.h
+    Source/DSP/Arpeggiator.cpp
 
     # --- GUI モジュール ---
     Source/GUI/ColorPalette.h
@@ -68,6 +70,8 @@ target_sources(Granular PRIVATE
     Source/GUI/MainPanel.cpp
     Source/GUI/ValueKnob.h
     Source/GUI/GlowToggle.h
+    Source/GUI/ArpPanel.h
+    Source/GUI/ArpPanel.cpp
 )
 
 # ----------------------------------------------------------------------------

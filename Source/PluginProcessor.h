@@ -10,6 +10,7 @@
 
 #include "DSP/GranularEngine.h"
 #include "DSP/PitchAnalyzer.h"
+#include "DSP/Arpeggiator.h"
 
 enum class IngestState
 {
@@ -74,6 +75,7 @@ public:
     std::atomic<int> rootMidiNote { 60 };   // Root Note Tracking (Ableton: C3=60)
 
     GranularSynth synth; // synth.visualizer を GUI が参照する
+    Arpeggiator arp;
 
     juce::CriticalSection stateLock;
     juce::String hudLineFile = "File: ---";

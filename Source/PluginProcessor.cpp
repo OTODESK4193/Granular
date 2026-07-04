@@ -70,6 +70,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("ceiling", "Ceiling",
         juce::NormalisableRange<float>(-6.0f, 0.0f, 0.01f), -0.1f));
 
+    // --- アルペジエイター ---
+    params.push_back(std::make_unique<juce::AudioParameterBool>("arpEnable", "Arp On", false));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("arpPattern", "Arp Pattern",
+        Arpeggiator::getPatternNames(), 0));
+    params.push_back(std::make_unique<juce::AudioParameterInt>("arpOctaves", "Arp Octaves", 1, 4, 1));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("arpSync", "Arp Sync", true));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("arpRateSync", "Arp Rate",
+        Arpeggiator::getRateNames(), 6)); // 1/8
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("arpRateFree", "Arp Rate (Hz)",
+        juce::NormalisableRange<float>(0.5f, 30.0f, 0.01f, 0.5f), 8.0f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("arpDurMode", "Arp Duration",
+        Arpeggiator::getDurationNames(), 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("arpGate", "Arp Gate",
+        0.05f, 1.0f, 0.8f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("arpLatch", "Arp Latch", false));
+
     // --- マスター ---
     params.push_back(std::make_unique<juce::AudioParameterFloat>("masterHPF", "HPF (Hz)", juce::NormalisableRange<float>(20.0f, 2000.0f, 1.0f, 0.3f), 20.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("masterLPF", "LPF (Hz)", juce::NormalisableRange<float>(200.0f, 20000.0f, 1.0f, 0.3f), 20000.0f));
@@ -107,6 +123,7 @@ void GranularAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
 {
     currentSampleRate = sampleRate;
     synth.prepareToPlay(sampleRate, samplesPerBlock);
+    arp.prepare(sampleRate);
 }
 
 void GranularAudioProcessor::releaseResources() { synth.releaseResources(); }
@@ -131,6 +148,30 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         synth.allNotesOff(); // サンプル未ロード/削除時は発音を止める
         return;
     }
+
+    // --- ホストBPM取得 ---
+    double bpm = 120.0;
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+            if (pos->getBpm()) bpm = *pos->getBpm();
+
+    // --- アルペジエイター (MIDIを置き換え) ---
+    ArpParams arpP;
+    arpP.enable       = apvts.getRawParameterValue("arpEnable")->load() > 0.5f;
+    arpP.pattern      = (int)apvts.getRawParameterValue("arpPattern")->load();
+    arpP.octaves      = (int)apvts.getRawParameterValue("arpOctaves")->load();
+    arpP.sync         = apvts.getRawParameterValue("arpSync")->load() > 0.5f;
+    arpP.rateSync     = (int)apvts.getRawParameterValue("arpRateSync")->load();
+    arpP.rateFree     = apvts.getRawParameterValue("arpRateFree")->load();
+    arpP.durMode      = (int)apvts.getRawParameterValue("arpDurMode")->load();
+    arpP.gate         = apvts.getRawParameterValue("arpGate")->load();
+    arpP.latch        = apvts.getRawParameterValue("arpLatch")->load() > 0.5f;
+    arpP.key          = (int)apvts.getRawParameterValue("key")->load();
+    arpP.scale        = (int)apvts.getRawParameterValue("scale")->load();
+    arpP.detectedRoot = currentDetectedRoot.load();
+    arpP.bpm          = bpm;
+
+    arp.process(midiMessages, buffer.getNumSamples(), arpP);
 
     GranularParams p;
     p.attack        = apvts.getRawParameterValue("attack")->load();

@@ -11,20 +11,22 @@ namespace
 }
 
 GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcessor& p)
-    : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p)
+    : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p), arpPanel(p)
 {
     setLookAndFeel(&lnf);
 
     addAndMakeVisible(waveDisplay);
     addAndMakeVisible(mainPanel);
-    addChildComponent(modPanel);  // 非表示で追加
+    addChildComponent(arpPanel);  // 非表示で追加
+    addChildComponent(modPanel);
     addChildComponent(fxPanel);
 
     // --- タブボタン ---
-    for (auto* b : { &mainTabButton, &modTabButton, &fxTabButton })
+    for (auto* b : { &mainTabButton, &arpTabButton, &modTabButton, &fxTabButton })
         addAndMakeVisible(*b);
 
     mainTabButton.onClick = [this] { setActiveTab(Tab::Main); };
+    arpTabButton.onClick  = [this] { setActiveTab(Tab::Arp); };
     modTabButton.onClick  = [this] { setActiveTab(Tab::Mod); };
     fxTabButton.onClick   = [this] { setActiveTab(Tab::Fx); };
     setActiveTab(Tab::Main);
@@ -119,10 +121,12 @@ void GranularAudioProcessorEditor::setActiveTab(Tab t)
 {
     activeTab = t;
     mainPanel.setVisible(t == Tab::Main);
+    arpPanel.setVisible(t == Tab::Arp);
     modPanel.setVisible(t == Tab::Mod);
     fxPanel.setVisible(t == Tab::Fx);
 
     styleTabButton(mainTabButton, t == Tab::Main);
+    styleTabButton(arpTabButton,  t == Tab::Arp);
     styleTabButton(modTabButton,  t == Tab::Mod);
     styleTabButton(fxTabButton,   t == Tab::Fx);
     repaint(0, kTabY, getWidth(), kTabH + 8);
@@ -186,6 +190,7 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
     };
 
     if (activeTab == Tab::Main) underline(mainTabButton, GranularColors::mint);
+    if (activeTab == Tab::Arp)  underline(arpTabButton,  GranularColors::peach);
     if (activeTab == Tab::Mod)  underline(modTabButton,  GranularColors::lavender);
     if (activeTab == Tab::Fx)   underline(fxTabButton,   GranularColors::pink);
 }
@@ -203,12 +208,14 @@ void GranularAudioProcessorEditor::resized()
     deleteButton.setBounds(888, 34, 80, 22);
     resetButton.setBounds(976, 34, 88, 22);
 
-    mainTabButton.setBounds(20,  kTabY, 100, kTabH);
-    modTabButton.setBounds(126, kTabY, 100, kTabH);
-    fxTabButton.setBounds(232, kTabY, 100, kTabH);
+    mainTabButton.setBounds(20,  kTabY, 96, kTabH);
+    arpTabButton.setBounds(122, kTabY, 96, kTabH);
+    modTabButton.setBounds(224, kTabY, 96, kTabH);
+    fxTabButton.setBounds(326, kTabY, 96, kTabH);
 
     const auto panelBounds = juce::Rectangle<int>(0, kPanelY, getWidth(), getHeight() - kPanelY);
     mainPanel.setBounds(panelBounds);
+    arpPanel.setBounds(panelBounds);
     modPanel.setBounds(panelBounds);
     fxPanel.setBounds(panelBounds);
 }
