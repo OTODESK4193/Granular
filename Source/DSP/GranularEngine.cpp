@@ -145,7 +145,20 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
         maxPos = (double)trimEnd - 1.0;
     }
     if (maxPos < minPos) maxPos = minPos;
-    grain.position = juce::jlimit(minPos, maxPos, rawPos);
+
+    // 範囲外へ飛んだSprayは境界で反射（ミラー折り返し）して範囲内に分布させる。
+    // ハードクランプだと境界にグレインが張り付いて偏るため。
+    {
+        const double range = maxPos - minPos;
+        if (range <= 0.0)
+            grain.position = minPos;
+        else
+        {
+            double t = std::fmod(rawPos - minPos, 2.0 * range);
+            if (t < 0.0) t += 2.0 * range;
+            grain.position = (t <= range) ? (minPos + t) : (minPos + 2.0 * range - t);
+        }
+    }
 
     // --------------------------------------
     // パン & 音量

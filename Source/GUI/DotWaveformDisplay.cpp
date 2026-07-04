@@ -207,9 +207,11 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
 
     if (sprayNorm > 0.001f)
     {
+        // SprayバンドはStart/Endの実効領域内にクリップ（グレインも領域外には出ない）
+        const auto regionRect = juce::Rectangle<float>(geo.effX, wave.getY(), geo.effW, wave.getHeight());
         const float sprayW = sprayNorm * geo.effW;
         auto sprayRect = juce::Rectangle<float>(posX - sprayW, wave.getY(), sprayW * 2.0f, wave.getHeight());
-        sprayRect = sprayRect.getIntersection(wave);
+        sprayRect = sprayRect.getIntersection(regionRect);
         g.setColour(GranularColors::pink.withAlpha(0.10f));
         g.fillRoundedRectangle(sprayRect, 4.0f);
     }
