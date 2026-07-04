@@ -11,7 +11,7 @@ namespace
 }
 
 GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcessor& p)
-    : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p), arpPanel(p)
+    : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p), arpPanel(p), configPanel(p)
 {
     setLookAndFeel(&lnf);
 
@@ -20,15 +20,17 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     addChildComponent(arpPanel);  // 非表示で追加
     addChildComponent(modPanel);
     addChildComponent(fxPanel);
+    addChildComponent(configPanel);
 
     // --- タブボタン ---
-    for (auto* b : { &mainTabButton, &arpTabButton, &modTabButton, &fxTabButton })
+    for (auto* b : { &mainTabButton, &arpTabButton, &modTabButton, &fxTabButton, &configTabButton })
         addAndMakeVisible(*b);
 
-    mainTabButton.onClick = [this] { setActiveTab(Tab::Main); };
-    arpTabButton.onClick  = [this] { setActiveTab(Tab::Arp); };
-    modTabButton.onClick  = [this] { setActiveTab(Tab::Mod); };
-    fxTabButton.onClick   = [this] { setActiveTab(Tab::Fx); };
+    mainTabButton.onClick   = [this] { setActiveTab(Tab::Main); };
+    arpTabButton.onClick    = [this] { setActiveTab(Tab::Arp); };
+    modTabButton.onClick    = [this] { setActiveTab(Tab::Mod); };
+    fxTabButton.onClick     = [this] { setActiveTab(Tab::Fx); };
+    configTabButton.onClick = [this] { setActiveTab(Tab::Config); };
     setActiveTab(Tab::Main);
 
     // --- ヘッダーボタン (LOAD以外はY/N確認付き) ---
@@ -124,11 +126,13 @@ void GranularAudioProcessorEditor::setActiveTab(Tab t)
     arpPanel.setVisible(t == Tab::Arp);
     modPanel.setVisible(t == Tab::Mod);
     fxPanel.setVisible(t == Tab::Fx);
+    configPanel.setVisible(t == Tab::Config);
 
-    styleTabButton(mainTabButton, t == Tab::Main);
-    styleTabButton(arpTabButton,  t == Tab::Arp);
-    styleTabButton(modTabButton,  t == Tab::Mod);
-    styleTabButton(fxTabButton,   t == Tab::Fx);
+    styleTabButton(mainTabButton,   t == Tab::Main);
+    styleTabButton(arpTabButton,    t == Tab::Arp);
+    styleTabButton(modTabButton,    t == Tab::Mod);
+    styleTabButton(fxTabButton,     t == Tab::Fx);
+    styleTabButton(configTabButton, t == Tab::Config);
     repaint(0, kTabY, getWidth(), kTabH + 8);
 }
 
@@ -189,10 +193,11 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
                                (float)r.getWidth() - 12.0f, 2.5f, 1.25f);
     };
 
-    if (activeTab == Tab::Main) underline(mainTabButton, GranularColors::mint);
-    if (activeTab == Tab::Arp)  underline(arpTabButton,  GranularColors::peach);
-    if (activeTab == Tab::Mod)  underline(modTabButton,  GranularColors::lavender);
-    if (activeTab == Tab::Fx)   underline(fxTabButton,   GranularColors::pink);
+    if (activeTab == Tab::Main)   underline(mainTabButton,   GranularColors::mint);
+    if (activeTab == Tab::Arp)    underline(arpTabButton,    GranularColors::peach);
+    if (activeTab == Tab::Mod)    underline(modTabButton,    GranularColors::lavender);
+    if (activeTab == Tab::Fx)     underline(fxTabButton,     GranularColors::pink);
+    if (activeTab == Tab::Config) underline(configTabButton, GranularColors::sage);
 }
 
 // ------------------------------------------
@@ -208,14 +213,16 @@ void GranularAudioProcessorEditor::resized()
     deleteButton.setBounds(888, 34, 80, 22);
     resetButton.setBounds(976, 34, 88, 22);
 
-    mainTabButton.setBounds(20,  kTabY, 96, kTabH);
-    arpTabButton.setBounds(122, kTabY, 96, kTabH);
-    modTabButton.setBounds(224, kTabY, 96, kTabH);
-    fxTabButton.setBounds(326, kTabY, 96, kTabH);
+    mainTabButton.setBounds(20,  kTabY, 92, kTabH);
+    arpTabButton.setBounds(118, kTabY, 92, kTabH);
+    modTabButton.setBounds(216, kTabY, 92, kTabH);
+    fxTabButton.setBounds(314, kTabY, 92, kTabH);
+    configTabButton.setBounds(412, kTabY, 92, kTabH);
 
     const auto panelBounds = juce::Rectangle<int>(0, kPanelY, getWidth(), getHeight() - kPanelY);
     mainPanel.setBounds(panelBounds);
     arpPanel.setBounds(panelBounds);
     modPanel.setBounds(panelBounds);
     fxPanel.setBounds(panelBounds);
+    configPanel.setBounds(panelBounds);
 }

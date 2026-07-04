@@ -72,6 +72,8 @@ target_sources(Granular PRIVATE
     Source/GUI/GlowToggle.h
     Source/GUI/ArpPanel.h
     Source/GUI/ArpPanel.cpp
+    Source/GUI/ConfigPanel.h
+    Source/GUI/ConfigPanel.cpp
 )
 
 # ----------------------------------------------------------------------------

@@ -30,7 +30,11 @@ JUCE 8.0系 / VST3 + Standalone / C++20。
   最短0.5ms（歯切れのよい発音）。Decay/Releaseは指数カーブ
 - **Start/End**: ノブ＋波形上のマーカードラッグでサンプル範囲を調整
 - **マスターリミッター**: ブリックウォール、Ceiling -0.1dBデフォルト
-- **UI**: 全ノブ右クリックで数値入力、SYNC/REVはLED点灯式トグル、
+- **UI**: 5タブ構成 MAIN / ARP / MOD / FX / CONFIG。
+  MAIN=グレイン・ピッチ・エンベロープ・POSITION/START/END・マスター、
+  ARP=アルペジエイター＋QUANTIZE(Key/Scale)＋TEXTURE(WINDOW/TONE/P-SYNC/REV)、
+  CONFIG=MATERIAL解析モード・Limiter CEILING。
+  全ノブ右クリックで数値入力、トグルはLED点灯式、
   ヘッダーに LOAD / ANALYZE / DELETE / RESET（破壊的操作はY/N確認付き）
 - **パステル・ドット波形GUI**:
   波形を小さなドットの縦積みで表現（mint→blue→lavender→pinkのグラデーション）。

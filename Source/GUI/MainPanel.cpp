@@ -2,7 +2,6 @@
 // File: MainPanel.cpp
 // ==========================================
 #include "MainPanel.h"
-#include "ColorPalette.h"
 
 namespace
 {
@@ -37,36 +36,15 @@ MainPanel::MainPanel(GranularAudioProcessor& p) : proc(p)
     setupKnob(sustainKnob, sustainLabel, "S", "sustain", env);
     setupKnob(releaseKnob, releaseLabel, "R", "release", env);
 
-    // --- TEXTURE: TONE + SYNC + REV (点灯式トグル) ---
-    setupKnob(toneKnob, toneLabel, "TONE", "tone", grain);
-
-    addAndMakeVisible(syncButton);
-    buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        proc.apvts, "pitchSync", syncButton));
-
-    addAndMakeVisible(revButton);
-    buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        proc.apvts, "reverseGrain", revButton));
-
-    // --- SAMPLE: Start/End ---
-    setupKnob(startKnob, startLabel, "START", "sampleStart", master);
-    setupKnob(endKnob,   endLabel,   "END",   "sampleEnd",   master);
+    // --- SAMPLE: Position(波形の縦線) / Start / End ---
+    setupKnob(positionKnob, positionLabel, "POSITION", "position",    master);
+    setupKnob(startKnob,    startLabel,    "START",    "sampleStart", master);
+    setupKnob(endKnob,      endLabel,      "END",      "sampleEnd",   master);
 
     // --- MASTER ---
     setupKnob(hpfKnob,  hpfLabel,  "HPF",  "masterHPF", master);
     setupKnob(lpfKnob,  lpfLabel,  "LPF",  "masterLPF", master);
     setupKnob(gainKnob, gainLabel, "GAIN", "outGain",   master);
-
-    // --- コンボ ---
-    setupCombo(keyBox, "key");
-    setupCombo(scaleBox, "scale");
-    setupCombo(windowBox, "windowShape");
-    setupCombo(materialBox, "materialMode");
-
-    setupComboLabel(keyLabel,      "KEY");
-    setupComboLabel(scaleLabel,    "SCALE");
-    setupComboLabel(windowLabel,   "WINDOW");
-    setupComboLabel(materialLabel, "MATERIAL");
 }
 
 void MainPanel::setupKnob(juce::Slider& s, juce::Label& l, const juce::String& text,
@@ -88,25 +66,6 @@ void MainPanel::setupKnob(juce::Slider& s, juce::Label& l, const juce::String& t
         proc.apvts, paramID, s));
 }
 
-void MainPanel::setupCombo(juce::ComboBox& c, const juce::String& paramID)
-{
-    if (auto* choiceParam = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter(paramID)))
-        c.addItemList(choiceParam->choices, 1);
-
-    addAndMakeVisible(c);
-    comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        proc.apvts, paramID, c));
-}
-
-void MainPanel::setupComboLabel(juce::Label& l, const juce::String& text)
-{
-    l.setText(text, juce::dontSendNotification);
-    l.setJustificationType(juce::Justification::centredLeft);
-    l.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-    l.setColour(juce::Label::textColourId, GranularColors::textDim);
-    addAndMakeVisible(l);
-}
-
 void MainPanel::paint(juce::Graphics& g)
 {
     auto drawSection = [&g](const juce::String& name, int x, int y, int w, juce::Colour accent)
@@ -121,10 +80,14 @@ void MainPanel::paint(juce::Graphics& g)
     drawSection("GRAIN",    20,  6,   6 * kKnobW - 8, GranularColors::accentGrain);
     drawSection("PITCH",    516, 6,   3 * kKnobW - 8, GranularColors::accentPitch);
     drawSection("ENVELOPE", 772, 6,   4 * kKnobW - 8, GranularColors::accentEnv);
-    drawSection("QUANTIZE", 20,  150, 240,            GranularColors::accentPitch);
-    drawSection("TEXTURE",  285, 150, 265,            GranularColors::accentGrain);
-    drawSection("SAMPLE",   575, 150, 255,            GranularColors::accentMaster);
+    drawSection("SAMPLE",   20,  150, 3 * kKnobW - 8, GranularColors::accentMaster);
     drawSection("MASTER",   848, 150, 3 * kKnobW - 8, GranularColors::accentMaster);
+
+    // SAMPLEセクションの補足
+    g.setColour(GranularColors::textDim.withAlpha(0.6f));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
+    g.drawText("POSITION = pink line / START & END = markers on the waveform",
+               280, 196, 540, 14, juce::Justification::centredLeft);
 }
 
 void MainPanel::resized()
@@ -153,31 +116,13 @@ void MainPanel::resized()
     placeKnob(sustainKnob, sustainLabel, 772 + 2 * kKnobW, row1);
     placeKnob(releaseKnob, releaseLabel, 772 + 3 * kKnobW, row1);
 
-    // --- Row 2 ---
-    const int subLabelY = 172;
-    const int comboY = 188;
+    // --- Row 2 (y=172) ---
+    const int row2 = 172;
+    placeKnob(positionKnob, positionLabel, 20 + 0 * kKnobW, row2);
+    placeKnob(startKnob,    startLabel,    20 + 1 * kKnobW, row2);
+    placeKnob(endKnob,      endLabel,      20 + 2 * kKnobW, row2);
 
-    // QUANTIZE
-    keyLabel.setBounds(20, subLabelY, 60, 14);
-    keyBox.setBounds(20, comboY, 80, 26);
-    scaleLabel.setBounds(110, subLabelY, 80, 14);
-    scaleBox.setBounds(110, comboY, 150, 26);
-
-    // TEXTURE: WINDOW + TONEノブ + SYNC/REV点灯トグル(縦積み)
-    windowLabel.setBounds(285, subLabelY, 80, 14);
-    windowBox.setBounds(285, comboY, 110, 26);
-    placeKnob(toneKnob, toneLabel, 408, subLabelY);
-    syncButton.setBounds(488, subLabelY + 8, 60, 24);
-    revButton.setBounds(488, subLabelY + 38, 60, 24);
-
-    // SAMPLE: MATERIAL + START/END
-    materialLabel.setBounds(575, subLabelY, 90, 14);
-    materialBox.setBounds(575, comboY, 118, 26);
-    placeKnob(startKnob, startLabel, 700, subLabelY);
-    placeKnob(endKnob,   endLabel,   770, subLabelY);
-
-    // MASTER
-    placeKnob(hpfKnob,  hpfLabel,  848 + 0 * kKnobW, subLabelY);
-    placeKnob(lpfKnob,  lpfLabel,  848 + 1 * kKnobW, subLabelY);
-    placeKnob(gainKnob, gainLabel, 848 + 2 * kKnobW, subLabelY);
+    placeKnob(hpfKnob,  hpfLabel,  848 + 0 * kKnobW, row2);
+    placeKnob(lpfKnob,  lpfLabel,  848 + 1 * kKnobW, row2);
+    placeKnob(gainKnob, gainLabel, 848 + 2 * kKnobW, row2);
 }

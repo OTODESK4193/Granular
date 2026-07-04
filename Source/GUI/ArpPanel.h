@@ -1,6 +1,7 @@
 // ==========================================
 // File: ArpPanel.h
-// ARPタブ: アルペジエイターのコントロール
+// ARPタブ: アルペジエイター + QUANTIZE(Key/Scale) + TEXTURE
+// (Key/ScaleはARPとグレイン量子化の両方に効くため同居)
 // ==========================================
 #pragma once
 
@@ -29,6 +30,7 @@ private:
 
     GranularAudioProcessor& proc;
 
+    // --- ARP ---
     GlowToggle enableButton { "ON",    GranularColors::mint };
     GlowToggle latchButton  { "LATCH", GranularColors::lilac };
     GlowToggle syncButton   { "SYNC",  GranularColors::babyBlue };
@@ -38,6 +40,18 @@ private:
 
     ValueKnob octavesKnob, rateFreeKnob, gateKnob;
     juce::Label octavesLabel, rateFreeLabel, gateLabel;
+
+    // --- QUANTIZE (MAINタブから移動) ---
+    juce::ComboBox keyBox, scaleBox;
+    juce::Label    keyLabel, scaleLabel;
+
+    // --- TEXTURE (MAINタブから移動 / SYNCはARPと区別するためP-SYNC表記) ---
+    juce::ComboBox windowBox;
+    juce::Label    windowLabel;
+    ValueKnob toneKnob;
+    juce::Label toneLabel;
+    GlowToggle pitchSyncButton { "P-SYNC", GranularColors::mint };
+    GlowToggle revButton       { "REV",    GranularColors::rose };
 
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>>   sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;

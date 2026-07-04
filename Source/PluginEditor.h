@@ -11,6 +11,7 @@
 #include "GUI/DotWaveformDisplay.h"
 #include "GUI/MainPanel.h"
 #include "GUI/ArpPanel.h"
+#include "GUI/ConfigPanel.h"
 #include "GUI/ColorPalette.h"
 
 // 未実装タブのプレースホルダー
@@ -45,7 +46,7 @@ public:
     void resized() override;
 
 private:
-    enum class Tab { Main, Arp, Mod, Fx };
+    enum class Tab { Main, Arp, Mod, Fx, Config };
 
     void timerCallback() override;
     void setActiveTab(Tab t);
@@ -57,14 +58,16 @@ private:
     DotWaveformDisplay waveDisplay;
 
     // --- タブ ---
-    juce::TextButton mainTabButton { "MAIN" };
-    juce::TextButton arpTabButton  { "ARP" };
-    juce::TextButton modTabButton  { "MOD" };
-    juce::TextButton fxTabButton   { "FX" };
+    juce::TextButton mainTabButton   { "MAIN" };
+    juce::TextButton arpTabButton    { "ARP" };
+    juce::TextButton modTabButton    { "MOD" };
+    juce::TextButton fxTabButton     { "FX" };
+    juce::TextButton configTabButton { "CONFIG" };
     Tab activeTab = Tab::Main;
 
     MainPanel mainPanel;
     ArpPanel arpPanel;
+    ConfigPanel configPanel;
     StubPanel modPanel { "MOD MATRIX", "LFO x4  +  ENV x2  +  16 slots  -  coming in the next update" };
     StubPanel fxPanel  { "FX RACK",    "Shimmer Reverb / Tape Delay / Ensemble Chorus / Freeze  -  coming soon" };
 

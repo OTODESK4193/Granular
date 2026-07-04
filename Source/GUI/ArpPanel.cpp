@@ -12,9 +12,10 @@ namespace
 
 ArpPanel::ArpPanel(GranularAudioProcessor& p) : proc(p)
 {
-    const auto accent = GranularColors::accentEnv; // peach系
+    const auto arpAccent = GranularColors::accentEnv;   // peach系
+    const auto grain = GranularColors::accentGrain;
 
-    // トグル
+    // --- ARP トグル ---
     addAndMakeVisible(enableButton);
     buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         proc.apvts, "arpEnable", enableButton));
@@ -27,15 +28,30 @@ ArpPanel::ArpPanel(GranularAudioProcessor& p) : proc(p)
     buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         proc.apvts, "arpSync", syncButton));
 
-    // コンボ
+    // --- ARP コンボ / ノブ ---
     setupCombo(patternBox, patternLabel, "PATTERN",  "arpPattern");
     setupCombo(rateBox,    rateLabel,    "RATE",     "arpRateSync");
     setupCombo(durBox,     durLabel,     "DURATION", "arpDurMode");
 
-    // ノブ
-    setupKnob(octavesKnob,  octavesLabel,  "OCTAVES",   "arpOctaves",  accent);
-    setupKnob(rateFreeKnob, rateFreeLabel, "RATE (Hz)", "arpRateFree", accent);
-    setupKnob(gateKnob,     gateLabel,     "GATE",      "arpGate",     accent);
+    setupKnob(octavesKnob,  octavesLabel,  "OCTAVES",   "arpOctaves",  arpAccent);
+    setupKnob(rateFreeKnob, rateFreeLabel, "RATE (Hz)", "arpRateFree", arpAccent);
+    setupKnob(gateKnob,     gateLabel,     "GATE",      "arpGate",     arpAccent);
+
+    // --- QUANTIZE ---
+    setupCombo(keyBox,   keyLabel,   "KEY",   "key");
+    setupCombo(scaleBox, scaleLabel, "SCALE", "scale");
+
+    // --- TEXTURE ---
+    setupCombo(windowBox, windowLabel, "WINDOW", "windowShape");
+    setupKnob(toneKnob, toneLabel, "TONE", "tone", grain);
+
+    addAndMakeVisible(pitchSyncButton);
+    buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        proc.apvts, "pitchSync", pitchSyncButton));
+
+    addAndMakeVisible(revButton);
+    buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        proc.apvts, "reverseGrain", revButton));
 }
 
 void ArpPanel::setupKnob(ValueKnob& s, juce::Label& l, const juce::String& text,
@@ -85,15 +101,19 @@ void ArpPanel::paint(juce::Graphics& g)
         g.fillRect(x, y + 16, w, 1);
     };
 
-    drawSection("ARPEGGIATOR", 20, 6, 1040, GranularColors::accentEnv);
+    drawSection("ARPEGGIATOR", 20,  6,   860, GranularColors::accentEnv);
+    drawSection("QUANTIZE",    20,  150, 240, GranularColors::accentPitch);
+    drawSection("TEXTURE",     300, 150, 280, GranularColors::accentGrain);
 
     // 補足説明
-    g.setColour(GranularColors::textDim.withAlpha(0.75f));
-    g.setFont(juce::Font(juce::FontOptions(11.5f)));
-    g.drawText("Output notes are snapped to the QUANTIZE Key / Scale.",
-               20, 150, 600, 16, juce::Justification::centredLeft);
-    g.drawText("SYNC off = RATE (Hz) knob.  DURATION 'Gate %' = GATE knob.  LATCH holds notes after release.",
-               20, 170, 800, 16, juce::Justification::centredLeft);
+    g.setColour(GranularColors::textDim.withAlpha(0.7f));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
+    g.drawText("KEY / SCALE snaps both ARP notes and grain pitches.",
+               620, 172, 440, 14, juce::Justification::centredLeft);
+    g.drawText("P-SYNC: grain firing locked to note pitch.  TONE: comb resonator.",
+               620, 190, 440, 14, juce::Justification::centredLeft);
+    g.drawText("LATCH holds notes after release. SYNC off = RATE (Hz) knob.",
+               620, 208, 440, 14, juce::Justification::centredLeft);
 }
 
 void ArpPanel::resized()
@@ -104,28 +124,39 @@ void ArpPanel::resized()
         l.setBounds(x - 6, y + kKnobH, kKnobW + 4, kLabelH);
     };
 
+    // --- Row 1: ARP ---
     const int labelY = 34;
     const int ctrlY = 50;
 
-    // ON / LATCH（縦積み）
     enableButton.setBounds(20, ctrlY, 76, 26);
     latchButton.setBounds(20, ctrlY + 32, 76, 26);
 
-    // PATTERN
     patternLabel.setBounds(120, labelY, 100, 14);
     patternBox.setBounds(120, ctrlY, 160, 26);
 
-    // OCTAVES
     placeKnob(octavesKnob, octavesLabel, 306, labelY);
 
-    // SYNC + RATE(コンボ) + RATE(Hz)
     syncButton.setBounds(396, ctrlY, 70, 26);
     rateLabel.setBounds(482, labelY, 80, 14);
     rateBox.setBounds(482, ctrlY, 90, 26);
     placeKnob(rateFreeKnob, rateFreeLabel, 592, labelY);
 
-    // DURATION + GATE
     durLabel.setBounds(686, labelY, 90, 14);
     durBox.setBounds(686, ctrlY, 100, 26);
     placeKnob(gateKnob, gateLabel, 806, labelY);
+
+    // --- Row 2: QUANTIZE + TEXTURE ---
+    const int subLabelY = 172;
+    const int comboY = 188;
+
+    keyLabel.setBounds(20, subLabelY, 60, 14);
+    keyBox.setBounds(20, comboY, 80, 26);
+    scaleLabel.setBounds(110, subLabelY, 80, 14);
+    scaleBox.setBounds(110, comboY, 150, 26);
+
+    windowLabel.setBounds(300, subLabelY, 80, 14);
+    windowBox.setBounds(300, comboY, 110, 26);
+    placeKnob(toneKnob, toneLabel, 424, subLabelY);
+    pitchSyncButton.setBounds(504, subLabelY + 8, 72, 24);
+    revButton.setBounds(504, subLabelY + 38, 72, 24);
 }
