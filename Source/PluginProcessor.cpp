@@ -119,6 +119,47 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("revDamp",    "Reverb Damp",    0.0f, 1.0f, 0.3f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("revMod",     "Reverb Mod",     0.0f, 1.0f, 0.4f));
 
+    // --- MODマトリクス: LFO×4 ---
+    for (int i = 1; i <= ModMatrix::kNumLfos; ++i)
+    {
+        const juce::String idx(i);
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("lfo" + idx + "Rate", "LFO " + idx + " Rate",
+            juce::NormalisableRange<float>(0.02f, 20.0f, 0.01f, 0.4f), 1.0f));
+        params.push_back(std::make_unique<juce::AudioParameterBool>("lfo" + idx + "Sync", "LFO " + idx + " Sync", false));
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("lfo" + idx + "SyncRate", "LFO " + idx + " Sync Rate",
+            ModMatrix::getSyncRateNames(), 6));
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("lfo" + idx + "Wave", "LFO " + idx + " Wave",
+            ModMatrix::getWaveNames(), 0));
+    }
+
+    // --- MODマトリクス: ENV×2 (ループ可能AD) ---
+    for (int i = 1; i <= ModMatrix::kNumEnvs; ++i)
+    {
+        const juce::String idx(i);
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("env" + idx + "Attack", "ENV " + idx + " Attack",
+            juce::NormalisableRange<float>(0.001f, 10.0f, 0.001f, 0.25f), 0.05f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("env" + idx + "Decay", "ENV " + idx + " Decay",
+            juce::NormalisableRange<float>(0.001f, 10.0f, 0.001f, 0.25f), 0.5f));
+        params.push_back(std::make_unique<juce::AudioParameterBool>("env" + idx + "Loop", "ENV " + idx + " Loop", false));
+    }
+
+    // --- MODマトリクス: Macro×4 ---
+    for (int i = 1; i <= ModMatrix::kNumMacros; ++i)
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("macro" + juce::String(i),
+            "Macro " + juce::String(i), 0.0f, 1.0f, 0.5f));
+
+    // --- MODマトリクス: 16スロット ---
+    for (int i = 1; i <= ModMatrix::kNumSlots; ++i)
+    {
+        const juce::String idx(i);
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("mod" + idx + "Src", "Mod " + idx + " Source",
+            ModMatrix::getSourceNames(), 0));
+        params.push_back(std::make_unique<juce::AudioParameterChoice>("mod" + idx + "Dst", "Mod " + idx + " Dest",
+            ModMatrix::getDestNames(), 0));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("mod" + idx + "Amt", "Mod " + idx + " Amount",
+            -1.0f, 1.0f, 0.0f));
+    }
+
     // --- アルペジエイター ---
     params.push_back(std::make_unique<juce::AudioParameterBool>("arpEnable", "Arp On", false));
     params.push_back(std::make_unique<juce::AudioParameterChoice>("arpPattern", "Arp Pattern",
@@ -175,6 +216,7 @@ void GranularAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     arp.prepare(sampleRate);
     fxChain.prepare(sampleRate);
     masterLimiter.prepare(sampleRate);
+    modMatrix.prepare(sampleRate);
 
     // DAWのSRが変わった場合は新SRへ自動再インジェスト（最高音質へ復帰）
     // 完了までの間は processBlock 側の srComp 補正がピッチを守る
@@ -234,6 +276,37 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
     arp.process(midiMessages, buffer.getNumSamples(), arpP);
 
+    // --- MODマトリクス (アルペジオ後のMIDIでトリガー) ---
+    ModMatrix::Params mp;
+    for (int i = 0; i < ModMatrix::kNumLfos; ++i)
+    {
+        const juce::String idx(i + 1);
+        mp.lfo[(size_t)i].rateHz   = apvts.getRawParameterValue("lfo" + idx + "Rate")->load();
+        mp.lfo[(size_t)i].sync     = apvts.getRawParameterValue("lfo" + idx + "Sync")->load() > 0.5f;
+        mp.lfo[(size_t)i].rateSync = (int)apvts.getRawParameterValue("lfo" + idx + "SyncRate")->load();
+        mp.lfo[(size_t)i].wave     = (int)apvts.getRawParameterValue("lfo" + idx + "Wave")->load();
+    }
+    for (int i = 0; i < ModMatrix::kNumEnvs; ++i)
+    {
+        const juce::String idx(i + 1);
+        mp.env[(size_t)i].attack = apvts.getRawParameterValue("env" + idx + "Attack")->load();
+        mp.env[(size_t)i].decay  = apvts.getRawParameterValue("env" + idx + "Decay")->load();
+        mp.env[(size_t)i].loop   = apvts.getRawParameterValue("env" + idx + "Loop")->load() > 0.5f;
+    }
+    for (int i = 0; i < ModMatrix::kNumMacros; ++i)
+        mp.macro[(size_t)i] = apvts.getRawParameterValue("macro" + juce::String(i + 1))->load();
+    for (int i = 0; i < ModMatrix::kNumSlots; ++i)
+    {
+        const juce::String idx(i + 1);
+        mp.slot[(size_t)i].src = (int)apvts.getRawParameterValue("mod" + idx + "Src")->load();
+        mp.slot[(size_t)i].dst = (int)apvts.getRawParameterValue("mod" + idx + "Dst")->load();
+        mp.slot[(size_t)i].amt = apvts.getRawParameterValue("mod" + idx + "Amt")->load();
+    }
+    mp.bpm = bpm;
+
+    modMatrix.handleMidi(midiMessages);
+    modMatrix.processBlock(buffer.getNumSamples(), mp);
+
     GranularParams p;
     p.attack        = apvts.getRawParameterValue("attack")->load();
     p.decay         = apvts.getRawParameterValue("decay")->load();
@@ -267,6 +340,27 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     p.rootNote      = rootMidiNote.load();
     p.srComp        = (float)(bufferSampleRate.load() / currentSampleRate); // SR補償
 
+    // --- MOD変調の適用 (Pitch系は量子化前に加算されるためスケールに乗る) ---
+    {
+        using D = ModMatrix;
+        auto mod = [this](int dst) { return modMatrix.get(dst); };
+
+        p.position      = juce::jlimit(0.0f, 1.0f,      p.position      + mod(D::DstPosition));
+        p.grainSize     = juce::jlimit(0.02f, 0.5f,     p.grainSize     + mod(D::DstSize) * 0.48f);
+        p.density       = juce::jlimit(0.0f, 1.0f,      p.density       + mod(D::DstDensity));
+        p.positionSpray = juce::jlimit(0.0f, 1.0f,      p.positionSpray + mod(D::DstSpray));
+        p.pitchJitter   = juce::jlimit(0.0f, 2400.0f,   p.pitchJitter   + mod(D::DstJitter) * 2400.0f);
+        p.panSpread     = juce::jlimit(0.0f, 1.0f,      p.panSpread     + mod(D::DstPanSpread));
+        p.speed         = juce::jlimit(0.0f, 2.0f,      p.speed         + mod(D::DstSpeed) * 2.0f);
+        p.pitchMod      = juce::jlimit(-24.0f, 24.0f,   mod(D::DstPitch) * 24.0f);
+        p.fineTune      = juce::jlimit(-100.0f, 100.0f, p.fineTune      + mod(D::DstFine) * 100.0f);
+        p.tone          = juce::jlimit(0.0f, 1.0f,      p.tone          + mod(D::DstTone));
+
+        // フィルターは指数(オクターブ)スケールで音楽的に
+        p.masterHPF = juce::jlimit(20.0f, 2000.0f,   p.masterHPF * std::pow(2.0f, mod(D::DstHpf) * 5.0f));
+        p.masterLPF = juce::jlimit(200.0f, 20000.0f, p.masterLPF * std::pow(2.0f, mod(D::DstLpf) * 6.0f));
+    }
+
     // ユーザーStart/End: 自動トリム領域内の相対指定 → 実効トリムを算出
     const int autoS = trimStartSample.load();
     const int autoE = trimEndSample.load();
@@ -290,7 +384,9 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     {
         const juce::String idx(i + 1);
         fxP.type[(size_t)i]   = (int)apvts.getRawParameterValue("fx" + idx + "Type")->load();
-        fxP.amount[(size_t)i] = apvts.getRawParameterValue("fx" + idx + "Amount")->load() / 100.0f;
+        fxP.amount[(size_t)i] = juce::jlimit(0.0f, 1.0f,
+            apvts.getRawParameterValue("fx" + idx + "Amount")->load() / 100.0f
+            + modMatrix.get(ModMatrix::DstFx1 + i)); // MOD変調
     }
     fxP.bpm = bpm;
     fxP.satAlgo     = (int)apvts.getRawParameterValue("satAlgo")->load();

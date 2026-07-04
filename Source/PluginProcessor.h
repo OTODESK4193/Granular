@@ -12,6 +12,7 @@
 #include "DSP/PitchAnalyzer.h"
 #include "DSP/Arpeggiator.h"
 #include "DSP/FxChain.h"
+#include "DSP/ModMatrix.h"
 
 enum class IngestState
 {
@@ -80,6 +81,7 @@ public:
     Arpeggiator arp;
     FxChain fxChain;
     BrickLimiter masterLimiter;
+    ModMatrix modMatrix;
 
     juce::CriticalSection stateLock;
     juce::String hudLineFile = "File: ---";

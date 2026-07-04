@@ -60,6 +60,7 @@ target_sources(Granular PRIVATE
     Source/DSP/Arpeggiator.h
     Source/DSP/Arpeggiator.cpp
     Source/DSP/FxChain.h
+    Source/DSP/ModMatrix.h
 
     # --- GUI モジュール ---
     Source/GUI/ColorPalette.h
@@ -77,6 +78,8 @@ target_sources(Granular PRIVATE
     Source/GUI/ConfigPanel.cpp
     Source/GUI/FxPanel.h
     Source/GUI/FxPanel.cpp
+    Source/GUI/ModPanel.h
+    Source/GUI/ModPanel.cpp
 )
 
 # ----------------------------------------------------------------------------

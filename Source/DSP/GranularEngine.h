@@ -74,6 +74,7 @@ struct GranularParams
     int   octave = 0;
     int   pitchSt = 0;
     float fineTune = 0.0f;        // セント
+    float pitchMod = 0.0f;        // MODマトリクスからのピッチ変調(半音) ※量子化前に加算
     float outGainDb = -12.0f;
     bool  reverseGrain = false;
     int   windowShape = 0;        // 0..3

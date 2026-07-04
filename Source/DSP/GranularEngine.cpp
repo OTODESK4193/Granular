@@ -113,7 +113,8 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
     //   最終ピッチ = ノート + オクターブ/セミ/ファイン + ランダムジッター
     //   これを丸ごと Key/Scale へスナップする
     // --------------------------------------
-    const float globalSemis = (float)p.octave * 12.0f + (float)p.pitchSt + p.fineTune / 100.0f;
+    const float globalSemis = (float)p.octave * 12.0f + (float)p.pitchSt
+                            + p.fineTune / 100.0f + p.pitchMod; // MOD変調も量子化前
     const float jitterSemis = ((random.nextFloat() * 2.0f - 1.0f) * p.pitchJitter) / 100.0f;
 
     float totalAbsSemis = (float)currentMidiNote + globalSemis + jitterSemis; // 絶対ピッチ(MIDI)
@@ -205,8 +206,9 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     const float* srcL = sharedSourceBuffer->getReadPointer(0);
     const float* srcR = sharedSourceBuffer->getNumChannels() > 1 ? sharedSourceBuffer->getReadPointer(1) : srcL;
 
-    // ノート周波数（オクターブ/セミ/ファイン込み、ジッター前）
-    const double globalSemis = (double)p.octave * 12.0 + (double)p.pitchSt + (double)p.fineTune / 100.0;
+    // ノート周波数（オクターブ/セミ/ファイン/MOD込み、ジッター前）
+    const double globalSemis = (double)p.octave * 12.0 + (double)p.pitchSt
+                             + (double)p.fineTune / 100.0 + (double)p.pitchMod;
     const double noteFreq = 440.0 * std::pow(2.0, ((double)currentMidiNote + globalSemis - 69.0) / 12.0);
     const double notePeriod = currentSampleRate / juce::jlimit(15.0, 8000.0, noteFreq);
 

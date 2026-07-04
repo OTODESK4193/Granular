@@ -13,28 +13,8 @@
 #include "GUI/ArpPanel.h"
 #include "GUI/ConfigPanel.h"
 #include "GUI/FxPanel.h"
+#include "GUI/ModPanel.h"
 #include "GUI/ColorPalette.h"
-
-// 未実装タブのプレースホルダー
-class StubPanel : public juce::Component
-{
-public:
-    StubPanel(juce::String titleIn, juce::String descIn)
-        : title(std::move(titleIn)), desc(std::move(descIn)) {}
-
-    void paint(juce::Graphics& g) override
-    {
-        g.setColour(GranularColors::textDim.withAlpha(0.7f));
-        g.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
-        g.drawText(title, getLocalBounds().withTrimmedBottom(40), juce::Justification::centred);
-        g.setFont(juce::Font(juce::FontOptions(12.0f)));
-        g.setColour(GranularColors::textDim.withAlpha(0.5f));
-        g.drawText(desc, getLocalBounds().withTrimmedTop(20), juce::Justification::centred);
-    }
-
-private:
-    juce::String title, desc;
-};
 
 class GranularAudioProcessorEditor : public juce::AudioProcessorEditor,
                                      private juce::Timer
@@ -70,7 +50,7 @@ private:
     ArpPanel arpPanel;
     ConfigPanel configPanel;
     FxPanel fxPanel;
-    StubPanel modPanel { "MOD MATRIX", "LFO x4  +  ENV x2  +  16 slots  -  coming in the next update" };
+    ModPanel modPanel;
 
     // --- ヘッダー ---
     juce::TextButton loadButton    { "LOAD" };

@@ -90,9 +90,11 @@ Granular/
        Converge/Diverge/Pedal Low/Pedal High/As Played/Random/Random Walk/Chord）、
        TempoSync（付点・三連対応）/Free(Hz)、Duration（Gate%/音符）、Latch、
        Octaveレンジ1-4、出力ノートはQuantize Key/Scaleへスナップ
-2. [ ] **MODタブ**: LFO×4（テンポ同期、Sine/Tri/Saw/Sqr/S&H/Chaos）＋ ループ可能Env×2
-       ＋ 16スロットマトリクス（Velocity/Note/ModWheel/Random/Macro×4）
-       ※量子化は変調後に行われるため、Pitchへの変調もすべてスケールに乗る
+2. [x] **MODタブ**: LFO×4（テンポ同期1/1〜1/32、Sine/Tri/Saw/Sqr/S&H/Chaos）＋
+       ループ可能ADエンベロープ×2 ＋ Macro×4 ＋ MIDIソース（Velocity/Note/ModWheel/
+       ノート毎Random）→ **16スロットマトリクス** → 主要パラメータ＋FX Amount×5。
+       Amountは±バイポーラ（ダブルクリックで0）。
+       **Pitchへの変調は量子化前に加算されるため、暴れてもKey/Scaleに乗る**
 3. [x] **FXタブ**: **5スロット式**（FX数と一致）— **ADAA Saturation（アルゴリズム10種・NextGenKick2移植）**/
        Ensemble Chorus / Tape Delay（テンポ同期＋ダッキング）/ Freeze /
        Shimmer Reverb（16ch FDN＋オクターブシフター）。

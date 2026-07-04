@@ -11,7 +11,8 @@ namespace
 }
 
 GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcessor& p)
-    : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p), arpPanel(p), configPanel(p), fxPanel(p)
+    : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p), arpPanel(p),
+      configPanel(p), fxPanel(p), modPanel(p)
 {
     setLookAndFeel(&lnf);
 

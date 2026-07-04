@@ -306,10 +306,17 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
     }
     wasEnabled = true;
 
-    // 1) 入力を消費して held を更新
+    // 1) 入力を消費して held を更新（ノート以外のCC/ピッチベンド等は素通し）
+    juce::MidiBuffer passthrough;
     const bool hadNotes = !held.empty();
     for (const auto& m : midi)
-        handleInputEvent(m.getMessage(), p);
+    {
+        const auto msg = m.getMessage();
+        if (msg.isNoteOn() || msg.isNoteOff() || msg.isAllNotesOff() || msg.isAllSoundOff())
+            handleInputEvent(msg, p);
+        else
+            passthrough.addEvent(msg, m.samplePosition);
+    }
     midi.clear();
 
     if (!hadNotes && !held.empty())
@@ -323,6 +330,7 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
         running = false;
 
     juce::MidiBuffer out;
+    out.addEvents(passthrough, 0, -1, 0); // CC等を先に戻す
 
     // 2) ステップ発火（サンプル精度）
     if (running)
