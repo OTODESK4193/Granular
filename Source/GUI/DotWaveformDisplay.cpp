@@ -200,9 +200,32 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
     drawMarker(startX, true, GranularColors::peach);
     drawMarker(endX, false, GranularColors::peach);
 
-    // --- Position / Spray インジケーター ---
+    // Start/End への変調を白い細線で表示（実効マーカーはドラッグ用に据え置き）
+    {
+        const float span = geo.autoEN - geo.autoSN;
+        const float s01 = proc.apvts.getRawParameterValue("sampleStart")->load();
+        const float e01 = proc.apvts.getRawParameterValue("sampleEnd")->load();
+        const float sMod = proc.modMatrix.get(ModMatrix::DstSampleStart);
+        const float eMod = proc.modMatrix.get(ModMatrix::DstSampleEnd);
+        if (std::abs(sMod) > 1.0e-4f)
+        {
+            const float x = geo.waveX + (geo.autoSN + juce::jlimit(0.0f, 1.0f, s01 + sMod) * span) * geo.waveW;
+            g.setColour(juce::Colours::white.withAlpha(0.7f));
+            g.fillRect(x - 0.75f, wave.getY(), 1.5f, wave.getHeight());
+        }
+        if (std::abs(eMod) > 1.0e-4f)
+        {
+            const float x = geo.waveX + (geo.autoSN + juce::jlimit(0.0f, 1.0f, e01 + eMod) * span) * geo.waveW;
+            g.setColour(juce::Colours::white.withAlpha(0.7f));
+            g.fillRect(x - 0.75f, wave.getY(), 1.5f, wave.getHeight());
+        }
+    }
+
+    // --- Position / Spray インジケーター (Sprayは変調を反映して呼吸する) ---
     const float posNorm = proc.apvts.getRawParameterValue("position")->load();
-    const float sprayNorm = proc.apvts.getRawParameterValue("positionSpray")->load();
+    const float sprayNorm = juce::jlimit(0.0f, 1.0f,
+        proc.apvts.getRawParameterValue("positionSpray")->load()
+        + proc.modMatrix.get(ModMatrix::DstSpray));
     const float posX = geo.effX + posNorm * geo.effW;
 
     if (sprayNorm > 0.001f)
@@ -232,13 +255,13 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
             const float hiN = juce::jlimit(0.0f, 1.0f, posNorm + rMax);
             const float bandX = geo.effX + loN * geo.effW;
             const float bandW = juce::jmax(1.0f, (hiN - loN) * geo.effW);
-            g.setColour(GranularColors::pink.withAlpha(0.12f));
+            g.setColour(juce::Colours::white.withAlpha(0.10f));
             g.fillRoundedRectangle(juce::Rectangle<float>(bandX, wave.getY(), bandW, wave.getHeight()), 3.0f);
 
-            // 現在の変調後 Position（明るいラインで動く）
+            // 現在の変調後 Position（白い明るいラインで動く）
             const float liveN = juce::jlimit(0.0f, 1.0f, posNorm + proc.modMatrix.get(ModMatrix::DstPosition));
             const float liveX = geo.effX + liveN * geo.effW;
-            g.setColour(GranularColors::pink.withAlpha(0.9f));
+            g.setColour(juce::Colours::white.withAlpha(0.85f));
             g.fillRect(liveX - 1.0f, wave.getY(), 2.0f, wave.getHeight());
         }
     }

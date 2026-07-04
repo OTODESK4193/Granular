@@ -279,6 +279,19 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     arpP.detectedRoot = currentDetectedRoot.load();
     arpP.bpm          = bpm;
 
+    // Arp系への変調（modMatrixは1ブロック前の値。アルペジオはmodより前段のため）
+    {
+        arpP.octaves = juce::jlimit(1, 4,
+            arpP.octaves + (int)std::round(modMatrix.get(ModMatrix::DstArpOct) * 3.0f));
+        arpP.gate = juce::jlimit(0.05f, 1.0f,
+            arpP.gate + modMatrix.get(ModMatrix::DstArpGate));
+        const float rateMod = modMatrix.get(ModMatrix::DstArpRate);
+        if (arpP.sync)
+            arpP.rateSync = juce::jlimit(0, 12, arpP.rateSync + (int)std::round(rateMod * 6.0f));
+        else
+            arpP.rateFree = juce::jlimit(0.1f, 40.0f, arpP.rateFree * std::pow(2.0f, rateMod * 2.0f));
+    }
+
     arp.process(midiMessages, buffer.getNumSamples(), arpP);
 
     // --- MODマトリクス (アルペジオ後のMIDIでトリガー) ---
@@ -373,8 +386,10 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     const int autoS = trimStartSample.load();
     const int autoE = trimEndSample.load();
     const int span = juce::jmax(0, autoE - autoS);
-    const float s01 = apvts.getRawParameterValue("sampleStart")->load();
-    const float e01 = apvts.getRawParameterValue("sampleEnd")->load();
+    const float s01 = juce::jlimit(0.0f, 1.0f,
+        apvts.getRawParameterValue("sampleStart")->load() + modMatrix.get(ModMatrix::DstSampleStart));
+    const float e01 = juce::jlimit(0.0f, 1.0f,
+        apvts.getRawParameterValue("sampleEnd")->load() + modMatrix.get(ModMatrix::DstSampleEnd));
 
     int effS = autoS + (int)(s01 * (float)span);
     int effE = autoS + (int)(e01 * (float)span);

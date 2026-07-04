@@ -1,6 +1,6 @@
 // ==========================================
 // File: ModPanel.h
-// MODタブ: ソース段 (LFO/Env/MACRO サブタブ) + 16スロットマトリクス
+// MODタブ: ソース段 (LFO/Env/MACRO サブタブ) + 16スロットマトリクス (Page1/Page2)
 // ==========================================
 #pragma once
 
@@ -26,7 +26,8 @@ private:
     void setupKnob(ValueKnob& s, const juce::String& paramID, juce::Colour accent);
     void setupCombo(juce::ComboBox& c, const juce::String& paramID, juce::Component& parent);
     void setSourceTab(int t);          // 0=LFO, 1=Env, 2=Macro
-    void styleSrcTab(juce::TextButton& b, bool active);
+    void setMatrixPage(int p);         // 0=slot1-8, 1=slot9-16
+    void styleTab(juce::TextButton& b, bool active);
 
     GranularAudioProcessor& proc;
 
@@ -42,16 +43,17 @@ private:
     std::array<ValueKnob, ModMatrix::kNumLfos> lfoRateKnob;
     std::array<juce::ComboBox, ModMatrix::kNumLfos> lfoSyncRateBox;
 
-    // --- ENV ×2 (ADSR) ---
+    // --- ENV ×3 (ADSR) ---
     std::array<ValueKnob, ModMatrix::kNumEnvs> envAttackKnob, envDecayKnob, envSustainKnob, envReleaseKnob;
     std::array<std::unique_ptr<GlowToggle>, ModMatrix::kNumEnvs> envLoopButton;
 
     // --- MACRO ×4 ---
     std::array<ValueKnob, ModMatrix::kNumMacros> macroKnob;
 
-    // --- マトリクス16行 (Viewport内) ---
-    juce::Viewport matrixViewport;
-    juce::Component matrixContent;
+    // --- マトリクス16行 (2ページ) ---
+    juce::TextButton page1Btn { "PAGE 1" };
+    juce::TextButton page2Btn { "PAGE 2" };
+    int matrixPage = 0;
     std::array<juce::Label, ModMatrix::kNumSlots> rowLabel;
     std::array<juce::ComboBox, ModMatrix::kNumSlots> srcBox, dstBox;
     std::array<ValueKnob, ModMatrix::kNumSlots> amtSlider;

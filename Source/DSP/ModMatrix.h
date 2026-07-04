@@ -21,7 +21,7 @@ class ModMatrix
 {
 public:
     static constexpr int kNumLfos = 4;
-    static constexpr int kNumEnvs = 2;
+    static constexpr int kNumEnvs = 3;
     static constexpr int kNumMacros = 4;
     static constexpr int kNumSlots = 16;
 
@@ -29,7 +29,7 @@ public:
     {
         SrcNone = 0,
         SrcLfo1, SrcLfo2, SrcLfo3, SrcLfo4,
-        SrcEnv1, SrcEnv2,
+        SrcEnv1, SrcEnv2, SrcEnv3,
         SrcVelocity, SrcNote, SrcModWheel, SrcRandom,
         SrcMacro1, SrcMacro2, SrcMacro3, SrcMacro4,
         NumSrcs
@@ -41,13 +41,15 @@ public:
         DstPosition, DstSize, DstDensity, DstSpray, DstJitter,
         DstPanSpread, DstSpeed, DstPitch, DstFine, DstTone,
         DstHpf, DstLpf,
+        DstSampleStart, DstSampleEnd,
+        DstArpOct, DstArpRate, DstArpGate,
         DstFx1, DstFx2, DstFx3, DstFx4, DstFx5,
         NumDsts
     };
 
     static juce::StringArray getSourceNames()
     {
-        return { "None", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "ENV 1", "ENV 2",
+        return { "None", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "ENV 1", "ENV 2", "ENV 3",
                  "Velocity", "Note", "Mod Wheel", "Random",
                  "Macro 1", "Macro 2", "Macro 3", "Macro 4" };
     }
@@ -56,6 +58,8 @@ public:
         return { "None", "Position", "Grain Size", "Density", "Spray", "Pitch Jitter",
                  "Pan Spread", "Speed", "Pitch (st)", "Fine", "Tone",
                  "HPF", "LPF",
+                 "Sample Start", "Sample End",
+                 "Arp Octaves", "Arp Rate", "Arp Gate",
                  "FX1 Amount", "FX2 Amount", "FX3 Amount", "FX4 Amount", "FX5 Amount" };
     }
     static juce::StringArray getWaveNames()

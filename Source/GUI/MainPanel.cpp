@@ -126,9 +126,11 @@ void MainPanel::timerCallback()
     applyModRing(jitterKnob,   D::DstJitter,    LinearAdd, 2400.0f);
     applyModRing(panKnob,      D::DstPanSpread, LinearAdd, 1.0f);
     applyModRing(speedKnob,    D::DstSpeed,     LinearAdd, 2.0f);
-    applyModRing(fineKnob,     D::DstFine,      LinearAdd, 100.0f);
-    applyModRing(hpfKnob,      D::DstHpf,       ExpOct,    5.0f);
-    applyModRing(lpfKnob,      D::DstLpf,       ExpOct,    6.0f);
+    applyModRing(fineKnob,     D::DstFine,       LinearAdd, 100.0f);
+    applyModRing(hpfKnob,      D::DstHpf,        ExpOct,    5.0f);
+    applyModRing(lpfKnob,      D::DstLpf,        ExpOct,    6.0f);
+    applyModRing(startKnob,    D::DstSampleStart,LinearAdd, 1.0f);
+    applyModRing(endKnob,      D::DstSampleEnd,  LinearAdd, 1.0f);
 }
 
 void MainPanel::setupKnob(juce::Slider& s, juce::Label& l, const juce::String& text,
