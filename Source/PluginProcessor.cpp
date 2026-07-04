@@ -35,7 +35,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("positionSpray", "Spray",      0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("pitchJitter",   "Pitch Jitter", 0.0f, 2400.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("panSpread",     "Pan Spread", 0.0f, 1.0f, 1.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("speed",         "Speed",      -2.0f, 2.0f, 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("speed",         "Speed",      0.0f, 2.0f, 1.0f));
+
+    // --- プレイヘッドの動き (MOTION) ---
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("playMode", "Motion",
+        juce::StringArray { "Forward", "Backward", "Ping-Pong", "Random" }, 0));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("speedSync", "Speed Sync", false));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("speedSyncDiv", "Scan Length",
+        juce::StringArray { "1 Beat", "2 Beats", "1 Bar", "2 Bars", "4 Bars", "8 Bars" }, 2));
     params.push_back(std::make_unique<juce::AudioParameterBool> ("reverseGrain",  "Rev Grain",  false));
     params.push_back(std::make_unique<juce::AudioParameterChoice>("windowShape",  "Window Shape",
         juce::StringArray { "Hanning", "Triangle", "Square", "Asymmetric" }, 0));
@@ -198,6 +205,10 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     p.masterHPF     = apvts.getRawParameterValue("masterHPF")->load();
     p.masterLPF     = apvts.getRawParameterValue("masterLPF")->load();
     p.ceiling       = apvts.getRawParameterValue("ceiling")->load();
+    p.playMode      = (int)apvts.getRawParameterValue("playMode")->load();
+    p.speedSync     = apvts.getRawParameterValue("speedSync")->load() > 0.5f;
+    p.speedSyncDiv  = (int)apvts.getRawParameterValue("speedSyncDiv")->load();
+    p.bpm           = bpm;
     p.detectedRoot  = currentDetectedRoot.load();
     p.rootNote      = rootMidiNote.load();
 

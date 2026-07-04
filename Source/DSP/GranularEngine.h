@@ -64,7 +64,12 @@ struct GranularParams
     float positionSpray = 0.0f;   // 0..1
     float pitchJitter = 0.0f;     // セント 0..2400
     float panSpread = 1.0f;       // 0..1
-    float speed = 1.0f;           // -2..2 プレイヘッド速度
+    float speed = 1.0f;           // 0..2 プレイヘッド速度（倍率、方向はplayMode）
+
+    int   playMode = 0;           // 0=Forward 1=Backward 2=Ping-Pong 3=Random
+    bool  speedSync = false;      // DAWテンポ追随（領域を指定音価でスキャン）
+    int   speedSyncDiv = 2;       // 0=1Beat 1=2Beats 2=1Bar 3=2Bars 4=4Bars 5=8Bars
+    double bpm = 120.0;
 
     int   octave = 0;
     int   pitchSt = 0;
@@ -255,6 +260,8 @@ private:
 
     float  velocityGain = 1.0f;
     double playheadOffset = 0.0;
+    double randomTargetRel = 0.0;   // Randomモード: 現在のジャンプ先（領域内相対）
+    float  panSide = 1.0f;          // Pan交互配置用（グレイン毎にL/R反転）
     int    samplesToNextSpawn = 0;
 
     PadEnvelope env;

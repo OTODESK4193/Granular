@@ -129,25 +129,17 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
     grain.step = p.reverseGrain ? -pitchRatio : pitchRatio;
 
     // --------------------------------------
-    // スポーン位置（スプレー + 境界セーフティ）
+    // スポーン位置（スプレー + 境界反射）
+    //  グレインは再生中に End→Start へラップするため、発火位置は
+    //  領域全体 [trimStart, trimEnd) が使える（Positionが常に尊重される）
     // --------------------------------------
     const double sprayOffset = ((double)random.nextFloat() * 2.0 - 1.0) * (double)validLength * (double)p.positionSpray;
-    double rawPos = currentPlayhead + sprayOffset;
+    const double rawPos = currentPlayhead + sprayOffset;
 
-    const double playRange = (double)grain.life * pitchRatio;
-    double minPos = (double)trimStart;
-    double maxPos = (double)trimEnd - playRange - 1.0;
+    const double minPos = (double)trimStart;
+    const double maxPos = (double)trimEnd - 1.0;
 
-    if (p.reverseGrain)
-    {
-        rawPos += playRange;
-        minPos = (double)trimStart + playRange;
-        maxPos = (double)trimEnd - 1.0;
-    }
-    if (maxPos < minPos) maxPos = minPos;
-
-    // 範囲外へ飛んだSprayは境界で反射（ミラー折り返し）して範囲内に分布させる。
-    // ハードクランプだと境界にグレインが張り付いて偏るため。
+    // 範囲外へ飛んだSprayは境界で反射（ミラー折り返し）して範囲内に分布させる
     {
         const double range = maxPos - minPos;
         if (range <= 0.0)
@@ -162,8 +154,11 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
 
     // --------------------------------------
     // パン & 音量
+    //  交互配置: グレイン毎にL/R側を反転させ、高Density時でも
+    //  中央に均されず常にステレオ幅が出るようにする
     // --------------------------------------
-    const float panOffset = (random.nextFloat() * 2.0f - 1.0f) * 0.5f * p.panSpread;
+    panSide = -panSide;
+    const float panOffset = random.nextFloat() * 0.5f * p.panSpread * panSide;
     const float pan = juce::jlimit(0.0f, 1.0f, 0.5f + panOffset);
     grain.panL = std::sqrt(1.0f - pan);
     grain.panR = std::sqrt(pan);
@@ -232,6 +227,20 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     const size_t shapeIdx = (size_t)juce::jlimit(0, 3, p.windowShape);
     const auto& window = windowTables[shapeIdx];
 
+    // 実効プレイヘッド速度（S-SYNC時: 領域を指定音価でスキャンする速度）
+    double speedMag;
+    if (p.speedSync)
+    {
+        static const double beatsTable[6] = { 1.0, 2.0, 4.0, 8.0, 16.0, 32.0 };
+        const double bpmSafe = p.bpm > 1.0 ? p.bpm : 120.0;
+        const double scanSecs = (60.0 / bpmSafe) * beatsTable[juce::jlimit(0, 5, p.speedSyncDiv)];
+        speedMag = (double)validLength / juce::jmax(1.0, scanSecs * currentSampleRate);
+    }
+    else
+    {
+        speedMag = std::abs((double)p.speed);
+    }
+
     // TONE: コムレゾネーター係数
     const bool  toneOn = p.tone > 0.001f && !combBufL.empty();
     const int   combSize = (int)combBufL.size();
@@ -240,22 +249,61 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     const float combDamp = 0.35f;                  // 高域減衰（金属的な響きを抑制）
     const float toneMix = p.tone;
 
+    const double L = (double)validLength;
+    const double posBase = L * (double)p.position;
+
     for (int i = 0; i < numSamples; ++i)
     {
-        // プレイヘッド移動（トリム区間内でループ）
-        const double currentPlayhead = (double)trimStart + (double)validLength * (double)p.position + playheadOffset;
-        playheadOffset += (double)p.speed;
-        if (playheadOffset > (double)validLength)  playheadOffset -= (double)validLength;
-        if (playheadOffset < -(double)validLength) playheadOffset += (double)validLength;
+        // --------------------------------------
+        // プレイヘッド移動 (MODE: Forward/Backward/Ping-Pong/Random)
+        //  Positionを起点に領域内を移動する
+        // --------------------------------------
+        double rel; // 領域内相対位置 0..L
+        switch (p.playMode)
+        {
+        case 1: // Backward
+            rel = std::fmod(posBase + playheadOffset, L);
+            if (rel < 0.0) rel += L;
+            playheadOffset -= speedMag;
+            if (playheadOffset < -2.0 * L) playheadOffset += L; // 数値劣化防止
+            break;
 
-        double wrappedPlayhead = currentPlayhead;
-        while (wrappedPlayhead >= (double)trimEnd)   wrappedPlayhead -= (double)validLength;
-        while (wrappedPlayhead < (double)trimStart)  wrappedPlayhead += (double)validLength;
+        case 2: // Ping-Pong (三角折り返し)
+        {
+            double t = std::fmod(posBase + playheadOffset, 2.0 * L);
+            if (t < 0.0) t += 2.0 * L;
+            rel = (t <= L) ? t : 2.0 * L - t;
+            playheadOffset += speedMag;
+            if (playheadOffset > 4.0 * L) playheadOffset -= 2.0 * L;
+            break;
+        }
+
+        case 3: // Random (発火毎にジャンプ)
+            rel = randomTargetRel;
+            break;
+
+        case 0: // Forward
+        default:
+            rel = std::fmod(posBase + playheadOffset, L);
+            if (rel < 0.0) rel += L;
+            playheadOffset += speedMag;
+            if (playheadOffset > 2.0 * L) playheadOffset -= L; // 数値劣化防止
+            break;
+        }
+
+        const double wrappedPlayhead = (double)trimStart + juce::jlimit(0.0, L - 1.0, rel);
 
         // グレイン発火スケジューリング
         if (--samplesToNextSpawn <= 0)
         {
-            spawnGrain(trimStart, trimEnd, wrappedPlayhead, p, overlap, baseLife, visualizer, spawnBudget);
+            double spawnPos = wrappedPlayhead;
+            if (p.playMode == 3)
+            {
+                randomTargetRel = (double)random.nextFloat() * (L - 1.0); // ジャンプ実行
+                spawnPos = (double)trimStart + randomTargetRel;
+            }
+
+            spawnGrain(trimStart, trimEnd, spawnPos, p, overlap, baseLife, visualizer, spawnBudget);
 
             if (p.pitchSync)
             {
@@ -285,7 +333,12 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             mixL += sL * windowValue * grain.panL * grain.amp;
             mixR += sR * windowValue * grain.panR * grain.amp;
 
+            // 領域内ラップ再生 (End→Start へ折り返し):
+            // グレイン全長がEndまでに収まる必要がなくなり、Positionが常に尊重される
             grain.position += grain.step;
+            if (grain.position >= (double)trimEnd)      grain.position -= L;
+            else if (grain.position < (double)trimStart) grain.position += L;
+
             if (++grain.age >= grain.life) grain.isActive = false;
         }
 

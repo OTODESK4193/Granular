@@ -41,6 +41,14 @@ MainPanel::MainPanel(GranularAudioProcessor& p) : proc(p)
     setupKnob(startKnob,    startLabel,    "START",    "sampleStart", master);
     setupKnob(endKnob,      endLabel,      "END",      "sampleEnd",   master);
 
+    // --- MOTION: プレイヘッドの動き ---
+    setupCombo(modeBox, modeLabel, "MODE", "playMode");
+    setupCombo(scanBox, scanLabel, "SCAN", "speedSyncDiv");
+
+    addAndMakeVisible(speedSyncButton);
+    buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        proc.apvts, "speedSync", speedSyncButton));
+
     // --- MASTER ---
     setupKnob(hpfKnob,  hpfLabel,  "HPF",  "masterHPF", master);
     setupKnob(lpfKnob,  lpfLabel,  "LPF",  "masterLPF", master);
@@ -66,6 +74,23 @@ void MainPanel::setupKnob(juce::Slider& s, juce::Label& l, const juce::String& t
         proc.apvts, paramID, s));
 }
 
+void MainPanel::setupCombo(juce::ComboBox& c, juce::Label& l, const juce::String& text,
+                           const juce::String& paramID)
+{
+    if (auto* choiceParam = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter(paramID)))
+        c.addItemList(choiceParam->choices, 1);
+
+    addAndMakeVisible(c);
+    comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        proc.apvts, paramID, c));
+
+    l.setText(text, juce::dontSendNotification);
+    l.setJustificationType(juce::Justification::centredLeft);
+    l.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+    l.setColour(juce::Label::textColourId, GranularColors::textDim);
+    addAndMakeVisible(l);
+}
+
 void MainPanel::paint(juce::Graphics& g)
 {
     auto drawSection = [&g](const juce::String& name, int x, int y, int w, juce::Colour accent)
@@ -81,13 +106,14 @@ void MainPanel::paint(juce::Graphics& g)
     drawSection("PITCH",    516, 6,   3 * kKnobW - 8, GranularColors::accentPitch);
     drawSection("ENVELOPE", 772, 6,   4 * kKnobW - 8, GranularColors::accentEnv);
     drawSection("SAMPLE",   20,  150, 3 * kKnobW - 8, GranularColors::accentMaster);
+    drawSection("MOTION",   300, 150, 320,            GranularColors::accentGrain);
     drawSection("MASTER",   848, 150, 3 * kKnobW - 8, GranularColors::accentMaster);
 
-    // SAMPLEセクションの補足
+    // 補足説明
     g.setColour(GranularColors::textDim.withAlpha(0.6f));
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
-    g.drawText("POSITION = pink line / START & END = markers on the waveform",
-               280, 196, 540, 14, juce::Justification::centredLeft);
+    g.drawText("S-SYNC: scan Start-End in SCAN length (DAW tempo)",
+               650, 178, 190, 42, juce::Justification::topLeft);
 }
 
 void MainPanel::resized()
@@ -121,6 +147,13 @@ void MainPanel::resized()
     placeKnob(positionKnob, positionLabel, 20 + 0 * kKnobW, row2);
     placeKnob(startKnob,    startLabel,    20 + 1 * kKnobW, row2);
     placeKnob(endKnob,      endLabel,      20 + 2 * kKnobW, row2);
+
+    // MOTION: MODE / S-SYNC / SCAN
+    modeLabel.setBounds(300, row2, 80, 14);
+    modeBox.setBounds(300, row2 + 16, 110, 26);
+    speedSyncButton.setBounds(424, row2 + 16, 76, 26);
+    scanLabel.setBounds(514, row2, 80, 14);
+    scanBox.setBounds(514, row2 + 16, 100, 26);
 
     placeKnob(hpfKnob,  hpfLabel,  848 + 0 * kKnobW, row2);
     placeKnob(lpfKnob,  lpfLabel,  848 + 1 * kKnobW, row2);

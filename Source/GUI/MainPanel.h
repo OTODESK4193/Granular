@@ -11,6 +11,7 @@
 
 #include "../PluginProcessor.h"
 #include "ValueKnob.h"
+#include "GlowToggle.h"
 #include "ColorPalette.h"
 
 class MainPanel : public juce::Component
@@ -24,6 +25,8 @@ public:
 private:
     void setupKnob(juce::Slider& s, juce::Label& l, const juce::String& text,
                    const juce::String& paramID, juce::Colour accent);
+    void setupCombo(juce::ComboBox& c, juce::Label& l, const juce::String& text,
+                    const juce::String& paramID);
 
     GranularAudioProcessor& proc;
 
@@ -43,11 +46,18 @@ private:
     ValueKnob positionKnob, startKnob, endKnob;
     juce::Label positionLabel, startLabel, endLabel;
 
+    // --- MOTION (プレイヘッドの動き) ---
+    juce::ComboBox modeBox, scanBox;
+    juce::Label    modeLabel, scanLabel;
+    GlowToggle speedSyncButton { "S-SYNC", GranularColors::babyBlue };
+
     // --- MASTER ---
     ValueKnob hpfKnob, lpfKnob, gainKnob;
     juce::Label hpfLabel, lpfLabel, gainLabel;
 
-    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>>   sliderAttachments;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>>   buttonAttachments;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainPanel)
 };

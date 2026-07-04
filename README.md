@@ -29,6 +29,9 @@ JUCE 8.0系 / VST3 + Standalone / C++20。
 - **PadEnvelope**: Attackはべき乗カーブ最大10秒（ゆっくり立ち上がるPAD）〜
   最短0.5ms（歯切れのよい発音）。Decay/Releaseは指数カーブ
 - **Start/End**: ノブ＋波形上のマーカードラッグでサンプル範囲を調整
+- **MOTION**: プレイヘッドの動きを Forward / Backward / Ping-Pong / Random から選択。
+  S-SYNCオンで「Start-End領域を指定音価（1拍〜8小節）でスキャン」するDAWテンポ追随。
+  グレインは領域内をラップ再生（Positionが常に発火起点として尊重される）
 - **マスターリミッター**: ブリックウォール、Ceiling -0.1dBデフォルト
 - **UI**: 5タブ構成 MAIN / ARP / MOD / FX / CONFIG。
   MAIN=グレイン・ピッチ・エンベロープ・POSITION/START/END・マスター、
