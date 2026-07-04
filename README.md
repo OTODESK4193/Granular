@@ -20,8 +20,18 @@ JUCE 8.0系 / VST3 + Standalone / C++20。
 - **高音質化**: グレイン読み出しは4点Hermite補間（Tessellatorの最近傍から改良）
 - **決定論的グレインスケジューラ**: Densityをオーバーラップ量として扱い、
   低密度でもテクスチャが安定（±25%のゆらぎ付き）
-- **サンプル下処理**: 読み込み時に Omni-Analyzer（Tessellator移植）でピッチ解析し、
-  **Signalsmith Stretch** でC3へ高品質ピッチ補正 → -6dB正規化 → 無音トリム
+- **Root Note Tracking**: 補正はセント偏差のみ（音質ほぼ無劣化）。
+  検出ノートをルートとして記憶し、そのノートを弾くと原音の高さで再生。
+  表示はAbleton基準（C3 = MIDI 60）
+- **高精度ピッチ解析**: 正規化自己相関＋オクターブエラーガード＋3窓中央値。
+  ファイル名Keyヒント（"Pad-C4" "Bass(D)" "Am_pluck" "Ebmaj"等）でKeyを確定し
+  解析は高さの特定に専念
+- **PadEnvelope**: Attackはべき乗カーブ最大10秒（ゆっくり立ち上がるPAD）〜
+  最短0.5ms（歯切れのよい発音）。Decay/Releaseは指数カーブ
+- **Start/End**: ノブ＋波形上のマーカードラッグでサンプル範囲を調整
+- **マスターリミッター**: ブリックウォール、Ceiling -0.1dBデフォルト
+- **UI**: 全ノブ右クリックで数値入力、SYNC/REVはLED点灯式トグル、
+  ヘッダーに LOAD / ANALYZE / DELETE / RESET（破壊的操作はY/N確認付き）
 - **パステル・ドット波形GUI**:
   波形を小さなドットの縦積みで表現（mint→blue→lavender→pinkのグラデーション）。
   グレイン発火をリアルタイムにドットで可視化（ピッチ→高さ・色、時間減衰）。
@@ -65,13 +75,16 @@ Granular/
   （`Source/third_party/signalsmith-stretch/LICENSE-*.txt` を同梱すれば十分）。
 - RubberBand は使用していないため、GPL/商用ライセンスの制約はありません。
 
-## ロードマップ（Quanta 2超えに向けて）
+## ロードマップ（Quanta 2超えに向けて / 優先順）
 
-- [ ] **MODタブ**: LFO×4（テンポ同期、Sine/Tri/Saw/Sqr/S&H/Chaos）＋ ループ可能Env×2
-      ＋ 16スロットのモジュレーションマトリクス（Velocity/Note/ModWheel/Random/Macro×4）
-      ※量子化は変調後に行われるため、Pitchへの変調もすべてスケールに乗る
-- [ ] **FXタブ**: 4スロット式 — Shimmer Reverb / Tape Delay（テンポ同期＋ダッキング）
-      / Ensemble Chorus / Freeze・Smear
-- [ ] グレインごとのフィルター、ステレオソース対応の強化
-- [ ] プリセットブラウザ、リサイズ対応GUI
-- [ ] MPE / ピッチベンド対応
+1. [ ] **ARP**: アルペジエイター10種以上（Up/Down/UpDown/Converge/Diverge/Random/
+       RandomWalk/Played/Chord/Pedal等）、TempoSync、Duration（音符）、
+       Quantize Key/Scale反映
+2. [ ] **MODタブ**: LFO×4（テンポ同期、Sine/Tri/Saw/Sqr/S&H/Chaos）＋ ループ可能Env×2
+       ＋ 16スロットマトリクス（Velocity/Note/ModWheel/Random/Macro×4）
+       ※量子化は変調後に行われるため、Pitchへの変調もすべてスケールに乗る
+3. [ ] **FXタブ**: 4スロット式 — Shimmer Reverb / Tape Delay / Ensemble Chorus /
+       Freeze・Smear。**適用順はD&Dで並べ替え可能**
+4. [ ] **Configタブ**: カラーテーマ変更、同時発音数、Limiter Ceiling、解析ロジック設定
+5. [ ] グレインループのSIMD化（グレイン主導ブロック処理への再設計、2〜3倍高速化見込み）
+6. [ ] プリセットブラウザ、リサイズGUI、MPE/ピッチベンド

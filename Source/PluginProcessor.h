@@ -50,8 +50,11 @@ public:
 
     // --- サンプル読み込み（背景スレッド） ---
     void loadFileForIngest(const juce::File& file);
+    void reingestCurrentFile();   // ANALYZE: 現在のファイルを再解析
+    void clearSample();           // DELETE: サンプルを破棄
     void run() override;
     juce::String getFileName() const { return fileToIngest.getFileName(); }
+    bool hasSampleFile() const { return fileToIngest.existsAsFile(); }
 
     juce::AudioFormatManager formatManager;
     juce::AudioBuffer<float> sharedAudioBuffer;
@@ -68,6 +71,7 @@ public:
 
     std::atomic<int> currentDetectedRoot { 0 };
     std::atomic<bool> currentIsMajor { true };
+    std::atomic<int> rootMidiNote { 60 };   // Root Note Tracking (Ableton: C3=60)
 
     GranularSynth synth; // synth.visualizer を GUI が参照する
 

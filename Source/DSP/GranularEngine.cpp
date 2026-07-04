@@ -34,7 +34,7 @@ static inline float readHermiteClamped(const float* src, int numSamples, double 
 void GranularVoice::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
-    adsr.setSampleRate(sampleRate);
+    env.setSampleRate(sampleRate);
     voiceInternalBuffer.setSize(2, samplesPerBlock, false, true, true);
     random.setSeed((uint32_t)(reinterpret_cast<uintptr_t>(this) & 0xFFFFFFFF));
 
@@ -68,19 +68,14 @@ void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, cons
     std::fill(combBufR.begin(), combBufR.end(), 0.0f);
     combLpL = combLpR = 0.0f;
 
-    juce::ADSR::Parameters ap;
-    ap.attack = p.attack;
-    ap.decay = p.decay;
-    ap.sustain = p.sustain;
-    ap.release = p.release;
-    adsr.setParameters(ap);
-    adsr.noteOn();
+    env.setParameters(p.attack, p.decay, p.sustain, p.release);
+    env.noteOn();
 }
 
 void GranularVoice::stopNote(bool allowTailOff)
 {
     heldDown = false;
-    if (allowTailOff) adsr.noteOff();
+    if (allowTailOff) env.noteOff();
     else clearCurrentNote();
 }
 
@@ -89,7 +84,7 @@ void GranularVoice::clearCurrentNote()
     playing = false;
     heldDown = false;
     currentMidiNote = -1;
-    adsr.reset();
+    env.reset();
 }
 
 void GranularVoice::spawnGrain(int trimStart, int trimEnd,
@@ -121,7 +116,7 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
     const float globalSemis = (float)p.octave * 12.0f + (float)p.pitchSt + p.fineTune / 100.0f;
     const float jitterSemis = ((random.nextFloat() * 2.0f - 1.0f) * p.pitchJitter) / 100.0f;
 
-    float totalAbsSemis = (float)currentMidiNote + globalSemis + jitterSemis; // C3=60 基準の絶対ピッチ
+    float totalAbsSemis = (float)currentMidiNote + globalSemis + jitterSemis; // 絶対ピッチ(MIDI)
 
     if (p.scale > 0)
     {
@@ -129,7 +124,8 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
         totalAbsSemis = ScaleQuantizer::quantize(totalAbsSemis, root, p.scale);
     }
 
-    const double pitchRatio = std::pow(2.0, ((double)totalAbsSemis - 60.0) / 12.0);
+    // Root Note Tracking: サンプルの元ピッチ(rootNote)を弾くと原音で再生
+    const double pitchRatio = std::pow(2.0, ((double)totalAbsSemis - (double)p.rootNote) / 12.0);
     grain.step = p.reverseGrain ? -pitchRatio : pitchRatio;
 
     // --------------------------------------
@@ -169,7 +165,7 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
     {
         const float normPos = (float)((grain.position - (double)trimStart) / (double)validLength);
         visualizer->push(juce::jlimit(0.0f, 1.0f, normPos), pan,
-                         totalAbsSemis - 60.0f,
+                         totalAbsSemis - (float)p.rootNote,
                          (float)grain.life / (float)currentSampleRate);
     }
 }
@@ -182,7 +178,7 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                                     GrainVisualizerData* visualizer,
                                     int& spawnBudget)
 {
-    if (!adsr.isActive() || sharedSourceBuffer == nullptr)
+    if (!env.isActive() || sharedSourceBuffer == nullptr)
     {
         if (playing) clearCurrentNote();
         return;
@@ -306,11 +302,11 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             mixR = mixR * (1.0f - toneMix * 0.5f) + wetR * toneMix;
         }
 
-        voiceInternalBuffer.setSample(0, i, mixL);
-        voiceInternalBuffer.setSample(1, i, mixR);
+        // PadEnvelope をサンプル単位で適用（コムの余韻もリリースに含まれる）
+        const float envVal = env.getNextSample();
+        voiceInternalBuffer.setSample(0, i, mixL * envVal);
+        voiceInternalBuffer.setSample(1, i, mixR * envVal);
     }
-
-    adsr.applyEnvelopeToBuffer(voiceInternalBuffer, 0, numSamples);
 
     for (int ch = 0; ch < outputBuffer.getNumChannels(); ++ch)
         outputBuffer.addFrom(ch, 0, voiceInternalBuffer, ch % 2, 0, numSamples);
@@ -351,6 +347,7 @@ void GranularSynth::prepareToPlay(double sr, int spb)
         filterHPF[ch].reset();
         filterLPF[ch].reset();
     }
+    limiter.prepare(sr);
     for (auto& v : voices) v.prepareToPlay(sr, spb);
 }
 
@@ -438,18 +435,14 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
 
     buf.applyGain(juce::Decibels::decibelsToGain(p.outGainDb));
 
-    // ソフトセーフティクリップ + NaN/Inf ガード
+    // マスターブリックウォールリミッター (Ceiling: デフォルト -0.1dB) + NaN/Inf ガード
     const int channels = buf.getNumChannels();
-    for (int ch = 0; ch < channels; ++ch)
+    const float ceilingLin = juce::Decibels::decibelsToGain(juce::jlimit(-6.0f, 0.0f, p.ceiling));
     {
-        float* d = buf.getWritePointer(ch);
+        float* dL = buf.getWritePointer(0);
+        float* dR = channels > 1 ? buf.getWritePointer(1) : dL;
         for (int i = 0; i < buf.getNumSamples(); ++i)
-        {
-            float x = d[i];
-            if (x > 1.5f)  x = 1.5f + std::tanh(x - 1.5f) * 0.1f;
-            if (x < -1.5f) x = -1.5f + std::tanh(x + 1.5f) * 0.1f;
-            d[i] = x;
-        }
+            limiter.process(dL[i], dR[i], ceilingLin);
     }
 
     if (buf.getNumSamples() > 0)

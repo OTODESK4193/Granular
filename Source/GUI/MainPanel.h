@@ -9,6 +9,9 @@
 #include <vector>
 
 #include "../PluginProcessor.h"
+#include "ValueKnob.h"
+#include "GlowToggle.h"
+#include "ColorPalette.h"
 
 class MainPanel : public juce::Component
 {
@@ -27,26 +30,30 @@ private:
     GranularAudioProcessor& proc;
 
     // --- GRAIN ---
-    juce::Slider sizeKnob, densityKnob, sprayKnob, jitterKnob, panKnob, speedKnob;
-    juce::Label  sizeLabel, densityLabel, sprayLabel, jitterLabel, panLabel, speedLabel;
+    ValueKnob sizeKnob, densityKnob, sprayKnob, jitterKnob, panKnob, speedKnob;
+    juce::Label sizeLabel, densityLabel, sprayLabel, jitterLabel, panLabel, speedLabel;
 
     // --- PITCH ---
-    juce::Slider octaveKnob, semiKnob, fineKnob;
-    juce::Label  octaveLabel, semiLabel, fineLabel;
+    ValueKnob octaveKnob, semiKnob, fineKnob;
+    juce::Label octaveLabel, semiLabel, fineLabel;
 
     // --- ENV ---
-    juce::Slider attackKnob, decayKnob, sustainKnob, releaseKnob;
-    juce::Label  attackLabel, decayLabel, sustainLabel, releaseLabel;
+    ValueKnob attackKnob, decayKnob, sustainKnob, releaseKnob;
+    juce::Label attackLabel, decayLabel, sustainLabel, releaseLabel;
 
     // --- TEXTURE (音程感強調) ---
-    juce::Slider toneKnob;
-    juce::Label  toneLabel;
-    juce::ToggleButton syncButton { "SYNC" };
-    juce::ToggleButton revButton { "REV" };
+    ValueKnob toneKnob;
+    juce::Label toneLabel;
+    GlowToggle syncButton { "SYNC", GranularColors::mint };
+    GlowToggle revButton  { "REV",  GranularColors::rose };
+
+    // --- SAMPLE (Start/End) ---
+    ValueKnob startKnob, endKnob;
+    juce::Label startLabel, endLabel;
 
     // --- MASTER ---
-    juce::Slider hpfKnob, lpfKnob, gainKnob;
-    juce::Label  hpfLabel, lpfLabel, gainLabel;
+    ValueKnob hpfKnob, lpfKnob, gainKnob;
+    juce::Label hpfLabel, lpfLabel, gainLabel;
 
     // --- コンボ ---
     juce::ComboBox keyBox, scaleBox, windowBox, materialBox;

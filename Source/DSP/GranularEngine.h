@@ -81,8 +81,114 @@ struct GranularParams
 
     float masterHPF = 20.0f;
     float masterLPF = 20000.0f;
+    float ceiling = -0.1f;        // マスターリミッターの天井 (dB)
 
     int   detectedRoot = 0;       // 解析で得たルート (key==Auto時に使用)
+    int   rootNote = 60;          // Root Note Tracking: サンプルの元ピッチ(MIDI)
+                                  // このノートを弾くと原音の高さで再生される
+};
+
+// ==========================================
+// PadEnvelope — PAD対応カスタムADSR
+//   Attack : べき乗カーブ(ゆっくり立ち上がる) 最大10秒 / 最短0.5msで歯切れよく
+//   Decay/Release : 指数カーブ(アナログ的な自然な減衰、初動が速い)
+//   リトリガーは現在値から継続（ボイススチール時のクリック防止）
+// ==========================================
+class PadEnvelope
+{
+public:
+    void setSampleRate(double sr) noexcept { sampleRate = sr; }
+
+    void setParameters(float a, float d, float s, float r) noexcept
+    {
+        atkTime = juce::jmax(0.0005f, a);
+        decTime = juce::jmax(0.001f, d);
+        sus = juce::jlimit(0.0f, 1.0f, s);
+        relTime = juce::jmax(0.001f, r);
+    }
+
+    void noteOn() noexcept
+    {
+        // 現在値からアタックを再開（位相を逆算）
+        attackPhase = std::pow(juce::jlimit(0.0f, 1.0f, value), 1.0f / kAttackCurve);
+        attackInc = (float)(1.0 / ((double)atkTime * sampleRate));
+        decayCoef = 1.0f - std::exp((float)(-4.6 / ((double)decTime * sampleRate)));
+        releaseCoef = 1.0f - std::exp((float)(-6.9 / ((double)relTime * sampleRate)));
+        stage = Stage::Attack;
+    }
+
+    void noteOff() noexcept
+    {
+        if (stage != Stage::Idle) stage = Stage::Release;
+    }
+
+    void reset() noexcept { stage = Stage::Idle; value = 0.0f; attackPhase = 0.0f; }
+    bool isActive() const noexcept { return stage != Stage::Idle; }
+
+    inline float getNextSample() noexcept
+    {
+        switch (stage)
+        {
+        case Stage::Attack:
+            attackPhase += attackInc;
+            if (attackPhase >= 1.0f) { attackPhase = 1.0f; value = 1.0f; stage = Stage::Decay; }
+            else value = std::pow(attackPhase, kAttackCurve); // 凹カーブ: ゆっくり→加速
+            break;
+        case Stage::Decay:
+            value += decayCoef * (sus - value);
+            if (std::abs(value - sus) < 1.0e-4f) { value = sus; stage = Stage::Sustain; }
+            break;
+        case Stage::Sustain:
+            value = sus;
+            break;
+        case Stage::Release:
+            value += releaseCoef * (0.0f - value);
+            if (value < 2.0e-4f) { value = 0.0f; stage = Stage::Idle; }
+            break;
+        case Stage::Idle:
+        default:
+            value = 0.0f;
+            break;
+        }
+        return value;
+    }
+
+private:
+    enum class Stage { Idle, Attack, Decay, Sustain, Release };
+    static constexpr float kAttackCurve = 2.5f;
+
+    Stage stage = Stage::Idle;
+    double sampleRate = 44100.0;
+    float value = 0.0f;
+    float attackPhase = 0.0f, attackInc = 0.001f;
+    float atkTime = 0.02f, decTime = 0.1f, sus = 1.0f, relTime = 0.5f;
+    float decayCoef = 0.001f, releaseCoef = 0.001f;
+};
+
+// ==========================================
+// BrickLimiter — マスター用ブリックウォールリミッター
+//   アタック即時（天井を絶対に超えない）/ リリース50msスムーズ
+// ==========================================
+class BrickLimiter
+{
+public:
+    void prepare(double sr) noexcept
+    {
+        releaseCoef = 1.0f - std::exp((float)(-1.0 / (0.05 * sr)));
+        gain = 1.0f;
+    }
+    inline void process(float& l, float& r, float ceilingLin) noexcept
+    {
+        const float peak = juce::jmax(std::abs(l), std::abs(r), 1.0e-9f);
+        const float target = peak > ceilingLin ? ceilingLin / peak : 1.0f;
+        if (target < gain) gain = target;                    // 即時アタック
+        else gain += releaseCoef * (target - gain);          // スムーズリリース
+        l *= gain;
+        r *= gain;
+    }
+private:
+    float gain = 1.0f;
+    float releaseCoef = 0.0005f;
 };
 
 // ==========================================
@@ -151,7 +257,7 @@ private:
     double playheadOffset = 0.0;
     int    samplesToNextSpawn = 0;
 
-    juce::ADSR adsr;
+    PadEnvelope env;
 
     static constexpr int MAX_GRAINS = 100;   // Quanta 2 同等の1ボイス上限
     std::array<Grain, MAX_GRAINS> grains;
@@ -184,6 +290,11 @@ public:
                       int trimStart, int trimEnd,
                       const GranularParams& p);
 
+    void allNotesOff()
+    {
+        for (auto& v : voices) v.stopNote(false);
+    }
+
     GrainVisualizerData visualizer;
 
     static constexpr int NUM_VOICES = 24;
@@ -198,6 +309,7 @@ private:
 
     juce::IIRFilter filterHPF[2];
     juce::IIRFilter filterLPF[2];
+    BrickLimiter limiter;
 
     double currentSampleRate = 44100.0;
     uint64_t noteCounter = 0;

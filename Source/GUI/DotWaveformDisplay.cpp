@@ -11,6 +11,8 @@ namespace
     constexpr float kDotSpacingX = 7.0f;   // ドット列の横間隔
     constexpr float kDotSpacingY = 6.0f;   // ドットの縦間隔
     constexpr float kDotRadius   = 2.2f;   // 波形ドット半径
+    constexpr float kMarkerHitPx = 7.0f;   // マーカーの当たり判定幅
+    constexpr float kMinRegion   = 0.02f;  // Start/End の最小間隔
 }
 
 DotWaveformDisplay::DotWaveformDisplay(GranularAudioProcessor& processor)
@@ -29,6 +31,28 @@ juce::Rectangle<float> DotWaveformDisplay::getWaveArea() const
     return getLocalBounds().toFloat().reduced(14.0f, 12.0f);
 }
 
+DotWaveformDisplay::RegionGeometry DotWaveformDisplay::getRegionGeometry() const
+{
+    RegionGeometry geo;
+    const auto wave = getWaveArea();
+    geo.waveX = wave.getX();
+    geo.waveW = juce::jmax(1.0f, wave.getWidth());
+
+    const int total = proc.validSampleCount.load();
+    geo.autoSN = total > 0 ? (float)proc.trimStartSample.load() / (float)total : 0.0f;
+    geo.autoEN = total > 0 ? (float)proc.trimEndSample.load() / (float)total : 1.0f;
+
+    const float s01 = proc.apvts.getRawParameterValue("sampleStart")->load();
+    const float e01 = proc.apvts.getRawParameterValue("sampleEnd")->load();
+    const float span = geo.autoEN - geo.autoSN;
+    geo.effSN = geo.autoSN + s01 * span;
+    geo.effEN = geo.autoSN + e01 * span;
+
+    geo.effX = geo.waveX + geo.effSN * geo.waveW;
+    geo.effW = juce::jmax(1.0f, (geo.effEN - geo.effSN) * geo.waveW);
+    return geo;
+}
+
 // ------------------------------------------
 // グレインイベント取得（ロックフリー読み出し）
 // ------------------------------------------
@@ -38,7 +62,6 @@ void DotWaveformDisplay::pullGrainEvents()
     const uint32_t current = viz.counter.load(std::memory_order_acquire);
     uint32_t start = lastEventCount;
 
-    // 大量に溜まっていたら直近分のみ
     if (current - start > (uint32_t)GrainVisualizerData::kMaxEvents)
         start = current - (uint32_t)GrainVisualizerData::kMaxEvents;
 
@@ -56,7 +79,6 @@ void DotWaveformDisplay::pullGrainEvents()
     }
     lastEventCount = current;
 
-    // 期限切れドットを除去
     liveDots.erase(std::remove_if(liveDots.begin(), liveDots.end(),
         [nowMs](const LiveDot& d) { return (nowMs - d.spawnTimeMs) > d.durationMs; }),
         liveDots.end());
@@ -86,7 +108,6 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
     g.setColour(dragHover ? GranularColors::mint.withAlpha(0.8f) : GranularColors::panelLine);
     g.drawRoundedRectangle(bounds.reduced(0.75f), 12.0f, dragHover ? 2.0f : 1.5f);
 
-    // センターライン（うっすら）
     g.setColour(GranularColors::grid);
     g.drawHorizontalLine((int)cy, wave.getX(), wave.getRight());
 
@@ -94,7 +115,6 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
 
     if (state != IngestState::Ready || !proc.waveformReady.load())
     {
-        // --- ロード前 / ロード中の表示 ---
         g.setColour(GranularColors::textDim);
         g.setFont(juce::Font(juce::FontOptions(18.0f)));
 
@@ -104,7 +124,7 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
             case IngestState::Empty:       msg = "DROP  SAMPLE  HERE"; break;
             case IngestState::Loading:     msg = "Loading..."; break;
             case IngestState::Analyzing:   msg = "Analyzing Pitch..."; break;
-            case IngestState::Correcting:  msg = "Pitch Correction..."; break;
+            case IngestState::Correcting:  msg = "Cents Correction..."; break;
             case IngestState::Normalizing: msg = "Normalizing..."; break;
             case IngestState::Failed:      msg = "Load Failed - Try Another File"; break;
             default:                       msg = "..."; break;
@@ -124,13 +144,9 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         return;
     }
 
-    // --- 波形ドット描画 ---
-    const int totalSamples = proc.validSampleCount.load();
-    const int trimS = proc.trimStartSample.load();
-    const int trimE = proc.trimEndSample.load();
-    const float trimSNorm = totalSamples > 0 ? (float)trimS / (float)totalSamples : 0.0f;
-    const float trimENorm = totalSamples > 0 ? (float)trimE / (float)totalSamples : 1.0f;
+    const auto geo = getRegionGeometry();
 
+    // --- 波形ドット描画 ---
     const int numCols = juce::jmax(1, (int)(wave.getWidth() / kDotSpacingX));
     const float maxHalfH = wave.getHeight() * 0.5f - 4.0f;
 
@@ -139,7 +155,6 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         const float colNorm = (float)col / (float)juce::jmax(1, numCols - 1);
         const float x = wave.getX() + kDotSpacingX * 0.5f + (float)col * kDotSpacingX;
 
-        // waveformPeaks(1000ビン)から該当範囲の最大値を取る
         const int binStart = (int)(colNorm * 999.0f);
         const int binEnd = juce::jmin(999, (int)(((float)(col + 1) / (float)numCols) * 999.0f));
         float peak = 0.0f;
@@ -149,13 +164,12 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         const float ampH = juce::jlimit(0.0f, maxHalfH, peak * 2.0f * maxHalfH);
         const int dotCount = juce::jmax(1, (int)(ampH / kDotSpacingY));
 
-        const bool insideTrim = (colNorm >= trimSNorm && colNorm <= trimENorm);
+        const bool insideRegion = (colNorm >= geo.effSN && colNorm <= geo.effEN);
         auto baseColour = GranularColors::waveformGradient(colNorm);
-        if (!insideTrim) baseColour = baseColour.withMultipliedAlpha(0.18f);
+        if (!insideRegion) baseColour = baseColour.withMultipliedAlpha(0.18f);
 
         for (int k = 0; k < dotCount; ++k)
         {
-            // 中心から外側へ向けて少しずつ薄く
             const float fade = 1.0f - 0.55f * ((float)k / (float)juce::jmax(1, dotCount - 1));
             g.setColour(baseColour.withMultipliedAlpha(0.9f * fade));
 
@@ -166,17 +180,34 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         }
     }
 
+    // --- Start/End マーカー ---
+    auto drawMarker = [&g, &wave](float x, bool isStart, juce::Colour c)
+    {
+        g.setColour(c.withAlpha(0.85f));
+        g.fillRect(x - 1.0f, wave.getY(), 2.0f, wave.getHeight());
+
+        // 上部の三角ハンドル（内側向き）
+        juce::Path tri;
+        const float dir = isStart ? 1.0f : -1.0f;
+        tri.addTriangle(x, wave.getY(),
+                        x, wave.getY() + 12.0f,
+                        x + dir * 9.0f, wave.getY() + 6.0f);
+        g.fillPath(tri);
+    };
+
+    const float startX = geo.waveX + geo.effSN * geo.waveW;
+    const float endX = geo.waveX + geo.effEN * geo.waveW;
+    drawMarker(startX, true, GranularColors::peach);
+    drawMarker(endX, false, GranularColors::peach);
+
     // --- Position / Spray インジケーター ---
     const float posNorm = proc.apvts.getRawParameterValue("position")->load();
     const float sprayNorm = proc.apvts.getRawParameterValue("positionSpray")->load();
-
-    const float trimX = wave.getX() + trimSNorm * wave.getWidth();
-    const float trimW = juce::jmax(1.0f, (trimENorm - trimSNorm) * wave.getWidth());
-    const float posX = trimX + posNorm * trimW;
+    const float posX = geo.effX + posNorm * geo.effW;
 
     if (sprayNorm > 0.001f)
     {
-        const float sprayW = sprayNorm * trimW;
+        const float sprayW = sprayNorm * geo.effW;
         auto sprayRect = juce::Rectangle<float>(posX - sprayW, wave.getY(), sprayW * 2.0f, wave.getHeight());
         sprayRect = sprayRect.getIntersection(wave);
         g.setColour(GranularColors::pink.withAlpha(0.10f));
@@ -193,18 +224,16 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
     for (const auto& d : liveDots)
     {
         const float t = (float)juce::jlimit(0.0, 1.0, (nowMs - d.spawnTimeMs) / d.durationMs);
-        const float alpha = (1.0f - t) * (1.0f - t); // 二乗減衰で余韻を演出
+        const float alpha = (1.0f - t) * (1.0f - t);
 
-        const float gx = trimX + d.normPos * trimW;
+        const float gx = geo.effX + d.normPos * geo.effW;
         const float gy = juce::jlimit(wave.getY() + 4.0f, wave.getBottom() - 4.0f,
                                       cy - d.semitones * 4.0f + (d.pan - 0.5f) * 10.0f);
         const float r = 2.5f + 2.5f * (1.0f - t);
 
         const auto c = GranularColors::grainColour(d.semitones);
-        // グロー
         g.setColour(c.withAlpha(0.25f * alpha));
         g.fillEllipse(gx - r * 2.2f, gy - r * 2.2f, r * 4.4f, r * 4.4f);
-        // コア
         g.setColour(c.withAlpha(alpha));
         g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
     }
@@ -231,46 +260,93 @@ void DotWaveformDisplay::filesDropped(const juce::StringArray& files, int, int)
 }
 
 // ------------------------------------------
-// クリック / ドラッグで Position 操作
+// マウス操作: Start/End マーカー & Position
 // ------------------------------------------
-void DotWaveformDisplay::setPositionFromMouse(const juce::MouseEvent& e, bool isStart)
+void DotWaveformDisplay::mouseMove(const juce::MouseEvent& e)
 {
-    if (proc.ingestState.load() != IngestState::Ready) return;
+    if (proc.ingestState.load() != IngestState::Ready) { setMouseCursor(juce::MouseCursor::NormalCursor); return; }
 
-    auto* param = proc.apvts.getParameter("position");
-    if (param == nullptr) return;
+    const auto geo = getRegionGeometry();
+    const float x = (float)e.position.getX();
+    const float startX = geo.waveX + geo.effSN * geo.waveW;
+    const float endX = geo.waveX + geo.effEN * geo.waveW;
 
-    const int totalSamples = proc.validSampleCount.load();
-    const float trimSNorm = totalSamples > 0 ? (float)proc.trimStartSample.load() / (float)totalSamples : 0.0f;
-    const float trimENorm = totalSamples > 0 ? (float)proc.trimEndSample.load() / (float)totalSamples : 1.0f;
-
-    const auto wave = getWaveArea();
-    const float trimX = wave.getX() + trimSNorm * wave.getWidth();
-    const float trimW = juce::jmax(1.0f, (trimENorm - trimSNorm) * wave.getWidth());
-
-    const float norm = juce::jlimit(0.0f, 1.0f, ((float)e.position.getX() - trimX) / trimW);
-
-    if (isStart) param->beginChangeGesture();
-    param->setValueNotifyingHost(norm); // position は 0..1 なので正規化値と一致
+    const bool nearMarker = std::abs(x - startX) <= kMarkerHitPx || std::abs(x - endX) <= kMarkerHitPx;
+    setMouseCursor(nearMarker ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
 }
 
 void DotWaveformDisplay::mouseDown(const juce::MouseEvent& e)
 {
-    draggingPosition = true;
-    setPositionFromMouse(e, true);
+    if (proc.ingestState.load() != IngestState::Ready) return;
+
+    const auto geo = getRegionGeometry();
+    const float x = (float)e.position.getX();
+    const float startX = geo.waveX + geo.effSN * geo.waveW;
+    const float endX = geo.waveX + geo.effEN * geo.waveW;
+
+    if (std::abs(x - startX) <= kMarkerHitPx)
+    {
+        dragMode = DragMode::StartMarker;
+        draggedParam = proc.apvts.getParameter("sampleStart");
+    }
+    else if (std::abs(x - endX) <= kMarkerHitPx)
+    {
+        dragMode = DragMode::EndMarker;
+        draggedParam = proc.apvts.getParameter("sampleEnd");
+    }
+    else
+    {
+        dragMode = DragMode::Position;
+        draggedParam = proc.apvts.getParameter("position");
+    }
+
+    if (draggedParam != nullptr)
+    {
+        draggedParam->beginChangeGesture();
+        updateDraggedParam(e);
+    }
 }
 
 void DotWaveformDisplay::mouseDrag(const juce::MouseEvent& e)
 {
-    if (draggingPosition) setPositionFromMouse(e, false);
+    if (dragMode != DragMode::None && draggedParam != nullptr)
+        updateDraggedParam(e);
 }
 
 void DotWaveformDisplay::mouseUp(const juce::MouseEvent&)
 {
-    if (draggingPosition)
+    if (draggedParam != nullptr)
+        draggedParam->endChangeGesture();
+    draggedParam = nullptr;
+    dragMode = DragMode::None;
+}
+
+void DotWaveformDisplay::updateDraggedParam(const juce::MouseEvent& e)
+{
+    const auto geo = getRegionGeometry();
+    const float normFull = juce::jlimit(0.0f, 1.0f, ((float)e.position.getX() - geo.waveX) / geo.waveW);
+
+    if (dragMode == DragMode::Position)
     {
-        if (auto* param = proc.apvts.getParameter("position"))
-            param->endChangeGesture();
-        draggingPosition = false;
+        const float v = juce::jlimit(0.0f, 1.0f, (normFull * geo.waveW + geo.waveX - geo.effX) / geo.effW);
+        draggedParam->setValueNotifyingHost(v);
+        return;
+    }
+
+    // Start/End: 自動トリム領域内の相対値へ変換
+    const float span = juce::jmax(1.0e-6f, geo.autoEN - geo.autoSN);
+    float rel = juce::jlimit(0.0f, 1.0f, (normFull - geo.autoSN) / span);
+
+    if (dragMode == DragMode::StartMarker)
+    {
+        const float endVal = proc.apvts.getRawParameterValue("sampleEnd")->load();
+        rel = juce::jmin(rel, endVal - kMinRegion);
+        draggedParam->setValueNotifyingHost(juce::jmax(0.0f, rel));
+    }
+    else if (dragMode == DragMode::EndMarker)
+    {
+        const float startVal = proc.apvts.getRawParameterValue("sampleStart")->load();
+        rel = juce::jmax(rel, startVal + kMinRegion);
+        draggedParam->setValueNotifyingHost(juce::jmin(1.0f, rel));
     }
 }

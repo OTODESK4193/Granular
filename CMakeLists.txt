@@ -66,6 +66,8 @@ target_sources(Granular PRIVATE
     Source/GUI/DotWaveformDisplay.cpp
     Source/GUI/MainPanel.h
     Source/GUI/MainPanel.cpp
+    Source/GUI/ValueKnob.h
+    Source/GUI/GlowToggle.h
 )
 
 # ----------------------------------------------------------------------------

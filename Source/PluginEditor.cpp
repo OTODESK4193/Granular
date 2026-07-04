@@ -29,10 +29,18 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     fxTabButton.onClick   = [this] { setActiveTab(Tab::Fx); };
     setActiveTab(Tab::Main);
 
-    // --- LOADボタン ---
-    loadButton.setColour(juce::TextButton::buttonColourId, GranularColors::knobTrack);
-    loadButton.setColour(juce::TextButton::textColourOffId, GranularColors::text);
-    addAndMakeVisible(loadButton);
+    // --- ヘッダーボタン (LOAD以外はY/N確認付き) ---
+    auto styleHeaderButton = [this](juce::TextButton& b)
+    {
+        b.setColour(juce::TextButton::buttonColourId, GranularColors::knobTrack);
+        b.setColour(juce::TextButton::textColourOffId, GranularColors::text);
+        addAndMakeVisible(b);
+    };
+    styleHeaderButton(loadButton);
+    styleHeaderButton(analyzeButton);
+    styleHeaderButton(deleteButton);
+    styleHeaderButton(resetButton);
+
     loadButton.onClick = [this]
     {
         fileChooser = std::make_unique<juce::FileChooser>(
@@ -45,6 +53,28 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
             });
     };
 
+    analyzeButton.onClick = [this]
+    {
+        if (!proc.hasSampleFile()) return;
+        confirmThen("Re-Analyze",
+                    juce::String::fromUTF8("\xE7\x8F\xBE\xE5\x9C\xA8\xE3\x81\xAE\xE3\x82\xB5\xE3\x83\xB3\xE3\x83\x97\xE3\x83\xAB\xE3\x82\x92\xE5\x86\x8D\xE8\xA7\xA3\xE6\x9E\x90\xE3\x81\x97\xE3\x81\xBE\xE3\x81\x99\xE3\x81\x8B\xEF\xBC\x9F"),
+                    [this] { proc.reingestCurrentFile(); });
+    };
+
+    deleteButton.onClick = [this]
+    {
+        confirmThen("Delete Sample",
+                    juce::String::fromUTF8("\xE8\xAA\xAD\xE3\x81\xBF\xE8\xBE\xBC\xE3\x82\x93\xE3\x81\xA0\xE3\x82\xB5\xE3\x83\xB3\xE3\x83\x97\xE3\x83\xAB\xE3\x82\x92\xE7\xA0\xB4\xE6\xA3\x84\xE3\x81\x97\xE3\x81\xBE\xE3\x81\x99\xE3\x81\x8B\xEF\xBC\x9F"),
+                    [this] { proc.clearSample(); });
+    };
+
+    resetButton.onClick = [this]
+    {
+        confirmThen("Reset Parameters",
+                    juce::String::fromUTF8("\xE3\x81\x99\xE3\x81\xB9\xE3\x81\xA6\xE3\x81\xAE\xE3\x83\x8E\xE3\x83\x96/\xE8\xA8\xAD\xE5\xAE\x9A\xE3\x82\x92\xE3\x83\x87\xE3\x83\x95\xE3\x82\xA9\xE3\x83\xAB\xE3\x83\x88\xE3\x81\xAB\xE6\x88\xBB\xE3\x81\x97\xE3\x81\xBE\xE3\x81\x99\xE3\x81\x8B\xEF\xBC\x9F"),
+                    [this] { resetAllParameters(); });
+    };
+
     startTimerHz(10); // HUD更新
     setSize(1080, 640);
 }
@@ -52,6 +82,26 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
 GranularAudioProcessorEditor::~GranularAudioProcessorEditor()
 {
     setLookAndFeel(nullptr);
+}
+
+// ------------------------------------------
+// 確認ダイアログ (Y/N)
+// ------------------------------------------
+void GranularAudioProcessorEditor::confirmThen(const juce::String& title, const juce::String& message,
+                                               std::function<void()> action)
+{
+    juce::AlertWindow::showOkCancelBox(
+        juce::MessageBoxIconType::QuestionIcon, title, message, "Yes", "No", this,
+        juce::ModalCallbackFunction::create([action](int result)
+        {
+            if (result == 1 && action != nullptr) action();
+        }));
+}
+
+void GranularAudioProcessorEditor::resetAllParameters()
+{
+    for (auto* param : proc.getParameters())
+        param->setValueNotifyingHost(param->getDefaultValue());
 }
 
 // ------------------------------------------
@@ -117,14 +167,14 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawText("OTODESK  |  24-voice Scale-Quantized Granular", 22, 40, 400, 14, juce::Justification::centredLeft);
 
-    // --- HUD (右上) ---
+    // --- HUD (ヘッダー中央・解析結果4行) ---
     g.setFont(juce::Font(juce::FontOptions(10.5f)));
     g.setColour(GranularColors::text.withAlpha(0.85f));
-    g.drawText(hudFile, 430, 8,  560, 13, juce::Justification::centredRight);
+    g.drawText(hudFile, 430, 8,  440, 13, juce::Justification::centred);
     g.setColour(GranularColors::textDim);
-    g.drawText(hudTask, 430, 22, 560, 13, juce::Justification::centredRight);
-    g.drawText(hudOrig, 430, 36, 560, 13, juce::Justification::centredRight);
-    g.drawText(hudCorr, 430, 50, 560, 13, juce::Justification::centredRight);
+    g.drawText(hudTask, 430, 22, 440, 13, juce::Justification::centred);
+    g.drawText(hudOrig, 430, 36, 440, 13, juce::Justification::centred);
+    g.drawText(hudCorr, 430, 50, 440, 13, juce::Justification::centred);
 
     // --- アクティブタブのアンダーライン ---
     auto underline = [&g](const juce::TextButton& b, juce::Colour c)
@@ -146,7 +196,12 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
 void GranularAudioProcessorEditor::resized()
 {
     waveDisplay.setBounds(16, 68, getWidth() - 32, 236);
-    loadButton.setBounds(getWidth() - 76, 40, 60, 22);
+
+    // ヘッダー右: 2×2 ボタングリッド
+    loadButton.setBounds(888, 8, 80, 22);
+    analyzeButton.setBounds(976, 8, 88, 22);
+    deleteButton.setBounds(888, 34, 80, 22);
+    resetButton.setBounds(976, 34, 88, 22);
 
     mainTabButton.setBounds(20,  kTabY, 100, kTabH);
     modTabButton.setBounds(126, kTabY, 100, kTabH);

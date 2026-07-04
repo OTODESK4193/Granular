@@ -37,7 +37,7 @@ MainPanel::MainPanel(GranularAudioProcessor& p) : proc(p)
     setupKnob(sustainKnob, sustainLabel, "S", "sustain", env);
     setupKnob(releaseKnob, releaseLabel, "R", "release", env);
 
-    // --- TEXTURE: TONE + SYNC + REV ---
+    // --- TEXTURE: TONE + SYNC + REV (点灯式トグル) ---
     setupKnob(toneKnob, toneLabel, "TONE", "tone", grain);
 
     addAndMakeVisible(syncButton);
@@ -47,6 +47,10 @@ MainPanel::MainPanel(GranularAudioProcessor& p) : proc(p)
     addAndMakeVisible(revButton);
     buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         proc.apvts, "reverseGrain", revButton));
+
+    // --- SAMPLE: Start/End ---
+    setupKnob(startKnob, startLabel, "START", "sampleStart", master);
+    setupKnob(endKnob,   endLabel,   "END",   "sampleEnd",   master);
 
     // --- MASTER ---
     setupKnob(hpfKnob,  hpfLabel,  "HPF",  "masterHPF", master);
@@ -117,10 +121,10 @@ void MainPanel::paint(juce::Graphics& g)
     drawSection("GRAIN",    20,  6,   6 * kKnobW - 8, GranularColors::accentGrain);
     drawSection("PITCH",    516, 6,   3 * kKnobW - 8, GranularColors::accentPitch);
     drawSection("ENVELOPE", 772, 6,   4 * kKnobW - 8, GranularColors::accentEnv);
-    drawSection("QUANTIZE", 20,  150, 280,            GranularColors::accentPitch);
-    drawSection("TEXTURE",  320, 150, 300,            GranularColors::accentGrain);
-    drawSection("SAMPLE",   640, 150, 130,            GranularColors::accentMaster);
-    drawSection("MASTER",   772, 150, 3 * kKnobW - 8, GranularColors::accentMaster);
+    drawSection("QUANTIZE", 20,  150, 240,            GranularColors::accentPitch);
+    drawSection("TEXTURE",  285, 150, 265,            GranularColors::accentGrain);
+    drawSection("SAMPLE",   575, 150, 255,            GranularColors::accentMaster);
+    drawSection("MASTER",   848, 150, 3 * kKnobW - 8, GranularColors::accentMaster);
 }
 
 void MainPanel::resized()
@@ -159,19 +163,21 @@ void MainPanel::resized()
     scaleLabel.setBounds(110, subLabelY, 80, 14);
     scaleBox.setBounds(110, comboY, 150, 26);
 
-    // TEXTURE: WINDOW + SYNC + REV + TONE
-    windowLabel.setBounds(320, subLabelY, 80, 14);
-    windowBox.setBounds(320, comboY, 110, 26);
-    syncButton.setBounds(440, comboY, 60, 26);
-    revButton.setBounds(504, comboY, 52, 26);
-    placeKnob(toneKnob, toneLabel, 562, subLabelY);
+    // TEXTURE: WINDOW + TONEノブ + SYNC/REV点灯トグル(縦積み)
+    windowLabel.setBounds(285, subLabelY, 80, 14);
+    windowBox.setBounds(285, comboY, 110, 26);
+    placeKnob(toneKnob, toneLabel, 408, subLabelY);
+    syncButton.setBounds(488, subLabelY + 8, 60, 24);
+    revButton.setBounds(488, subLabelY + 38, 60, 24);
 
-    // SAMPLE
-    materialLabel.setBounds(640, subLabelY, 90, 14);
-    materialBox.setBounds(640, comboY, 130, 26);
+    // SAMPLE: MATERIAL + START/END
+    materialLabel.setBounds(575, subLabelY, 90, 14);
+    materialBox.setBounds(575, comboY, 118, 26);
+    placeKnob(startKnob, startLabel, 700, subLabelY);
+    placeKnob(endKnob,   endLabel,   770, subLabelY);
 
     // MASTER
-    placeKnob(hpfKnob,  hpfLabel,  772 + 0 * kKnobW, subLabelY);
-    placeKnob(lpfKnob,  lpfLabel,  772 + 1 * kKnobW, subLabelY);
-    placeKnob(gainKnob, gainLabel, 772 + 2 * kKnobW, subLabelY);
+    placeKnob(hpfKnob,  hpfLabel,  848 + 0 * kKnobW, subLabelY);
+    placeKnob(lpfKnob,  lpfLabel,  848 + 1 * kKnobW, subLabelY);
+    placeKnob(gainKnob, gainLabel, 848 + 2 * kKnobW, subLabelY);
 }

@@ -20,14 +20,32 @@ struct PitchInfo
     juce::String scaleName = "";
 };
 
+// ファイル名から抽出したKeyヒント ("Pad-C4" / "Bass(D)" / "loop_Cm" 等)
+struct FilenameHint
+{
+    int  pitchClass = -1;    // 0..11 (C..B), -1=なし
+    int  octave = -128;      // Ableton表記のオクターブ (-128=なし)
+    bool isMinor = false;
+    bool hasQuality = false; // maj/min 表記があったか
+
+    bool isValid() const noexcept { return pitchClass >= 0; }
+};
+
 class PitchAnalyzer
 {
 public:
     // materialMode: 0=Auto(Detect) 1=Percussive 2=Melodic 3=Vocal
+    // ファイル名にKeyヒントがあれば解析は「高さの特定」に専念し、KeyはヒントでFixする
     static PitchInfo analyzeOmni(const float* audioData, int length, double sampleRate,
                                  const juce::String& filename, int materialMode);
 
-    // 基本の自己相関ピッチ検出（放物線補間つき）
+    // 正規化自己相関ピッチ検出（放物線補間＋オクターブエラーガード）
     static PitchInfo analyzeAutocorrelation(const float* audioData, int length, double sampleRate,
                                             float minFreq, float corrThreshold);
+
+    // ファイル名からのKey抽出
+    static FilenameHint parseFilenameHint(const juce::String& filename);
+
+    // MIDIノート番号 → Ableton表記 (C3 = MIDI 60)
+    static juce::String midiNoteName(int midiNote);
 };

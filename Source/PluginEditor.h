@@ -66,9 +66,16 @@ private:
     StubPanel fxPanel  { "FX RACK",    "Shimmer Reverb / Tape Delay / Ensemble Chorus / Freeze  -  coming soon" };
 
     // --- ヘッダー ---
-    juce::TextButton loadButton { "LOAD" };
+    juce::TextButton loadButton    { "LOAD" };
+    juce::TextButton analyzeButton { "ANALYZE" };
+    juce::TextButton deleteButton  { "DELETE" };
+    juce::TextButton resetButton   { "RESET" };
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::String hudFile, hudTask, hudOrig, hudCorr;
+
+    void confirmThen(const juce::String& title, const juce::String& message,
+                     std::function<void()> action);
+    void resetAllParameters();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GranularAudioProcessorEditor)
 };

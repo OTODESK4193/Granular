@@ -13,11 +13,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    // --- エンベロープ ---
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("attack",  "Attack",  juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.2f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("decay",   "Decay",   juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.1f));
+    // --- エンベロープ (PadEnvelope: Attack最大10秒/最短0.5ms) ---
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("attack",  "Attack",  juce::NormalisableRange<float>(0.0005f, 10.0f, 0.0001f, 0.22f), 0.02f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("decay",   "Decay",   juce::NormalisableRange<float>(0.001f, 10.0f, 0.001f, 0.25f), 0.1f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("sustain", "Sustain", 0.0f, 1.0f, 1.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("release", "Release", juce::NormalisableRange<float>(0.001f, 5.0f, 0.001f, 0.3f), 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("release", "Release", juce::NormalisableRange<float>(0.001f, 10.0f, 0.001f, 0.25f), 0.5f));
 
     // --- グレイン ---
     params.push_back(std::make_unique<juce::AudioParameterFloat>("grainSize",     "Grain Size", 0.02f, 0.5f, 0.15f));
@@ -52,6 +52,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     // --- 素材解析モード ---
     params.push_back(std::make_unique<juce::AudioParameterChoice>("materialMode", "Material",
         juce::StringArray { "Auto (Detect)", "Percussive", "Melodic", "Vocal" }, 0));
+
+    // --- サンプル範囲 (自動トリム領域内の相対 0..1) ---
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("sampleStart", "Start", 0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("sampleEnd",   "End",   0.0f, 1.0f, 1.0f));
+
+    // --- リミッター天井 (Configタブで調整予定) ---
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("ceiling", "Ceiling",
+        juce::NormalisableRange<float>(-6.0f, 0.0f, 0.01f), -0.1f));
 
     // --- マスター ---
     params.push_back(std::make_unique<juce::AudioParameterFloat>("masterHPF", "HPF (Hz)", juce::NormalisableRange<float>(20.0f, 2000.0f, 1.0f, 0.3f), 20.0f));
@@ -110,7 +118,10 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         buffer.clear(i, 0, buffer.getNumSamples());
 
     if (ingestState.load() != IngestState::Ready)
+    {
+        synth.allNotesOff(); // サンプル未ロード/削除時は発音を止める
         return;
+    }
 
     GranularParams p;
     p.attack        = apvts.getRawParameterValue("attack")->load();
@@ -136,12 +147,26 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     p.tone          = apvts.getRawParameterValue("tone")->load();
     p.masterHPF     = apvts.getRawParameterValue("masterHPF")->load();
     p.masterLPF     = apvts.getRawParameterValue("masterLPF")->load();
+    p.ceiling       = apvts.getRawParameterValue("ceiling")->load();
     p.detectedRoot  = currentDetectedRoot.load();
+    p.rootNote      = rootMidiNote.load();
 
-    synth.processBlock(buffer, midiMessages,
-                       &sharedAudioBuffer,
-                       trimStartSample.load(), trimEndSample.load(),
-                       p);
+    // ユーザーStart/End: 自動トリム領域内の相対指定 → 実効トリムを算出
+    const int autoS = trimStartSample.load();
+    const int autoE = trimEndSample.load();
+    const int span = juce::jmax(0, autoE - autoS);
+    const float s01 = apvts.getRawParameterValue("sampleStart")->load();
+    const float e01 = apvts.getRawParameterValue("sampleEnd")->load();
+
+    int effS = autoS + (int)(s01 * (float)span);
+    int effE = autoS + (int)(e01 * (float)span);
+    if (effE - effS < 1000) // 最低1000サンプルは確保
+    {
+        effE = juce::jmin(autoE, effS + 1000);
+        effS = juce::jmax(autoS, effE - 1000);
+    }
+
+    synth.processBlock(buffer, midiMessages, &sharedAudioBuffer, effS, effE, p);
 }
 
 bool GranularAudioProcessor::hasEditor() const { return true; }
@@ -196,6 +221,31 @@ void GranularAudioProcessor::loadFileForIngest(const juce::File& file)
         hudLineCorr = "Corrected: ---";
     }
     startThread();
+}
+
+void GranularAudioProcessor::reingestCurrentFile()
+{
+    if (fileToIngest.existsAsFile())
+        loadFileForIngest(fileToIngest);
+}
+
+void GranularAudioProcessor::clearSample()
+{
+    if (isThreadRunning()) stopThread(2000);
+    ingestState.store(IngestState::Empty);   // processBlock が即座に発音を止める
+    waveformReady.store(false);
+    validSampleCount.store(0);
+    trimStartSample.store(0);
+    trimEndSample.store(0);
+    rootMidiNote.store(60);
+    fileToIngest = juce::File();
+    waveformPeaks.fill(0.0f);
+
+    juce::ScopedLock sl(stateLock);
+    hudLineFile = "File: ---";
+    hudLineTask = "Task: Drop a sample";
+    hudLineOrig = "Original: ---";
+    hudLineCorr = "Corrected: ---";
 }
 
 void GranularAudioProcessor::run()
@@ -277,50 +327,64 @@ void GranularAudioProcessor::run()
         }
     }
 
-    // --- Signalsmith Stretch で C3 へピッチ補正（オフライン） ---
+    // --- Root Note Tracking: セント偏差のみ補正（音質ほぼ無劣化） ---
+    //     検出ノートをルートとして記憶。鍵盤でそのノートを弾くと原音の高さで再生される。
     ingestState.store(IngestState::Correcting);
-    { juce::ScopedLock sl(stateLock); hudLineTask = "Task: HQ Pitch Correction (Signalsmith)..."; }
+    { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Cents Correction (Signalsmith)..."; }
 
     juce::AudioBuffer<float> corrected;
 
     if (currentPitch.isDetected && currentPitch.frequency > 5.0)
     {
-        const float pitchScale = (float)(261.625565 / currentPitch.frequency); // → C3
-        const int numCh = tempRaw.getNumChannels();
-        const int inLen = tempRaw.getNumSamples();
+        rootMidiNote.store(juce::jlimit(0, 127, currentPitch.midiNote));
 
-        signalsmith::stretch::SignalsmithStretch<float> stretch;
-        stretch.presetDefault(numCh, (float)currentSampleRate);
-        // tonalityLimit(約8kHz)でフォルマントの破綻を軽減
-        stretch.setTransposeFactor(pitchScale, 8000.0f / (float)currentSampleRate);
+        const float cents = currentPitch.centsOffset;
+        if (std::abs(cents) > 1.0f)
+        {
+            // ジャストピッチとのズレ(セント)だけを補正 → シフト量が極小で高音質
+            const float pitchScale = std::pow(2.0f, -cents / 1200.0f);
+            const int numCh = tempRaw.getNumChannels();
+            const int inLen = tempRaw.getNumSamples();
 
-        // 総レイテンシ(入力+出力)分だけ末尾にゼロを足して1:1で処理し、
-        // 先頭のレイテンシ分を捨てることで正確な位置合わせを行う
-        const int totalLat = stretch.inputLatency() + stretch.outputLatency();
-        const int padLen = inLen + totalLat;
+            signalsmith::stretch::SignalsmithStretch<float> stretch;
+            stretch.presetDefault(numCh, (float)currentSampleRate);
+            stretch.setTransposeFactor(pitchScale, 8000.0f / (float)currentSampleRate);
 
-        juce::AudioBuffer<float> padded(numCh, padLen);
-        padded.clear();
-        for (int ch = 0; ch < numCh; ++ch)
-            padded.copyFrom(ch, 0, tempRaw, ch, 0, inLen);
+            // 総レイテンシ分を末尾にパディングして1:1処理→先頭を捨てて位置合わせ
+            const int totalLat = stretch.inputLatency() + stretch.outputLatency();
+            const int padLen = inLen + totalLat;
 
-        juce::AudioBuffer<float> stretched(numCh, padLen);
-        stretched.clear();
-        stretch.process(padded.getArrayOfReadPointers(), padLen,
-                        stretched.getArrayOfWritePointers(), padLen);
+            juce::AudioBuffer<float> padded(numCh, padLen);
+            padded.clear();
+            for (int ch = 0; ch < numCh; ++ch)
+                padded.copyFrom(ch, 0, tempRaw, ch, 0, inLen);
 
-        corrected.setSize(numCh, inLen);
-        for (int ch = 0; ch < numCh; ++ch)
-            corrected.copyFrom(ch, 0, stretched, ch, totalLat, inLen);
+            juce::AudioBuffer<float> stretched(numCh, padLen);
+            stretched.clear();
+            stretch.process(padded.getArrayOfReadPointers(), padLen,
+                            stretched.getArrayOfWritePointers(), padLen);
+
+            corrected.setSize(numCh, inLen);
+            for (int ch = 0; ch < numCh; ++ch)
+                corrected.copyFrom(ch, 0, stretched, ch, totalLat, inLen);
+        }
+        else
+        {
+            corrected.makeCopyOf(tempRaw); // ほぼジャスト: 補正不要
+        }
 
         juce::ScopedLock sl(stateLock);
-        hudLineCorr = "Corrected: C3 | " + currentPitch.scaleName + " (Signalsmith)";
+        const juce::String sign = cents >= 0 ? "-" : "+";
+        hudLineCorr = "Corrected: Root " + currentPitch.noteName + " | "
+                    + sign + juce::String(std::abs(juce::roundToInt(cents))) + "c fixed | "
+                    + currentPitch.scaleName;
     }
     else
     {
+        rootMidiNote.store(60); // 未検出: C3をルートに
         corrected.makeCopyOf(tempRaw);
         juce::ScopedLock sl(stateLock);
-        hudLineCorr = "Corrected: N/A";
+        hudLineCorr = "Corrected: N/A (Root C3)";
     }
     ingestProgress.store(0.75f);
 
