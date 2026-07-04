@@ -71,8 +71,8 @@ public:
     struct Params
     {
         struct Lfo { float rateHz = 1.0f; bool sync = false; int rateSync = 6; int wave = 0; };
-        struct Env { float attack = 0.05f; float decay = 0.5f; bool loop = false; };
-        struct Slot { int src = 0; int dst = 0; float amt = 0.0f; };
+        struct Env { float attack = 0.05f; float decay = 0.5f; float sustain = 1.0f; float release = 0.3f; bool loop = false; };
+        struct Slot { int src = 0; int dst = 0; float amt = 0.0f; bool uni = false; };
 
         std::array<Lfo, kNumLfos> lfo;
         std::array<Env, kNumEnvs> env;
@@ -95,7 +95,11 @@ public:
         noteNorm = 0.5f;
         modWheel = 0.0f;
         randomSH = 0.5f;
+        heldNotes = 0;
+        gate = false;
         destAccum.fill(0.0f);
+        rangeMin.fill(0.0f);
+        rangeMax.fill(0.0f);
     }
 
     // 入力MIDI(アルペジオ後)からソース値を更新
@@ -109,7 +113,13 @@ public:
                 velocity = msg.getFloatVelocity();
                 noteNorm = (float)msg.getNoteNumber() / 127.0f;
                 randomSH = rng.nextFloat();
+                ++heldNotes;
+                gate = true;
                 for (auto& e : envState) e.stage = EnvState::Attack; // リトリガー(現在値から)
+            }
+            else if (msg.isNoteOff())
+            {
+                if (--heldNotes <= 0) { heldNotes = 0; gate = false; } // 全ノート離鍵→ゲートOFF
             }
             else if (msg.isControllerOfType(1))
             {
@@ -154,28 +164,59 @@ public:
             while (st.phase2 >= 1.0) st.phase2 -= 1.0;
         }
 
-        // --- ENV (ループ可能AD / ブロックレート) ---
+        // --- ENV (ADSR / ブロックレート、Loop時はA-D循環) ---
         for (int i = 0; i < kNumEnvs; ++i)
         {
             const auto& ep = p.env[(size_t)i];
             auto& st = envState[(size_t)i];
+            const float sus = juce::jlimit(0.0f, 1.0f, ep.sustain);
 
             src[SrcEnv1 + i] = st.value;
 
             const float blockSec = (float)((double)numSamples / sampleRate);
-            if (st.stage == EnvState::Attack)
+
+            // ゲートOFFかつ非Loop → Releaseへ移行（Idle/Release以外から）
+            if (!ep.loop && !gate
+                && st.stage != EnvState::Idle && st.stage != EnvState::Release)
             {
+                st.stage = EnvState::Release;
+                st.releaseStart = juce::jmax(0.0001f, st.value);
+            }
+
+            switch (st.stage)
+            {
+            case EnvState::Attack:
                 st.value += blockSec / juce::jmax(0.001f, ep.attack);
                 if (st.value >= 1.0f) { st.value = 1.0f; st.stage = EnvState::Decay; }
-            }
-            else if (st.stage == EnvState::Decay)
-            {
-                st.value -= blockSec / juce::jmax(0.001f, ep.decay);
-                if (st.value <= 0.0f)
+                break;
+
+            case EnvState::Decay:
+                if (ep.loop)
                 {
-                    st.value = 0.0f;
-                    st.stage = ep.loop ? EnvState::Attack : EnvState::Idle;
+                    // Loop: 1→0 まで下げてAttackへ循環（複雑LFO）
+                    st.value -= blockSec / juce::jmax(0.001f, ep.decay);
+                    if (st.value <= 0.0f) { st.value = 0.0f; st.stage = EnvState::Attack; }
                 }
+                else
+                {
+                    // ADSR: 1→Sustainレベルまで下げてSustainへ
+                    st.value -= (1.0f - sus) * blockSec / juce::jmax(0.001f, ep.decay);
+                    if (st.value <= sus) { st.value = sus; st.stage = EnvState::Sustain; }
+                }
+                break;
+
+            case EnvState::Sustain:
+                st.value = sus;   // ゲート保持中はSustainレベルを維持
+                break;
+
+            case EnvState::Release:
+                st.value -= st.releaseStart * blockSec / juce::jmax(0.001f, ep.release);
+                if (st.value <= 0.0f) { st.value = 0.0f; st.stage = EnvState::Idle; }
+                break;
+
+            default: // Idle
+                st.value = 0.0f;
+                break;
             }
         }
 
@@ -187,13 +228,29 @@ public:
         for (int i = 0; i < kNumMacros; ++i)
             src[SrcMacro1 + i] = p.macro[(size_t)i];
 
-        // --- スロット合成 ---
+        // --- スロット合成 (Uni/Bipolar極性変換 + レンジ算出) ---
         destAccum.fill(0.0f);
+        rangeMin.fill(0.0f);
+        rangeMax.fill(0.0f);
         for (const auto& s : p.slot)
         {
             if (s.src <= 0 || s.src >= NumSrcs || s.dst <= 0 || s.dst >= NumDsts) continue;
             if (std::abs(s.amt) < 0.0001f) continue;
-            destAccum[(size_t)s.dst] += src[s.src] * s.amt;
+
+            const bool srcBip = isBipolarSource(s.src);
+
+            // ソース値を、スロットが選んだ出力極性に合わせて変換
+            float v = src[s.src];
+            if (s.uni) { if (srcBip) v = (v + 1.0f) * 0.5f; }        // 出力 0..1
+            else       { if (!srcBip) v = v * 2.0f - 1.0f; }         // 出力 -1..+1
+            destAccum[(size_t)s.dst] += v * s.amt;
+
+            // GUIアーク用: この行き先が取りうるオフセット範囲を集計
+            const float lo = s.uni ? 0.0f : -1.0f;
+            const float hi = 1.0f;
+            const float c1 = lo * s.amt, c2 = hi * s.amt;
+            rangeMin[(size_t)s.dst] += juce::jmin(c1, c2);
+            rangeMax[(size_t)s.dst] += juce::jmax(c1, c2);
         }
     }
 
@@ -202,6 +259,13 @@ public:
     {
         return destAccum[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)];
     }
+
+    // GUIアーク用: 行き先が取りうる最小/最大オフセット (mod単位)
+    float getRangeMin(int dst) const noexcept { return rangeMin[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)]; }
+    float getRangeMax(int dst) const noexcept { return rangeMax[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)]; }
+
+    // ソースが本来バイポーラ(±1)か: LFOのみ。ENV/Vel/Note/Wheel/Random/Macroはユニポーラ(0..1)
+    static bool isBipolarSource(int s) noexcept { return s >= SrcLfo1 && s <= SrcLfo4; }
 
 private:
     struct LfoState
@@ -212,9 +276,10 @@ private:
     };
     struct EnvState
     {
-        enum Stage { Idle, Attack, Decay };
+        enum Stage { Idle, Attack, Decay, Sustain, Release };
         int stage = Idle;
         float value = 0.0f;
+        float releaseStart = 1.0f;   // Release開始時のレベル
     };
 
     float lfoValue(const LfoState& st, int wave) const noexcept
@@ -241,7 +306,11 @@ private:
     float noteNorm = 0.5f;
     float modWheel = 0.0f;
     float randomSH = 0.5f;
+    int   heldNotes = 0;      // 押下中ノート数 (ゲート判定)
+    bool  gate = false;       // heldNotes > 0
 
     std::array<float, NumDsts> destAccum {};
+    std::array<float, NumDsts> rangeMin {};
+    std::array<float, NumDsts> rangeMax {};
     juce::Random rng;
 };

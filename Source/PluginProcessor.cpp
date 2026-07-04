@@ -132,7 +132,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
             ModMatrix::getWaveNames(), 0));
     }
 
-    // --- MODマトリクス: ENV×2 (ループ可能AD) ---
+    // --- MODマトリクス: ENV×2 (ADSR / Loop時はA-D循環) ---
     for (int i = 1; i <= ModMatrix::kNumEnvs; ++i)
     {
         const juce::String idx(i);
@@ -140,6 +140,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
             juce::NormalisableRange<float>(0.001f, 10.0f, 0.001f, 0.25f), 0.05f));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("env" + idx + "Decay", "ENV " + idx + " Decay",
             juce::NormalisableRange<float>(0.001f, 10.0f, 0.001f, 0.25f), 0.5f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("env" + idx + "Sustain", "ENV " + idx + " Sustain",
+            juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>("env" + idx + "Release", "ENV " + idx + " Release",
+            juce::NormalisableRange<float>(0.001f, 10.0f, 0.001f, 0.25f), 0.3f));
         params.push_back(std::make_unique<juce::AudioParameterBool>("env" + idx + "Loop", "ENV " + idx + " Loop", false));
     }
 
@@ -158,6 +162,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
             ModMatrix::getDestNames(), 0));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("mod" + idx + "Amt", "Mod " + idx + " Amount",
             -1.0f, 1.0f, 0.0f));
+        params.push_back(std::make_unique<juce::AudioParameterBool>("mod" + idx + "Uni", "Mod " + idx + " Unipolar", false));
     }
 
     // --- アルペジエイター ---
@@ -289,9 +294,11 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     for (int i = 0; i < ModMatrix::kNumEnvs; ++i)
     {
         const juce::String idx(i + 1);
-        mp.env[(size_t)i].attack = apvts.getRawParameterValue("env" + idx + "Attack")->load();
-        mp.env[(size_t)i].decay  = apvts.getRawParameterValue("env" + idx + "Decay")->load();
-        mp.env[(size_t)i].loop   = apvts.getRawParameterValue("env" + idx + "Loop")->load() > 0.5f;
+        mp.env[(size_t)i].attack  = apvts.getRawParameterValue("env" + idx + "Attack")->load();
+        mp.env[(size_t)i].decay   = apvts.getRawParameterValue("env" + idx + "Decay")->load();
+        mp.env[(size_t)i].sustain = apvts.getRawParameterValue("env" + idx + "Sustain")->load();
+        mp.env[(size_t)i].release = apvts.getRawParameterValue("env" + idx + "Release")->load();
+        mp.env[(size_t)i].loop    = apvts.getRawParameterValue("env" + idx + "Loop")->load() > 0.5f;
     }
     for (int i = 0; i < ModMatrix::kNumMacros; ++i)
         mp.macro[(size_t)i] = apvts.getRawParameterValue("macro" + juce::String(i + 1))->load();
@@ -301,6 +308,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         mp.slot[(size_t)i].src = (int)apvts.getRawParameterValue("mod" + idx + "Src")->load();
         mp.slot[(size_t)i].dst = (int)apvts.getRawParameterValue("mod" + idx + "Dst")->load();
         mp.slot[(size_t)i].amt = apvts.getRawParameterValue("mod" + idx + "Amt")->load();
+        mp.slot[(size_t)i].uni = apvts.getRawParameterValue("mod" + idx + "Uni")->load() > 0.5f;
     }
     mp.bpm = bpm;
 
