@@ -343,9 +343,18 @@ void GranularAudioProcessor::run()
 
     juce::AudioBuffer<float> corrected;
 
+    int foldedRoot = 60;
     if (currentPitch.isDetected && currentPitch.frequency > 5.0)
     {
-        rootMidiNote.store(juce::jlimit(0, 127, currentPitch.midiNote));
+        // Register Fold: ルートの音名(ピッチクラス)は保ったまま、オクターブを
+        // 鍵盤中央(C3=60)に最も近い位置へ再配置する。
+        //  例: C7素材 → ルートをC3にマッピング。C3で原音、C4で原音の1oct上。
+        //      C1素材 → 同じくC3付近に畳み込まれる。
+        // サンプル自体は無変換なので音色は原音(C7/C1)のまま。
+        const int pc = ((currentPitch.midiNote % 12) + 12) % 12;
+        foldedRoot = pc + 12 * juce::roundToInt((60.0f - (float)pc) / 12.0f);
+        foldedRoot = juce::jlimit(0, 127, foldedRoot);
+        rootMidiNote.store(foldedRoot);
 
         const float cents = currentPitch.centsOffset;
         if (std::abs(cents) > 1.0f)
@@ -384,8 +393,9 @@ void GranularAudioProcessor::run()
 
         juce::ScopedLock sl(stateLock);
         const juce::String sign = cents >= 0 ? "-" : "+";
-        hudLineCorr = "Corrected: Root " + currentPitch.noteName + " | "
-                    + sign + juce::String(std::abs(juce::roundToInt(cents))) + "c fixed | "
+        hudLineCorr = "Corrected: Root " + currentPitch.noteName
+                    + " -> Key " + PitchAnalyzer::midiNoteName(foldedRoot) + " | "
+                    + sign + juce::String(std::abs(juce::roundToInt(cents))) + "c | "
                     + currentPitch.scaleName;
     }
     else
