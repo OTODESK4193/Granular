@@ -221,6 +221,28 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
     g.setColour(GranularColors::pink);
     g.fillRect(posX - 0.75f, wave.getY(), 1.5f, wave.getHeight());
 
+    // --- Position への変調を反映（レンジ帯 + 動く変調後ライン） ---
+    {
+        const float rMin = proc.modMatrix.getRangeMin(ModMatrix::DstPosition);
+        const float rMax = proc.modMatrix.getRangeMax(ModMatrix::DstPosition);
+        if (std::abs(rMax - rMin) > 1.0e-4f)
+        {
+            // 変調で到達しうる範囲を淡いバンドで表示（実効領域内にクリップ）
+            const float loN = juce::jlimit(0.0f, 1.0f, posNorm + rMin);
+            const float hiN = juce::jlimit(0.0f, 1.0f, posNorm + rMax);
+            const float bandX = geo.effX + loN * geo.effW;
+            const float bandW = juce::jmax(1.0f, (hiN - loN) * geo.effW);
+            g.setColour(GranularColors::pink.withAlpha(0.12f));
+            g.fillRoundedRectangle(juce::Rectangle<float>(bandX, wave.getY(), bandW, wave.getHeight()), 3.0f);
+
+            // 現在の変調後 Position（明るいラインで動く）
+            const float liveN = juce::jlimit(0.0f, 1.0f, posNorm + proc.modMatrix.get(ModMatrix::DstPosition));
+            const float liveX = geo.effX + liveN * geo.effW;
+            g.setColour(GranularColors::pink.withAlpha(0.9f));
+            g.fillRect(liveX - 1.0f, wave.getY(), 2.0f, wave.getHeight());
+        }
+    }
+
     // --- 動くプレイヘッド (発音中の実再生位置 / ミント色) ---
     const float ph = proc.synth.playheadDisplay.load(std::memory_order_relaxed);
     if (ph >= 0.0f)

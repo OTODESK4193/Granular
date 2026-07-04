@@ -14,10 +14,12 @@
 #include "GlowToggle.h"
 #include "ColorPalette.h"
 
-class MainPanel : public juce::Component
+class MainPanel : public juce::Component,
+                  private juce::Timer
 {
 public:
     explicit MainPanel(GranularAudioProcessor& processor);
+    ~MainPanel() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -27,6 +29,11 @@ private:
                    const juce::String& paramID, juce::Colour accent);
     void setupCombo(juce::ComboBox& c, juce::Label& l, const juce::String& text,
                     const juce::String& paramID);
+
+    // --- MOD Arc: 宛先ノブへ変調レンジ/ライブ値を供給 ---
+    enum ModKind { LinearAdd, ExpOct };
+    void timerCallback() override;
+    void applyModRing(juce::Slider& s, int dst, ModKind kind, float scale);
 
     GranularAudioProcessor& proc;
 

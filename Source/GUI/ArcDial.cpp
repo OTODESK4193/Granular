@@ -3,6 +3,7 @@
 // ==========================================
 #include "ArcDial.h"
 #include "ColorPalette.h"
+#include <cmath>
 
 ArcDialLookAndFeel::ArcDialLookAndFeel()
 {
@@ -39,6 +40,27 @@ void ArcDialLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int w
     g.setColour(GranularColors::knobTrack);
     g.drawEllipse(rx, ry, rw, rw, arcThickness);
 
+    // 1.5 モジュレーション・レンジ帯（値アークの下にピンクのハロー）
+    //     GUI側が mod_active / mod_min / mod_max / mod_live プロパティを毎フレーム更新
+    const auto& props = slider.getProperties();
+    const bool modActive = props.getWithDefault("mod_active", false);
+    if (modActive)
+    {
+        const float mMin = juce::jlimit(0.0f, 1.0f, (float)props.getWithDefault("mod_min", 0.0f));
+        const float mMax = juce::jlimit(0.0f, 1.0f, (float)props.getWithDefault("mod_max", 1.0f));
+        const auto aLo = rotaryStartAngle + juce::jmin(mMin, mMax) * (rotaryEndAngle - rotaryStartAngle);
+        const auto aHi = rotaryStartAngle + juce::jmax(mMin, mMax) * (rotaryEndAngle - rotaryStartAngle);
+
+        if (std::abs(aHi - aLo) > 0.001f)
+        {
+            juce::Path band;
+            band.addArc(rx, ry, rw, rw, aLo, aHi, true);
+            g.setColour(GranularColors::pink.withAlpha(0.45f));
+            g.strokePath(band, juce::PathStrokeType(arcThickness + 3.0f,
+                         juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+    }
+
     // 2. 値アーク（セクション色ベースのパステルグラデーション）
     juce::Path p;
     p.addArc(rx, ry, rw, rw, rotaryStartAngle, angle, true);
@@ -62,4 +84,17 @@ void ArcDialLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int w
     p2.applyTransform(juce::AffineTransform::rotation(angle).translated(centreX, centreY));
     g.setColour(GranularColors::text);
     g.fillPath(p2);
+
+    // 5. ライブ変調ドット（現在の変調後の値をアーク上の明るいピンク点で表示）
+    if (modActive)
+    {
+        const float live = juce::jlimit(0.0f, 1.0f, (float)props.getWithDefault("mod_live", sliderPos));
+        const auto aLive = rotaryStartAngle + live * (rotaryEndAngle - rotaryStartAngle);
+        const float dotX = centreX + std::sin(aLive) * radius;
+        const float dotY = centreY - std::cos(aLive) * radius;
+        g.setColour(GranularColors::pink.withAlpha(0.35f));
+        g.fillEllipse(dotX - 5.0f, dotY - 5.0f, 10.0f, 10.0f);
+        g.setColour(GranularColors::pink);
+        g.fillEllipse(dotX - 2.6f, dotY - 2.6f, 5.2f, 5.2f);
+    }
 }

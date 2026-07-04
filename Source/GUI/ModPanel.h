@@ -1,6 +1,6 @@
 // ==========================================
 // File: ModPanel.h
-// MODタブ: ソース段 (LFO×4 / ENV×2 / MACRO×4) + 16スロットマトリクス
+// MODタブ: ソース段 (LFO/Env/MACRO サブタブ) + 16スロットマトリクス
 // ==========================================
 #pragma once
 
@@ -25,8 +25,16 @@ public:
 private:
     void setupKnob(ValueKnob& s, const juce::String& paramID, juce::Colour accent);
     void setupCombo(juce::ComboBox& c, const juce::String& paramID, juce::Component& parent);
+    void setSourceTab(int t);          // 0=LFO, 1=Env, 2=Macro
+    void styleSrcTab(juce::TextButton& b, bool active);
 
     GranularAudioProcessor& proc;
+
+    // --- ソース・サブタブ ---
+    juce::TextButton lfoTabBtn   { "LFO" };
+    juce::TextButton envTabBtn   { "Env" };
+    juce::TextButton macroTabBtn { "MACRO" };
+    int activeSrcTab = 0;
 
     // --- LFO ×4 ---
     std::array<juce::ComboBox, ModMatrix::kNumLfos> lfoWaveBox;
@@ -34,8 +42,8 @@ private:
     std::array<ValueKnob, ModMatrix::kNumLfos> lfoRateKnob;
     std::array<juce::ComboBox, ModMatrix::kNumLfos> lfoSyncRateBox;
 
-    // --- ENV ×2 ---
-    std::array<ValueKnob, ModMatrix::kNumEnvs> envAttackKnob, envDecayKnob;
+    // --- ENV ×2 (ADSR) ---
+    std::array<ValueKnob, ModMatrix::kNumEnvs> envAttackKnob, envDecayKnob, envSustainKnob, envReleaseKnob;
     std::array<std::unique_ptr<GlowToggle>, ModMatrix::kNumEnvs> envLoopButton;
 
     // --- MACRO ×4 ---
@@ -47,6 +55,7 @@ private:
     std::array<juce::Label, ModMatrix::kNumSlots> rowLabel;
     std::array<juce::ComboBox, ModMatrix::kNumSlots> srcBox, dstBox;
     std::array<ValueKnob, ModMatrix::kNumSlots> amtSlider;
+    std::array<std::unique_ptr<GlowToggle>, ModMatrix::kNumSlots> uniButton;
 
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>>   sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;

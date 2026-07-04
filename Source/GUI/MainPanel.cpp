@@ -2,6 +2,7 @@
 // File: MainPanel.cpp
 // ==========================================
 #include "MainPanel.h"
+#include <cmath>
 
 namespace
 {
@@ -53,6 +54,81 @@ MainPanel::MainPanel(GranularAudioProcessor& p) : proc(p)
     setupKnob(hpfKnob,  hpfLabel,  "HPF",  "masterHPF", master);
     setupKnob(lpfKnob,  lpfLabel,  "LPF",  "masterLPF", master);
     setupKnob(gainKnob, gainLabel, "GAIN", "outGain",   master);
+
+    startTimerHz(30); // MOD Arc 更新
+}
+
+MainPanel::~MainPanel() { stopTimer(); }
+
+// ------------------------------------------
+// MOD Arc: 変調される宛先ノブに、変調レンジ帯とライブ位置を反映
+// ------------------------------------------
+void MainPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
+{
+    const float rMin = proc.modMatrix.getRangeMin(dst);
+    const float rMax = proc.modMatrix.getRangeMax(dst);
+    const float live = proc.modMatrix.get(dst);
+
+    auto& props = s.getProperties();
+    const bool active = std::abs(rMax - rMin) > 1.0e-4f;
+
+    if (!active)
+    {
+        if ((bool)props.getWithDefault("mod_active", false))
+        {
+            props.set("mod_active", false);
+            s.repaint();
+        }
+        return;
+    }
+
+    const auto range = s.getNormalisableRange();
+    const float base = (float)s.getValue();
+
+    auto toNorm = [&](float modUnit)
+    {
+        float real = (kind == ExpOct) ? base * std::pow(2.0f, modUnit * scale)
+                                      : base + modUnit * scale;
+        real = juce::jlimit((float)range.start, (float)range.end, real);
+        return (float)range.convertTo0to1(real);
+    };
+
+    const float nMin  = toNorm(rMin);
+    const float nMax  = toNorm(rMax);
+    const float nLive = toNorm(live);
+
+    // 変化があった時だけ再描画
+    const float oldMin  = (float)props.getWithDefault("mod_min", -1.0f);
+    const float oldMax  = (float)props.getWithDefault("mod_max", -1.0f);
+    const float oldLive = (float)props.getWithDefault("mod_live", -1.0f);
+
+    if (!(bool)props.getWithDefault("mod_active", false)
+        || std::abs(nMin - oldMin) > 0.002f
+        || std::abs(nMax - oldMax) > 0.002f
+        || std::abs(nLive - oldLive) > 0.004f)
+    {
+        props.set("mod_active", true);
+        props.set("mod_min", nMin);
+        props.set("mod_max", nMax);
+        props.set("mod_live", nLive);
+        s.repaint();
+    }
+}
+
+void MainPanel::timerCallback()
+{
+    using D = ModMatrix;
+    // 宛先ノブ ← ModMatrix Dst (スケールは PluginProcessor の変調適用式に一致)
+    applyModRing(positionKnob, D::DstPosition,  LinearAdd, 1.0f);
+    applyModRing(sizeKnob,     D::DstSize,      LinearAdd, 0.48f);
+    applyModRing(densityKnob,  D::DstDensity,   LinearAdd, 1.0f);
+    applyModRing(sprayKnob,    D::DstSpray,     LinearAdd, 1.0f);
+    applyModRing(jitterKnob,   D::DstJitter,    LinearAdd, 2400.0f);
+    applyModRing(panKnob,      D::DstPanSpread, LinearAdd, 1.0f);
+    applyModRing(speedKnob,    D::DstSpeed,     LinearAdd, 2.0f);
+    applyModRing(fineKnob,     D::DstFine,      LinearAdd, 100.0f);
+    applyModRing(hpfKnob,      D::DstHpf,       ExpOct,    5.0f);
+    applyModRing(lpfKnob,      D::DstLpf,       ExpOct,    6.0f);
 }
 
 void MainPanel::setupKnob(juce::Slider& s, juce::Label& l, const juce::String& text,
