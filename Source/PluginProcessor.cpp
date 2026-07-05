@@ -525,7 +525,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         }
     }
 
-    // --- マスターブリックウォールリミッター + NaN/Inf/バーストガード＆全ノブダンプ ---
+    // --- マスターブリックウォールリミッター + NaN/Inf/バーストセーフティガード ---
     {
         const int channels = buffer.getNumChannels();
         masterLimiter.setReleaseMs(apvts.getRawParameterValue("limRelease")->load());
@@ -555,45 +555,6 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             fxChain.prepare(currentSampleRate); // FX内部状態をリセット
             synth.releaseResources(); // 音源リセット
             synth.prepareToPlay(currentSampleRate, buffer.getNumSamples());
-
-            static bool hasDumped = false;
-            if (!hasDumped)
-            {
-                hasDumped = true;
-                // デスクトップにログを出力
-                juce::File desktopDir = juce::File::getSpecialLocation(juce::File::userDesktopDirectory);
-                juce::File logFile = desktopDir.getChildFile("granular_vst_debug_log.txt");
-                
-                juce::String logText;
-                logText << "=== Granular VST Debug Log (Burst Detected) ===\n\n";
-                logText << "Engine Parameters:\n";
-                logText << "  attack: " << p.attack << " | decay: " << p.decay << " | sustain: " << p.sustain << " | release: " << p.release << "\n";
-                logText << "  grainSize: " << p.grainSize << " | density: " << p.density << " | position: " << p.position << "\n";
-                logText << "  positionSpray: " << p.positionSpray << " | pitchJitter: " << p.pitchJitter << "\n";
-                logText << "  panSpread: " << p.panSpread << " | speed: " << p.speed << " | playMode: " << p.playMode << "\n";
-                logText << "  octave: " << p.octave << " | pitchSt: " << p.pitchSt << " | fineTune: " << p.fineTune << "\n";
-                logText << "  key: " << p.key << " | scale: " << p.scale << " | pitchSync: " << (p.pitchSync ? "1" : "0") << " | tone: " << p.tone << "\n";
-                logText << "  masterHPF: " << p.masterHPF << " | masterLPF: " << p.masterLPF << " | filterSlope: " << p.filterSlope << "\n";
-                logText << "  polyphony: " << p.poly << "\n\n";
-
-                logText << "Arp Parameters:\n";
-                logText << "  enable: " << (arpP.enable ? "1" : "0") << " | pattern: " << arpP.pattern << " | octaves: " << arpP.octaves << "\n";
-                logText << "  sync: " << (arpP.sync ? "1" : "0") << " | rateSync: " << arpP.rateSync << " | rateFree: " << arpP.rateFree << "\n";
-                logText << "  durMode: " << arpP.durMode << " | gate: " << arpP.gate << " | latch: " << (arpP.latch ? "1" : "0") << "\n\n";
-
-                logText << "FX Parameters:\n";
-                for (int s = 0; s < FxChain::kNumSlots; ++s)
-                {
-                    logText << "  Slot " << (s + 1) << " -> Type: " << fxP.type[s] << " | Amount: " << fxP.amount[s] << "\n";
-                }
-                logText << "  satAlgo: " << fxP.satAlgo << " | satDrive: " << fxP.satDrive << " | satPreHz: " << fxP.satPreHz << " | satTrimDb: " << fxP.satTrimDb << "\n";
-                logText << "  choRate: " << fxP.choRate << " | choDepth: " << fxP.choDepth << " | choWidth: " << fxP.choWidth << "\n";
-                logText << "  dlyTime: " << fxP.dlyTime << " | dlyFeedback: " << fxP.dlyFeedback << " | dlyDuck: " << fxP.dlyDuck << " | dlyDamp: " << fxP.dlyDamp << "\n";
-                logText << "  frzSize: " << fxP.frzSize << " | frzFeedback: " << fxP.frzFeedback << " | frzDamp: " << fxP.frzDamp << "\n";
-                logText << "  revDecay: " << fxP.revDecay << " | revShimmer: " << fxP.revShimmer << " | revDamp: " << fxP.revDamp << " | revMod: " << fxP.revMod << "\n";
-
-                logFile.replaceWithText(logText);
-            }
         }
     }
 }
