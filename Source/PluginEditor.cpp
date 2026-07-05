@@ -96,6 +96,7 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
 
 GranularAudioProcessorEditor::~GranularAudioProcessorEditor()
 {
+    stopTimer();               // 破棄中にHUDタイマーが発火しないよう明示停止
     setLookAndFeel(nullptr);
 }
 
