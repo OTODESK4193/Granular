@@ -271,6 +271,8 @@ struct Grain
     float  panL = 0.7f;
     float  panR = 0.7f;
     float  amp = 1.0f;
+    double trimStart = 0.0;       // スポーン時のStart位置
+    double trimEnd = 0.0;         // スポーン時のEnd位置
 };
 
 // ==========================================

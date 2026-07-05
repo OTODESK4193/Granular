@@ -176,6 +176,8 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
 
     // 高密度時の音量爆発を防ぐ 1/√overlap 正規化
     grain.amp = velocityGain / std::sqrt(juce::jmax(1.0f, overlap));
+    grain.trimStart = (double)trimStart;
+    grain.trimEnd = (double)trimEnd;
 
     --spawnBudget;
 
@@ -355,8 +357,8 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             // 波形の不連続=クリック(複数グレイン同時折り返しで突発的大音量)を防ぐ。
             // 端から edgeFadeLen サンプル以内で読み出しを0へフェードする。
             float edgeFade = 1.0f;
-            const double distStart = grain.position - (double)trimStart;
-            const double distEnd   = (double)trimEnd - grain.position;
+            const double distStart = grain.position - grain.trimStart;
+            const double distEnd   = grain.trimEnd - grain.position;
             if (distStart < edgeFadeLen) edgeFade *= (float)juce::jlimit(0.0, 1.0, distStart / edgeFadeLen);
             if (distEnd   < edgeFadeLen) edgeFade *= (float)juce::jlimit(0.0, 1.0, distEnd   / edgeFadeLen);
 
@@ -366,11 +368,12 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             // 領域内ラップ再生 (End→Start へ折り返し):
             // グレイン全長がEndまでに収まる必要がなくなり、Positionが常に尊重される
             grain.position += grain.step;
-            if (grain.position >= (double)trimEnd || grain.position < (double)trimStart)
+            const double grainL = grain.trimEnd - grain.trimStart;
+            if (grain.position >= grain.trimEnd || grain.position < grain.trimStart)
             {
-                double t = std::fmod(grain.position - (double)trimStart, L);
-                if (t < 0.0) t += L;
-                grain.position = (double)trimStart + t;
+                double t = std::fmod(grain.position - grain.trimStart, grainL);
+                if (t < 0.0) t += grainL;
+                grain.position = grain.trimStart + t;
             }
 
             if (++grain.age >= grain.life) grain.isActive = false;
