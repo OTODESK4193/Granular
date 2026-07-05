@@ -155,15 +155,22 @@ namespace gfx
         void setAmount(float a) { amount = a; }
         inline float process(float in) noexcept
         {
-            if (amount < 0.01f || buffer.empty()) return in;
+            if (buffer.empty()) return in;
             buffer[(size_t)writePos] = in;
+            
             float out = 0.0f;
-            for (const auto& t : taps)
+            if (amount >= 0.01f)
             {
-                const int r = (writePos - t.delay) & bufferMask;
-                out += buffer[(size_t)r] * t.gain;
+                for (const auto& t : taps)
+                {
+                    const int r = (writePos - t.delay) & bufferMask;
+                    out += buffer[(size_t)r] * t.gain;
+                }
             }
+            
             writePos = (writePos + 1) & bufferMask;
+            
+            if (amount < 0.01f) return in;
             return in * (1.0f - amount) + out * amount;
         }
     };
@@ -349,8 +356,8 @@ namespace gfx
         void process(float& inOutL, float& inOutR, float amount,
                      float rate, float depth, float width) noexcept
         {
-            if (amount <= 0.0f) return;
-
+            // amount <= 0.0f でも LFO 更新とバッファ書き込みを継続することで、
+            // 変調時のバッファ陳腐化によるバーストを防止します。
             const float lfoRate1 = rate;
             const float lfoRate2 = rate * 1.5f;
 
@@ -425,8 +432,11 @@ namespace gfx
             wetL = mono + (wetL - mono) * width;
             wetR = mono + (wetR - mono) * width;
 
-            inOutL = inOutL * (1.0f - mix) + wetL * mix;
-            inOutR = inOutR * (1.0f - mix) + wetR * mix;
+            if (amount > 0.0f)
+            {
+                inOutL = inOutL * (1.0f - mix) + wetL * mix;
+                inOutR = inOutR * (1.0f - mix) + wetR * mix;
+            }
         }
 
     private:
@@ -463,8 +473,11 @@ namespace gfx
             // amount/feedback をサンプル単位でスムージング（ブロック境界のプチ音防止）。
             // amount==0でも早期リターンせずディレイラインを回し続け、書き込みの
             // 途切れ(=クラックの原因)を無くす。
-            curAmount   += 0.0015f * (amount - curAmount);
-            curFeedback += 0.0015f * (juce::jlimit(0.0f, 0.95f, feedback) - curFeedback);
+            // サンプルレートに基づいた時定数でスムージングを適用
+            const float amountSmoothCoef = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate)); // 15ms
+            const float fbSmoothCoef = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate)); // 15ms
+            curAmount   += amountSmoothCoef * (amount - curAmount);
+            curFeedback += fbSmoothCoef * (juce::jlimit(0.0f, 0.95f, feedback) - curFeedback);
 
             const float inSum = std::abs(inOutL) + std::abs(inOutR);
             const float attack = 0.001f;
@@ -482,7 +495,8 @@ namespace gfx
             targetDelaySamps = juce::jlimit(32.0f, (float)(halfSize - 2), targetDelaySamps);
 
             if (currentDelaySamps == 0.0f) currentDelaySamps = targetDelaySamps;
-            currentDelaySamps += 0.002f * (targetDelaySamps - currentDelaySamps);
+            const float delaySmoothCoef = 1.0f - std::exp(-1.0f / (0.02f * (float)sampleRate)); // 20ms
+            currentDelaySamps += delaySmoothCoef * (targetDelaySamps - currentDelaySamps);
 
             float readPos = (float)writeIndex - currentDelaySamps;
             if (readPos < 0.0f) readPos += (float)halfSize;
@@ -856,8 +870,7 @@ public:
                         saturate(l, r, amt, satType, p.satDrive, preAlpha, trimGain);
                     break;
                 case Chorus:
-                    if (amt > 0.0005f)
-                        chorus.process(l, r, amt, p.choRate, p.choDepth, p.choWidth);
+                    chorus.process(l, r, amt, p.choRate, p.choDepth, p.choWidth);
                     break;
                 case Delay:
                     delay.process(l, r, amt, p.bpm, dlyBeats, p.dlyFeedback, p.dlyDuck, p.dlyDamp);
