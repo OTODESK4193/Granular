@@ -69,6 +69,7 @@ public:
 
     // --- GUI 連携 ---
     std::array<float, 1000> waveformPeaks;
+    std::array<float, 1000> waveformBright {}; // 列毎スペクトル明度(0=低域/1=高域)
     std::atomic<bool> waveformReady { false };
     std::atomic<IngestState> ingestState { IngestState::Empty };
     std::atomic<float> ingestProgress { 0.0f };

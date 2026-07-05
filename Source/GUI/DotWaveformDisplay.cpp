@@ -164,14 +164,20 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         const int binStart = (int)(colNorm * 999.0f);
         const int binEnd = juce::jmin(999, (int)(((float)(col + 1) / (float)numCols) * 999.0f));
         float peak = 0.0f;
+        float brightSum = 0.0f; int brightN = 0;
         for (int b = binStart; b <= binEnd; ++b)
+        {
             peak = juce::jmax(peak, proc.waveformPeaks[(size_t)b]);
+            brightSum += proc.waveformBright[(size_t)b]; ++brightN;
+        }
 
         const float ampH = juce::jlimit(0.0f, maxHalfH, peak * 2.0f * maxHalfH);
         const int dotCount = juce::jmax(1, (int)(ampH / kDotSpacingY));
 
         const bool insideRegion = (colNorm >= geo.effSN && colNorm <= geo.effEN);
-        auto baseColour = GranularColors::waveformGradient(colNorm);
+        // 周波数解析に基づく色（低域=暖色 / 高域=寒色、テーマ連動）
+        const float bright = brightN > 0 ? brightSum / (float)brightN : 0.5f;
+        auto baseColour = GranularColors::spectralColour(bright);
         if (!insideRegion) baseColour = baseColour.withMultipliedAlpha(0.18f);
 
         for (int k = 0; k < dotCount; ++k)

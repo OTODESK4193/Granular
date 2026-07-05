@@ -60,7 +60,10 @@ private:
     juce::TextButton dryPlayButton { "PLAY DRY" };
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::String hudFile, hudTask, hudOrig, hudCorr;
-    int lastThemeIndex = -1;   // カラーテーマ変更検知
+    int lastThemeIndex = -1;    // カラーテーマ変更検知
+    int themeMsgFrames = 0;     // テーマ変更後の再起動バナー残フレーム
+    bool dryPlaying = false;    // PLAY DRYボタン表示の状態
+    juce::Label themeBanner;    // テーマ変更→再起動促しバナー
 
     void confirmThen(const juce::String& title, const juce::String& message,
                      std::function<void()> action);

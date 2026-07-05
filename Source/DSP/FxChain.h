@@ -193,6 +193,7 @@ namespace gfx
         std::array<int, NUM_CHANNELS> writePos {};
         std::array<int, NUM_CHANNELS> delayLengths {};
         std::array<float, NUM_CHANNELS> dampStates {};
+        std::array<float, NUM_CHANNELS> dcX1 {}, dcY1 {}; // DCブロッカー状態
         std::array<ChaosLFO, NUM_CHANNELS> lfos;
 
         VelvetNoiseDiffuser velvetL, velvetR;
@@ -223,6 +224,7 @@ namespace gfx
                 if (delayLengths[(size_t)i] > maxDelaySamples - 100) delayLengths[(size_t)i] = maxDelaySamples - 100;
                 writePos[(size_t)i] = 0;
                 dampStates[(size_t)i] = 0.0f;
+                dcX1[(size_t)i] = dcY1[(size_t)i] = 0.0f;
                 lfos[(size_t)i].setFrequency(0.5f * LFO_RATIOS[i], (float)sr);
                 lfos[(size_t)i].setPhase((float)i / (float)NUM_CHANNELS);
             }
@@ -274,8 +276,16 @@ namespace gfx
                                     + delayBuffers[(size_t)i][(size_t)idx2] * frac;
 
                 dampStates[(size_t)i] = rawRead * (1.0f - dampFactor) + dampStates[(size_t)i] * dampFactor;
-                delayOutputs[i] = dampStates[(size_t)i];
-                feedbackInputs[i] = delayOutputs[i];
+
+                // DCブロッカー: フィードバックにDC/サブソニックが蓄積して
+                // 長周期でジワジワ膨れる残響スウェルを防ぐ（音色は保つ）
+                const float dcIn = dampStates[(size_t)i];
+                const float hp = dcIn - dcX1[(size_t)i] + 0.9975f * dcY1[(size_t)i];
+                dcX1[(size_t)i] = dcIn;
+                dcY1[(size_t)i] = hp;
+
+                delayOutputs[i] = hp;
+                feedbackInputs[i] = hp;
             }
 
             matrixHadamard(feedbackInputs);
@@ -436,6 +446,7 @@ namespace gfx
             curAmount = 0.0f;
             curFeedback = 0.0f;
             lpStateL = lpStateR = 0.0f;
+            dcX1L = dcY1L = dcX1R = dcY1R = 0.0f;
         }
 
         // amount=Wet量, timeBeats=ディレイタイム(拍), feedback=0..0.95,
@@ -488,6 +499,10 @@ namespace gfx
             dL = lpStateL;
             dR = lpStateR;
 
+            // DCブロッカー: フィードバックへのDC/サブソニック蓄積を除去（長周期の膨らみ防止）
+            const float hpL = dL - dcX1L + 0.9975f * dcY1L; dcX1L = dL; dcY1L = hpL; dL = hpL;
+            const float hpR = dR - dcX1R + 0.9975f * dcY1R; dcX1R = dR; dcY1R = hpR; dR = hpR;
+
             // ループ書き込みはソフトクリップで安全化（持続音×高FBの蓄積を抑える）
             const float fb = curFeedback;
             delayBuffer[(size_t)writeIndex * 2] =
@@ -510,6 +525,7 @@ namespace gfx
         float lpStateL = 0.0f, lpStateR = 0.0f;
         float curAmount = 0.0f;      // スムージング済みWet量
         float curFeedback = 0.0f;    // スムージング済みFeedback
+        float dcX1L = 0.0f, dcY1L = 0.0f, dcX1R = 0.0f, dcY1R = 0.0f; // DCブロッカー
     };
 
     // ------------------------------------------

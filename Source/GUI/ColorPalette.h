@@ -123,14 +123,12 @@ namespace GranularColors
         return lavender.interpolatedWith(pink, (t01 - 0.6667f) / 0.3333f);
     }
 
-    // 周波数→色: 低域=赤系, 高域=水色系 (spectral tilt 0..1 を色相へ)
+    // 周波数→色: 低域=暖色(rose) → 中(peach→sage) → 高域=寒色(babyBlue)。
+    // テーマのパレット色で構成されるため、テーマ毎に色味が変わる。
     inline juce::Colour spectralColour(float bright01) noexcept
     {
         bright01 = juce::jlimit(0.0f, 1.0f, bright01);
-        // 低(赤) → 中(黄緑) → 高(水色)
-        static const std::array<juce::Colour, 4> ramp {
-            juce::Colour(0xffff6b6b), juce::Colour(0xffffd07d),
-            juce::Colour(0xffb0e57c), juce::Colour(0xff7dd0ff) };
+        const std::array<juce::Colour, 4> ramp { rose, peach, sage, babyBlue }; // テーマ連動(非static)
         const float f = bright01 * (float)(ramp.size() - 1);
         const int idx = juce::jlimit(0, (int)ramp.size() - 2, (int)f);
         return ramp[(size_t)idx].interpolatedWith(ramp[(size_t)idx + 1], f - (float)idx);

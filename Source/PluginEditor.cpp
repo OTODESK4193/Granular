@@ -49,12 +49,25 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
 
     dryPlayButton.onClick = [this]
     {
-        if (proc.hasSampleFile()) proc.startDryPreview();
+        if (!proc.hasSampleFile()) return;
+        if (proc.dryPreviewActive.load()) proc.stopDryPreview();  // もう一度押すと停止
+        else                              proc.startDryPreview();
     };
 
     // カラーテーマの初期反映
     lastThemeIndex = (int)proc.apvts.getRawParameterValue("colorTheme")->load();
     GranularColors::setTheme(lastThemeIndex);
+
+    // テーマ変更→再起動促しバナー（最前面・クリック透過、初期は非表示）
+    themeBanner.setText("Color theme changed - reopen the plugin window for full effect",
+                        juce::dontSendNotification);
+    themeBanner.setJustificationType(juce::Justification::centred);
+    themeBanner.setFont(juce::Font(juce::FontOptions(12.5f, juce::Font::bold)));
+    themeBanner.setColour(juce::Label::backgroundColourId, juce::Colours::black.withAlpha(0.78f));
+    themeBanner.setColour(juce::Label::textColourId, juce::Colours::white);
+    themeBanner.setColour(juce::Label::outlineColourId, GranularColors::mint.withAlpha(0.9f));
+    themeBanner.setInterceptsMouseClicks(false, false);
+    addChildComponent(themeBanner);  // 最後に追加=最前面
 
     loadButton.onClick = [this]
     {
@@ -153,14 +166,29 @@ void GranularAudioProcessorEditor::setActiveTab(Tab t)
 // ------------------------------------------
 void GranularAudioProcessorEditor::timerCallback()
 {
-    // カラーテーマ切替の検知 → パレット更新 & 全再描画
+    // カラーテーマ切替の検知 → パレット更新 & 全再描画 + 再起動バナー
     const int themeIdx = (int)proc.apvts.getRawParameterValue("colorTheme")->load();
     if (themeIdx != lastThemeIndex)
     {
+        const bool firstTime = (lastThemeIndex < 0);
         lastThemeIndex = themeIdx;
         GranularColors::setTheme(themeIdx);
+        if (!firstTime) themeMsgFrames = 45; // 約4.5秒バナー表示（初回起動時は出さない）
         repaint();
         for (auto* child : getChildren()) child->repaint();
+    }
+    if (themeMsgFrames > 0)
+    {
+        themeBanner.setVisible(true);
+        if (--themeMsgFrames == 0) themeBanner.setVisible(false);
+    }
+
+    // PLAY DRY ボタンの表示をトグル状態に追従
+    const bool nowPlaying = proc.dryPreviewActive.load();
+    if (nowPlaying != dryPlaying)
+    {
+        dryPlaying = nowPlaying;
+        dryPlayButton.setButtonText(dryPlaying ? "STOP DRY" : "PLAY DRY");
     }
 
     juce::String f, t, o, c;
@@ -237,6 +265,9 @@ void GranularAudioProcessorEditor::resized()
 
     // Dryプレビュー再生ボタン (ボタングリッドの左)
     dryPlayButton.setBounds(792, 8, 88, 22);
+
+    // テーマ変更バナー (波形上部に重ねて表示)
+    themeBanner.setBounds(getWidth() / 2 - 260, 80, 520, 28);
 
     mainTabButton.setBounds(20,  kTabY, 92, kTabH);
     arpTabButton.setBounds(118, kTabY, 92, kTabH);

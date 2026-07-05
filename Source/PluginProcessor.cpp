@@ -782,12 +782,28 @@ void GranularAudioProcessor::run()
     if (mag > 0.0f) sharedAudioBuffer.applyGain(s, e - s + 1, 0.5f / mag); // -6dB 正規化
 
     waveformPeaks.fill(0.0f);
+    waveformBright.fill(0.0f);
     const int stepSize = juce::jmax(1, len / 1000);
+    const float* wp = sharedAudioBuffer.getReadPointer(0);
     for (int i = 0; i < 1000; ++i)
     {
         const int startIdx = i * stepSize;
         const int seg = juce::jmin(stepSize, len - startIdx);
-        if (seg > 0) waveformPeaks[(size_t)i] = sharedAudioBuffer.getMagnitude(startIdx, seg);
+        if (seg <= 0) continue;
+        waveformPeaks[(size_t)i] = sharedAudioBuffer.getMagnitude(startIdx, seg);
+
+        // スペクトル明度: 一次差分(=簡易ハイパス)の全体エネルギー比。
+        // 低域主体→比が小(暖色)、高域主体→比が大(寒色)。振幅に依存しない。
+        double totalE = 1.0e-9, highE = 0.0;
+        for (int n = 1; n < seg; ++n)
+        {
+            const float x = wp[startIdx + n];
+            const float dx = x - wp[startIdx + n - 1];
+            totalE += (double)x * x;
+            highE  += (double)dx * dx;
+        }
+        const float ratio = (float)std::sqrt(highE / totalE); // 0..~2
+        waveformBright[(size_t)i] = juce::jlimit(0.0f, 1.0f, ratio / 1.6f);
     }
     waveformReady.store(true);
 
