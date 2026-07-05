@@ -57,7 +57,7 @@ static uint16_t readBigEndian16(const uint8_t* b) noexcept
     return ((uint16_t)b[0] << 8) | b[1];
 }
 
-// Ableton Live が内部結合 (Ctrl+J) やファクトリー Pack 等で使用する 32-bit float AIFF-C (fl32) ファイルを、
+// Ableton Live が内部結合 (Ctrl+J) やファクトリー Pack 等で使用する 32-bit float / 16-bit / 24-bit AIFF-C (able / fl32) ファイルを、
 // JUCE の組み込み AiffAudioFormat に代わって独自に解析・ロードするフォールバック・デコーダー
 static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& destBuffer, double& sampleRate)
 {
@@ -119,8 +119,13 @@ static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& des
     char compType[4] = {0};
     fs.read(compType, 4);
 
-    // 'fl32' または 'FL32' でないなら、JUCEの標準デコーダーにフォールバックさせるため処理を中断
-    if (std::memcmp(compType, "fl32", 4) != 0 && std::memcmp(compType, "FL32", 4) != 0)
+    // デコード対応判定: 'able', 'fl32', 'FL32', 'NONE', 'none'
+    bool isAble = (std::memcmp(compType, "able", 4) == 0);
+    bool isFloat32 = (std::memcmp(compType, "fl32", 4) == 0 || std::memcmp(compType, "FL32", 4) == 0);
+    bool isPcmStandard = (std::memcmp(compType, "NONE", 4) == 0 || std::memcmp(compType, "none", 4) == 0);
+
+    // いずれの対応タイプでもない場合は、JUCEの標準デコーダーにフォールバックさせるため処理を中断
+    if (!isAble && !isFloat32 && !isPcmStandard)
         return false;
 
     // SSND チャンク解析
@@ -135,15 +140,115 @@ static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& des
     destBuffer.setSize((int)numChannels, (int)numSampleFrames);
     sampleRate = sr;
 
-    std::vector<float> tempFrame((size_t)numChannels);
-    for (uint32_t f = 0; f < numSampleFrames; ++f)
+    const int bytesPerSample = sampleSize / 8;
+    if (bytesPerSample <= 0 || bytesPerSample > 4) return false; // 安全ガード
+
+    const int bytesPerFrame = numChannels * bytesPerSample;
+
+    // --- エンディアンの自動判定ロジック ---
+    bool useLittleEndian = false;
+    if (numSampleFrames > 10 && (sampleSize == 16 || sampleSize == 24))
     {
-        if (!fs.read((char*)tempFrame.data(), (std::streamsize)(numChannels * 4))) break;
+        std::streampos currentPos = fs.tellg();
+        uint32_t testFramesCount = juce::jmin<uint32_t>(100, numSampleFrames);
+        std::vector<uint8_t> testBuf((size_t)(testFramesCount * bytesPerFrame));
+        fs.read((char*)testBuf.data(), (std::streamsize)testBuf.size());
+
+        double diffBig = 0.0;
+        double diffLit = 0.0;
 
         for (uint16_t ch = 0; ch < numChannels; ++ch)
         {
-            float val = swapFloat(tempFrame[(size_t)ch]);
-            destBuffer.setSample((int)ch, (int)f, val);
+            float lastBig = 0.0f;
+            float lastLit = 0.0f;
+            for (uint32_t f = 0; f < testFramesCount; ++f)
+            {
+                const uint8_t* p = testBuf.data() + (f * bytesPerFrame) + (ch * bytesPerSample);
+                
+                // ビッグエンディアン仮定
+                float fBig = 0.0f;
+                if (sampleSize == 16) {
+                    fBig = (float)(int16_t)(((uint16_t)p[0] << 8) | p[1]) / 32768.0f;
+                } else {
+                    int32_t val = ((int32_t)p[0] << 16) | ((int32_t)p[1] << 8) | p[2];
+                    if (val & 0x800000) val |= 0xFF000000;
+                    fBig = (float)val / 8388608.0f;
+                }
+                if (f > 0) diffBig += std::abs(fBig - lastBig);
+                lastBig = fBig;
+
+                // リトルエンディアン仮定
+                float fLit = 0.0f;
+                if (sampleSize == 16) {
+                    fLit = (float)(int16_t)(((uint16_t)p[1] << 8) | p[0]) / 32768.0f;
+                } else {
+                    int32_t val = ((int32_t)p[2] << 16) | ((int32_t)p[1] << 8) | p[0];
+                    if (val & 0x800000) val |= 0xFF000000;
+                    fLit = (float)val / 8388608.0f;
+                }
+                if (f > 0) diffLit += std::abs(fLit - lastLit);
+                lastLit = fLit;
+            }
+        }
+
+        if (diffLit < diffBig)
+            useLittleEndian = true;
+
+        fs.clear();           // ★ 読み込みエラー状態（EOFフラグなど）をクリア
+        fs.seekg(currentPos); // ファイルポインタを戻す
+    }
+
+    std::vector<uint8_t> frameBuf((size_t)bytesPerFrame);
+
+    for (uint32_t f = 0; f < numSampleFrames; ++f)
+    {
+        if (!fs.read((char*)frameBuf.data(), bytesPerFrame)) break;
+
+        for (uint16_t ch = 0; ch < numChannels; ++ch)
+        {
+            const uint8_t* samplePtr = frameBuf.data() + (ch * bytesPerSample);
+            float outSample = 0.0f;
+
+            if (sampleSize == 16)
+            {
+                int16_t val = 0;
+                if (useLittleEndian)
+                    val = (int16_t)(((uint16_t)samplePtr[1] << 8) | samplePtr[0]);
+                else
+                    val = (int16_t)(((uint16_t)samplePtr[0] << 8) | samplePtr[1]);
+                outSample = (float)val / 32768.0f;
+            }
+            else if (sampleSize == 24)
+            {
+                int32_t val = 0;
+                if (useLittleEndian)
+                    val = ((int32_t)samplePtr[2] << 16) | ((int32_t)samplePtr[1] << 8) | samplePtr[0];
+                else
+                    val = ((int32_t)samplePtr[0] << 16) | ((int32_t)samplePtr[1] << 8) | samplePtr[2];
+                if (val & 0x800000) val |= 0xFF000000;
+                outSample = (float)val / 8388608.0f;
+            }
+            else if (sampleSize == 32)
+            {
+                if (isFloat32)
+                {
+                    float rawF;
+                    std::memcpy(&rawF, samplePtr, 4);
+                    outSample = swapFloat(rawF);
+                }
+                else
+                {
+                    // 32-bit 整数の場合
+                    int32_t val = 0;
+                    if (useLittleEndian)
+                        val = ((int32_t)samplePtr[3] << 24) | ((int32_t)samplePtr[2] << 16) | ((int32_t)samplePtr[1] << 8) | samplePtr[0];
+                    else
+                        val = ((int32_t)samplePtr[0] << 24) | ((int32_t)samplePtr[1] << 16) | ((int32_t)samplePtr[2] << 8) | samplePtr[3];
+                    outSample = (float)val / 2147483648.0f;
+                }
+            }
+
+            destBuffer.setSample((int)ch, (int)f, outSample);
         }
     }
 
@@ -809,8 +914,28 @@ void GranularAudioProcessor::run()
             if (stream != nullptr && !stream->isExhausted())
             {
                 reader.reset(formatManager.createReaderFor(std::move(stream)));
-                if (reader != nullptr && reader->lengthInSamples > 0) break;
             }
+
+            // 3. ファイルロック回避フォールバック (std::ifstream で共有オープンし、メモリバッファ経由でデコード)
+            if (reader == nullptr)
+            {
+                std::ifstream fLockFree(fileToIngest.getFullPathName().toWideCharPointer(), std::ios::binary | std::ios::ate);
+                if (fLockFree.is_open())
+                {
+                    std::streamsize size = fLockFree.tellg();
+                    fLockFree.seekg(0, std::ios::beg);
+
+                    juce::MemoryBlock memBlock((size_t)size);
+                    if (fLockFree.read((char*)memBlock.getData(), size))
+                    {
+                        auto memStream = std::make_unique<juce::MemoryInputStream>(memBlock, false);
+                        reader.reset(formatManager.createReaderFor(std::move(memStream)));
+                    }
+                }
+            }
+
+            if (reader != nullptr && reader->lengthInSamples > 0)
+                break;
         }
         juce::Thread::sleep(100);
     }
@@ -819,70 +944,6 @@ void GranularAudioProcessor::run()
     {
         ingestState.store(IngestState::Failed);
         { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Failed (Timeout or Empty)"; }
-
-        // --- 読み込み失敗時の詳細デバッグログを出力 ---
-        juce::File desktopDir = juce::File::getSpecialLocation(juce::File::userDesktopDirectory);
-        juce::File logFile = desktopDir.getChildFile("granular_vst_debug_log.txt");
-
-        juce::String errLog;
-        errLog << "=== Granular VST Load Failed Log ===\n\n";
-        errLog << "Target File Path: " << fileToIngest.getFullPathName() << "\n";
-        errLog << "File Exists: " << (fileToIngest.existsAsFile() ? "Yes" : "No") << "\n";
-        errLog << "File Size: " << fileToIngest.getSize() << " bytes\n";
-        errLog << "File Can Read: " << (fileToIngest.createInputStream() != nullptr ? "Yes" : "No") << "\n";
-
-        if (fileToIngest.existsAsFile() && fileToIngest.getSize() >= 12)
-        {
-            std::ifstream fs(fileToIngest.getFullPathName().toWideCharPointer(), std::ios::binary);
-            if (fs.is_open())
-            {
-                char header[12];
-                if (fs.read(header, 12))
-                {
-                    uint32_t fileSize = ((uint32_t)(uint8_t)header[4] << 24) | ((uint32_t)(uint8_t)header[5] << 16) | ((uint32_t)(uint8_t)header[6] << 8) | (uint8_t)header[7];
-                    
-                    errLog << "\nChunks in AIFF:\n";
-                    while (fs.tellg() < (std::streampos)(fileSize + 8) && !fs.eof())
-                    {
-                        char chunkId[4];
-                        char chunkSizeBuf[4];
-                        if (!fs.read(chunkId, 4) || !fs.read(chunkSizeBuf, 4)) break;
-
-                        uint32_t chunkSize = ((uint32_t)(uint8_t)chunkSizeBuf[0] << 24) | ((uint32_t)(uint8_t)chunkSizeBuf[1] << 16) | ((uint32_t)(uint8_t)chunkSizeBuf[2] << 8) | (uint8_t)chunkSizeBuf[3];
-                        std::streampos nextChunk = fs.tellg() + (std::streamoff)chunkSize;
-                        if (chunkSize % 2 != 0) nextChunk += 1;
-
-                        char idStr[5] = { chunkId[0], chunkId[1], chunkId[2], chunkId[3], 0 };
-                        errLog << "  Chunk: " << idStr << " | Size: " << chunkSize << " bytes\n";
-
-                        if (std::memcmp(chunkId, "COMM", 4) == 0)
-                        {
-                            uint8_t commData[18];
-                            if (fs.read((char*)commData, 18))
-                            {
-                                uint16_t numChannels = ((uint16_t)commData[0] << 8) | commData[1];
-                                uint32_t numSampleFrames = ((uint32_t)commData[2] << 24) | ((uint32_t)commData[3] << 16) | ((uint32_t)commData[4] << 8) | commData[5];
-                                uint16_t sampleSize = ((uint16_t)commData[6] << 8) | commData[7];
-                                
-                                errLog << "    COMM Metadata:\n";
-                                errLog << "      Channels: " << numChannels << "\n";
-                                errLog << "      Frames: " << numSampleFrames << "\n";
-                                errLog << "      SampleSize: " << sampleSize << " bits\n";
-                                
-                                char compType[4] = {0};
-                                fs.read(compType, 4);
-                                char compStr[5] = { compType[0], compType[1], compType[2], compType[3], 0 };
-                                errLog << "      CompressionType: " << compStr << "\n";
-                            }
-                        }
-
-                        fs.seekg(nextChunk);
-                    }
-                }
-            }
-        }
-
-        logFile.replaceWithText(errLog);
         return;
     }
 
@@ -1073,6 +1134,9 @@ void GranularAudioProcessor::run()
     ingestProgress.store(1.0f);
     ingestState.store(IngestState::Ready);
     { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Ready"; }
+
+
+
     sendChangeMessage();
 }
 
