@@ -257,6 +257,7 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
     const double L = (double)validLength;
     const double posBase = L * (double)p.position;
+    const double edgeFadeLen = juce::jmax(1.0, juce::jmin(L * 0.25, currentSampleRate * 0.003)); // 端フェード ~3ms
     double lastRel = 0.0;
 
     for (int i = 0; i < numSamples; ++i)
@@ -338,8 +339,17 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             const float sL = readHermiteClamped(srcL, srcLen, grain.position);
             const float sR = readHermiteClamped(srcR, srcLen, grain.position);
 
-            mixL += sL * windowValue * grain.panL * grain.amp;
-            mixR += sR * windowValue * grain.panR * grain.amp;
+            // 領域端フェード: End→Start の折り返し(下の position 補正)で生じる
+            // 波形の不連続=クリック(複数グレイン同時折り返しで突発的大音量)を防ぐ。
+            // 端から edgeFadeLen サンプル以内で読み出しを0へフェードする。
+            float edgeFade = 1.0f;
+            const double distStart = grain.position - (double)trimStart;
+            const double distEnd   = (double)trimEnd - grain.position;
+            if (distStart < edgeFadeLen) edgeFade *= (float)juce::jlimit(0.0, 1.0, distStart / edgeFadeLen);
+            if (distEnd   < edgeFadeLen) edgeFade *= (float)juce::jlimit(0.0, 1.0, distEnd   / edgeFadeLen);
+
+            mixL += sL * windowValue * grain.panL * grain.amp * edgeFade;
+            mixR += sR * windowValue * grain.panR * grain.amp * edgeFade;
 
             // 領域内ラップ再生 (End→Start へ折り返し):
             // グレイン全長がEndまでに収まる必要がなくなり、Positionが常に尊重される

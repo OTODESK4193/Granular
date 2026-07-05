@@ -570,6 +570,9 @@ void GranularAudioProcessor::setStateInformation(const void* data, int sizeInByt
 void GranularAudioProcessor::loadFileForIngest(const juce::File& file)
 {
     if (isThreadRunning()) stopThread(2000);
+    // 再読込/再解析時、音声スレッドが sharedAudioBuffer を読みながら
+    // 背景スレッドが再確保する競合を防ぐため、先に非Ready状態にする
+    ingestState.store(IngestState::Loading);
     waveformReady.store(false);
     fileToIngest = file;
     {
