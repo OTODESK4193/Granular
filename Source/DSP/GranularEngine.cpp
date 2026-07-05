@@ -71,6 +71,7 @@ void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, cons
         std::fill(combBufL.begin(), combBufL.end(), 0.0f);
         std::fill(combBufR.begin(), combBufR.end(), 0.0f);
         combLpL = combLpR = 0.0f;
+        currentCombDelay = 0.0f;
     }
     // ボイススチール時は古いグレインを即kill「しない」。
     //   → 古い粒は各自の窓で自然に減衰し、新しい粒が立ち上がるので実質クロスフェード。
@@ -260,7 +261,8 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     // TONE: コムレゾネーター係数
     const bool  toneOn = p.tone > 0.001f && !combBufL.empty();
     const int   combSize = (int)combBufL.size();
-    const float combDelay = (float)juce::jmin(notePeriod, (double)(combSize - 4));
+    const float targetCombDelay = (float)juce::jmin(notePeriod, (double)(combSize - 4));
+    if (currentCombDelay == 0.0f) currentCombDelay = targetCombDelay; // 初回
     const float combFb = 0.55f + 0.40f * p.tone;   // tone↑でレゾナンス強化
     const float combDamp = 0.35f;                  // 高域減衰（金属的な響きを抑制）
     const float toneMix = p.tone;
@@ -382,7 +384,9 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         // TONE: ノート同調コムレゾネーター (Karplus-Strong系)
         if (toneOn)
         {
-            auto processComb = [combSize, combDelay, combFb, combDamp](std::vector<float>& buf,
+            // ボイススチール時にノートが切り替わった際、Delayの急変がバースト音を生むのを防ぐため高速グライド
+            currentCombDelay += 0.005f * (targetCombDelay - currentCombDelay);
+            auto processComb = [combSize, combDelay = currentCombDelay, combFb, combDamp](std::vector<float>& buf,
                                                                        int writeIdx, float in, float& lpState)
             {
                 float readPos = (float)writeIdx - combDelay;

@@ -345,6 +345,7 @@ private:
     std::vector<float> combBufL, combBufR;
     int   combWriteIdx = 0;
     float combLpL = 0.0f, combLpR = 0.0f;
+    float currentCombDelay = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GranularVoice)
 };
