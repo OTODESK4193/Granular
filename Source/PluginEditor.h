@@ -14,6 +14,7 @@
 #include "GUI/ConfigPanel.h"
 #include "GUI/FxPanel.h"
 #include "GUI/ModPanel.h"
+#include "GUI/PresetBrowser.h"
 #include "GUI/ColorPalette.h"
 
 class GranularAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -51,6 +52,8 @@ private:
     ConfigPanel configPanel;
     FxPanel fxPanel;
     ModPanel modPanel;
+    PresetBrowser presetBrowser;
+    void toggleBrowser();
 
     // --- ヘッダー ---
     juce::TextButton loadButton    { "LOAD" };
@@ -58,6 +61,7 @@ private:
     juce::TextButton deleteButton  { "DELETE" };
     juce::TextButton resetButton   { "RESET" };
     juce::TextButton dryPlayButton { "PLAY DRY" };
+    juce::TextButton browseButton  { "BROWSE" };
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::String hudFile, hudTask, hudOrig, hudCorr;
     int lastThemeIndex = -1;    // カラーテーマ変更検知

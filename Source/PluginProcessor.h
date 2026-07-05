@@ -64,6 +64,14 @@ public:
     void stopDryPreview()  { dryPreviewActive.store(false); }
     std::atomic<bool> dryPreviewActive { false };
 
+    // --- プリセット ---
+    void applyFactoryPreset(int index);                 // ファクトリー(パラメータ上書き)
+    void resetAllParametersToDefault();
+    juce::File getUserPresetDir() const;                // Documents/OTODESK/Granular/Presets
+    bool saveUserPreset(const juce::String& name);      // ユーザープリセット保存
+    void loadUserPresetFile(const juce::File& file);    // ユーザープリセット読込
+    juce::String currentPresetName = "Init";
+
     juce::AudioFormatManager formatManager;
     juce::AudioBuffer<float> sharedAudioBuffer;
 

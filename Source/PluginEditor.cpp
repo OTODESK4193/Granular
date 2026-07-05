@@ -12,7 +12,7 @@ namespace
 
 GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcessor& p)
     : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p), arpPanel(p),
-      configPanel(p), fxPanel(p), modPanel(p)
+      configPanel(p), fxPanel(p), modPanel(p), presetBrowser(p.getUserPresetDir())
 {
     setLookAndFeel(&lnf);
 
@@ -46,6 +46,7 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     styleHeaderButton(deleteButton);
     styleHeaderButton(resetButton);
     styleHeaderButton(dryPlayButton);
+    styleHeaderButton(browseButton);
 
     dryPlayButton.onClick = [this]
     {
@@ -53,6 +54,15 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
         if (proc.dryPreviewActive.load()) proc.stopDryPreview();  // もう一度押すと停止
         else                              proc.startDryPreview();
     };
+
+    // --- プリセットブラウザ ---
+    browseButton.onClick = [this] { toggleBrowser(); };
+    addChildComponent(presetBrowser);
+    presetBrowser.onLoadFactory = [this](int i)          { proc.applyFactoryPreset(i); };
+    presetBrowser.onLoadUser    = [this](const juce::File& f) { proc.loadUserPresetFile(f); };
+    presetBrowser.onSave        = [this](const juce::String& n) { proc.saveUserPreset(n); };
+    presetBrowser.onInit        = [this] { proc.resetAllParametersToDefault(); };
+    presetBrowser.onClose       = [this] { presetBrowser.setVisible(false); };
 
     // カラーテーマの初期反映
     lastThemeIndex = (int)proc.apvts.getRawParameterValue("colorTheme")->load();
@@ -131,6 +141,19 @@ void GranularAudioProcessorEditor::resetAllParameters()
 {
     for (auto* param : proc.getParameters())
         param->setValueNotifyingHost(param->getDefaultValue());
+}
+
+void GranularAudioProcessorEditor::toggleBrowser()
+{
+    const bool show = !presetBrowser.isVisible();
+    if (show)
+    {
+        presetBrowser.refresh();       // User一覧を再スキャン
+        presetBrowser.toFront(false);  // 最前面へ
+    }
+    presetBrowser.setVisible(show);
+    browseButton.setColour(juce::TextButton::textColourOffId,
+                           show ? GranularColors::mint : GranularColors::text);
 }
 
 // ------------------------------------------
@@ -263,8 +286,12 @@ void GranularAudioProcessorEditor::resized()
     deleteButton.setBounds(888, 34, 80, 22);
     resetButton.setBounds(976, 34, 88, 22);
 
-    // Dryプレビュー再生ボタン (ボタングリッドの左)
+    // Dryプレビュー再生ボタン + BROWSE (ボタングリッドの左に縦積み)
     dryPlayButton.setBounds(792, 8, 88, 22);
+    browseButton.setBounds(792, 34, 88, 22);
+
+    // プリセットブラウザ (タブパネルと同じ下部領域に展開)
+    presetBrowser.setBounds(0, kPanelY, getWidth(), getHeight() - kPanelY);
 
     // テーマ変更バナー (波形上部に重ねて表示)
     themeBanner.setBounds(getWidth() / 2 - 260, 80, 520, 28);

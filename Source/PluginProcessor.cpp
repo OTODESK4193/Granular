@@ -3,6 +3,7 @@
 // ==========================================
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Presets/PresetData.h"
 
 // サードパーティ(Signalsmith)内部の無害な警告を抑制
 // C4244: double→float変換(DSPライブラリの意図的設計) / C4456,4458: 変数の隠蔽(スタイル)
@@ -815,6 +816,88 @@ void GranularAudioProcessor::run()
     ingestState.store(IngestState::Ready);
     { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Ready"; }
     sendChangeMessage();
+}
+
+// ==========================================
+// プリセット
+// ==========================================
+void GranularAudioProcessor::resetAllParametersToDefault()
+{
+    // colorTheme / poly はUI・システム設定なのでプリセット/INITで変えない
+    for (auto* p : getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*>(p))
+        {
+            const auto id = rp->getParameterID();
+            if (id == "colorTheme" || id == "poly") continue;
+            rp->setValueNotifyingHost(rp->getDefaultValue());
+        }
+}
+
+void GranularAudioProcessor::applyFactoryPreset(int index)
+{
+    const auto& list = GranularPresets::all();
+    if (index < 0 || index >= (int)list.size()) return;
+
+    resetAllParametersToDefault();     // 未指定パラメータはデフォルトへ（決定論的）
+
+    const auto& preset = list[(size_t)index];
+    for (const auto& pp : preset.params)
+    {
+        if (auto* rp = apvts.getParameter(pp.id))
+        {
+            const float norm = juce::jlimit(0.0f, 1.0f, rp->convertTo0to1(pp.v));
+            rp->setValueNotifyingHost(norm);
+        }
+    }
+    currentPresetName = preset.name;
+}
+
+juce::File GranularAudioProcessor::getUserPresetDir() const
+{
+    auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                   .getChildFile("OTODESK").getChildFile("Granular").getChildFile("Presets");
+    if (!dir.exists()) dir.createDirectory();
+    return dir;
+}
+
+bool GranularAudioProcessor::saveUserPreset(const juce::String& name)
+{
+    auto safe = juce::File::createLegalFileName(name.trim());
+    if (safe.isEmpty()) return false;
+
+    auto state = apvts.copyState();
+    std::unique_ptr<juce::XmlElement> xml(state.createXml());
+    if (xml == nullptr) return false;
+
+    // Sampleは埋め込まず「パス参照」で保存（ファイルが残っていれば読込時に再ロード）
+    {
+        juce::ScopedLock sl(stateLock);
+        xml->setAttribute("AudioFilePath", fileToIngest.getFullPathName());
+        xml->setAttribute("PresetName", name);
+    }
+    auto file = getUserPresetDir().getChildFile(safe + ".xml");
+    const bool ok = xml->writeTo(file, {});
+    if (ok) currentPresetName = name;
+    return ok;
+}
+
+void GranularAudioProcessor::loadUserPresetFile(const juce::File& file)
+{
+    if (!file.existsAsFile()) return;
+    std::unique_ptr<juce::XmlElement> xml(juce::XmlDocument::parse(file));
+    if (xml == nullptr) return;
+
+    if (xml->hasTagName(apvts.state.getType()))
+        apvts.replaceState(juce::ValueTree::fromXml(*xml));
+
+    currentPresetName = xml->getStringAttribute("PresetName", file.getFileNameWithoutExtension());
+
+    const juce::String path = xml->getStringAttribute("AudioFilePath", "");
+    if (path.isNotEmpty())
+    {
+        juce::File f(path);
+        if (f.existsAsFile()) loadFileForIngest(f);
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new GranularAudioProcessor(); }

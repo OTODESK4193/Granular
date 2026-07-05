@@ -80,6 +80,9 @@ target_sources(Granular PRIVATE
     Source/GUI/FxPanel.cpp
     Source/GUI/ModPanel.h
     Source/GUI/ModPanel.cpp
+    Source/GUI/PresetBrowser.h
+
+    Source/Presets/PresetData.h
 )
 
 # ----------------------------------------------------------------------------
