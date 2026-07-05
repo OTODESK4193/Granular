@@ -182,8 +182,8 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
 
         for (int k = 0; k < dotCount; ++k)
         {
-            const float fade = 1.0f - 0.55f * ((float)k / (float)juce::jmax(1, dotCount - 1));
-            g.setColour(baseColour.withMultipliedAlpha(0.9f * fade));
+            const float fade = 1.0f - 0.38f * ((float)k / (float)juce::jmax(1, dotCount - 1));
+            g.setColour(baseColour.withMultipliedAlpha(fade));
 
             const float dy = (float)k * kDotSpacingY;
             g.fillEllipse(x - kDotRadius, cy - dy - kDotRadius, kDotRadius * 2.0f, kDotRadius * 2.0f);

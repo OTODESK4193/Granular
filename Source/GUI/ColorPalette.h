@@ -132,9 +132,15 @@ namespace GranularColors
         const float f = bright01 * (float)(ramp.size() - 1);
         const int idx = juce::jlimit(0, (int)ramp.size() - 2, (int)f);
         auto c = ramp[(size_t)idx].interpolatedWith(ramp[(size_t)idx + 1], f - (float)idx);
-        // 濃淡を明確化: 低域=暗め / 高域=明るめ。
-        // 単色系テーマ(色相差が小さい)でもハッキリした明暗グラデーションが付く。
-        return c.withMultipliedBrightness(0.5f + 1.0f * bright01);
+
+        // 色をより鮮やかに（有色テーマの色差をハッキリ）
+        c = c.withMultipliedSaturation(1.5f);
+        // 濃淡を強調: 低域=暗く / 高域=明るく（単色テーマでもハッキリした明暗）
+        c = c.withMultipliedBrightness(0.38f + 1.3f * bright01);
+        // 単色(彩度が極小)テーマ向けの保険: 明暗レンジをさらに広げる
+        if (c.getSaturation() < 0.12f)
+            c = c.withMultipliedBrightness(0.75f + 0.5f * bright01);
+        return c;
     }
 
     // グレインドット色: ピッチ(C3基準の半音差)→ 色相へマッピング

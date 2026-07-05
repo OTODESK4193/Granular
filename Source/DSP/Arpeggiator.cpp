@@ -247,6 +247,16 @@ void Arpeggiator::fireStep(juce::MidiBuffer& out, int offset, int gateSamples, c
     auto emit = [&](const PoolNote& pn)
     {
         const int note = juce::jlimit(0, 127, quantizeNote(pn.note, p));
+
+        // 安全リトリガー: 同一ノートがまだ発音中(active)なら、先に noteOff を出す。
+        // Rate/Gate/Octave変更でステップ間隔とゲート長がズレても、同一ピッチの
+        // 二重発音・noteOff取りこぼしによるボイス・スタック(=突発的大音量)を防ぐ。
+        for (auto it = active.begin(); it != active.end(); )
+        {
+            if (it->note == note) { out.addEvent(juce::MidiMessage::noteOff(1, note), offset); it = active.erase(it); }
+            else ++it;
+        }
+
         out.addEvent(juce::MidiMessage::noteOn(1, note, pn.vel), offset);
         active.push_back({ note, offset + gateSamples });
     };
