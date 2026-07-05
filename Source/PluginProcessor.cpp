@@ -73,9 +73,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("sampleStart", "Start", 0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("sampleEnd",   "End",   0.0f, 1.0f, 1.0f));
 
-    // --- リミッター天井 (Configタブで調整予定) ---
+    // --- リミッター天井 (Mainタブ) ---
     params.push_back(std::make_unique<juce::AudioParameterFloat>("ceiling", "Ceiling",
         juce::NormalisableRange<float>(-6.0f, 0.0f, 0.01f), -0.1f));
+    // --- リミッター・リリース (Configタブ) ---
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("limRelease", "Limiter Release",
+        juce::NormalisableRange<float>(1.0f, 500.0f, 0.1f, 0.4f), 50.0f));
+
+    // --- フィルタースロープ / 同時発音数 (Configタブ) ---
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("filterSlope", "Filter Slope",
+        juce::StringArray { "12 dB/oct", "24 dB/oct" }, 0));
+    params.push_back(std::make_unique<juce::AudioParameterInt>("poly", "Polyphony", 1, 24, 24));
 
     // --- FXチェーン (5スロット、順序はD&Dで入替=値のスワップ) ---
     for (int i = 1; i <= FxChain::kNumSlots; ++i)
@@ -352,7 +360,10 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     p.tone          = apvts.getRawParameterValue("tone")->load();
     p.masterHPF     = apvts.getRawParameterValue("masterHPF")->load();
     p.masterLPF     = apvts.getRawParameterValue("masterLPF")->load();
+    p.filterSlope   = (int)apvts.getRawParameterValue("filterSlope")->load();
     p.ceiling       = apvts.getRawParameterValue("ceiling")->load();
+    p.limRelease    = apvts.getRawParameterValue("limRelease")->load();
+    p.poly          = (int)apvts.getRawParameterValue("poly")->load();
     p.playMode      = (int)apvts.getRawParameterValue("playMode")->load();
     p.speedSync     = apvts.getRawParameterValue("speedSync")->load() > 0.5f;
     p.speedSyncDiv  = (int)apvts.getRawParameterValue("speedSyncDiv")->load();
@@ -435,6 +446,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     // --- マスターブリックウォールリミッター + NaN/Infガード ---
     {
         const int channels = buffer.getNumChannels();
+        masterLimiter.setReleaseMs(apvts.getRawParameterValue("limRelease")->load());
         const float ceilingLin = juce::Decibels::decibelsToGain(
             juce::jlimit(-6.0f, 0.0f, apvts.getRawParameterValue("ceiling")->load()));
         float* dL = buffer.getWritePointer(0);

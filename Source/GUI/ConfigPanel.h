@@ -26,8 +26,15 @@ private:
     juce::ComboBox materialBox;
     juce::Label    materialLabel;
 
-    ValueKnob   ceilingKnob;
-    juce::Label ceilingLabel;
+    // LIMITER 詳細: Release
+    ValueKnob   limReleaseKnob;
+    juce::Label limReleaseLabel;
+
+    // SYSTEM: Polyphony / Filter Slope
+    ValueKnob   polyKnob;
+    juce::Label polyLabel;
+    juce::ComboBox slopeBox;
+    juce::Label    slopeLabel;
 
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>>   sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;

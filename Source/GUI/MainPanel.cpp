@@ -55,6 +55,9 @@ MainPanel::MainPanel(GranularAudioProcessor& p) : proc(p)
     setupKnob(lpfKnob,  lpfLabel,  "LPF",  "masterLPF", master);
     setupKnob(gainKnob, gainLabel, "GAIN", "outGain",   master);
 
+    // --- LIMITER (Configから移設) ---
+    setupKnob(ceilingKnob, ceilingLabel, "CEILING", "ceiling", master);
+
     startTimerHz(30); // MOD Arc 更新
 }
 
@@ -184,14 +187,15 @@ void MainPanel::paint(juce::Graphics& g)
     drawSection("PITCH",    516, 6,   3 * kKnobW - 8, GranularColors::accentPitch);
     drawSection("ENVELOPE", 772, 6,   4 * kKnobW - 8, GranularColors::accentEnv);
     drawSection("SAMPLE",   20,  150, 3 * kKnobW - 8, GranularColors::accentMaster);
-    drawSection("MOTION",   300, 150, 320,            GranularColors::accentGrain);
-    drawSection("MASTER",   848, 150, 3 * kKnobW - 8, GranularColors::accentMaster);
+    drawSection("MOTION",   256, 150, 250,            GranularColors::accentGrain);
+    drawSection("MASTER",   516, 150, 3 * kKnobW - 8, GranularColors::accentMaster);
+    drawSection("LIMITER",  760, 150, kKnobW - 8,     GranularColors::accentMaster);
 
-    // 補足説明
+    // MOTION 補足説明（Mode/SCANの下に配置）
     g.setColour(GranularColors::textDim.withAlpha(0.6f));
-    g.setFont(juce::Font(juce::FontOptions(11.0f)));
-    g.drawText("S-SYNC: scan Start-End in SCAN length (DAW tempo)",
-               650, 178, 190, 42, juce::Justification::topLeft);
+    g.setFont(juce::Font(juce::FontOptions(10.5f)));
+    g.drawText("S-SYNC: scan Start-End over SCAN length (DAW tempo)",
+               256, 236, 250, 26, juce::Justification::topLeft);
 }
 
 void MainPanel::resized()
@@ -226,14 +230,18 @@ void MainPanel::resized()
     placeKnob(startKnob,    startLabel,    20 + 1 * kKnobW, row2);
     placeKnob(endKnob,      endLabel,      20 + 2 * kKnobW, row2);
 
-    // MOTION: MODE / S-SYNC / SCAN
-    modeLabel.setBounds(300, row2, 80, 14);
-    modeBox.setBounds(300, row2 + 16, 110, 26);
-    speedSyncButton.setBounds(424, row2 + 16, 76, 26);
-    scanLabel.setBounds(514, row2, 80, 14);
-    scanBox.setBounds(514, row2 + 16, 100, 26);
+    // MOTION (x256..506): MODE / SCAN 上段、S-SYNC 中段、説明文は下段(paint)
+    modeLabel.setBounds(256, 168, 80, 14);
+    modeBox.setBounds(256, 184, 110, 24);
+    scanLabel.setBounds(376, 168, 80, 14);
+    scanBox.setBounds(376, 184, 110, 24);
+    speedSyncButton.setBounds(256, 212, 110, 24);
 
-    placeKnob(hpfKnob,  hpfLabel,  848 + 0 * kKnobW, row2);
-    placeKnob(lpfKnob,  lpfLabel,  848 + 1 * kKnobW, row2);
-    placeKnob(gainKnob, gainLabel, 848 + 2 * kKnobW, row2);
+    // MASTER (Motionに続けて配置)
+    placeKnob(hpfKnob,  hpfLabel,  516 + 0 * kKnobW, row2);
+    placeKnob(lpfKnob,  lpfLabel,  516 + 1 * kKnobW, row2);
+    placeKnob(gainKnob, gainLabel, 516 + 2 * kKnobW, row2);
+
+    // LIMITER (Ceiling, Configから移設)
+    placeKnob(ceilingKnob, ceilingLabel, 760, row2);
 }

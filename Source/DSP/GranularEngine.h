@@ -87,7 +87,10 @@ struct GranularParams
 
     float masterHPF = 20.0f;
     float masterLPF = 20000.0f;
+    int   filterSlope = 0;        // 0=12dB/oct(1段) 1=24dB/oct(2段)
     float ceiling = -0.1f;        // マスターリミッターの天井 (dB)
+    float limRelease = 50.0f;     // リミッターのリリース (ms)
+    int   poly = 24;              // 同時発音数 (1..24)
 
     int   detectedRoot = 0;       // 解析で得たルート (key==Auto時に使用)
     int   rootNote = 60;          // Root Note Tracking: サンプルの元ピッチ(MIDI)
@@ -176,16 +179,69 @@ private:
 };
 
 // ==========================================
+// TptSvf — TPT(トポロジー保存)ステートバリアブルフィルタ (Zavalishin)
+//   カットオフをサンプル単位でスムージングするため、変調しても
+//   ザラつき/クリックが出ない。1段=12dB/oct。2段直列で24dB/oct。
+// ==========================================
+struct TptSvf
+{
+    void prepare(double sr) noexcept
+    {
+        sampleRate = sr;
+        s1 = s2 = 0.0f;
+        g = gTarget = 0.05f;
+    }
+    void reset() noexcept { s1 = s2 = 0.0f; }
+
+    // 目標カットオフ(Hz)/Qを設定（gは実処理でスムージングされる）
+    void setTarget(float freqHz, float q) noexcept
+    {
+        const float nyq = (float)(sampleRate * 0.5);
+        freqHz = juce::jlimit(10.0f, nyq * 0.99f, freqHz);
+        gTarget = std::tan(juce::MathConstants<float>::pi * freqHz / (float)sampleRate);
+        R2 = 1.0f / juce::jmax(0.05f, q);
+    }
+
+    inline void tickCoeff() noexcept { g += 0.004f * (gTarget - g); } // per-sampleスムージング
+
+    inline float processLP(float x) noexcept
+    {
+        tickCoeff();
+        const float hp = (x - (R2 + g) * s1 - s2) / (1.0f + R2 * g + g * g);
+        const float bp = g * hp + s1; s1 = g * hp + bp;
+        const float lp = g * bp + s2; s2 = g * bp + lp;
+        return lp;
+    }
+    inline float processHP(float x) noexcept
+    {
+        tickCoeff();
+        const float hp = (x - (R2 + g) * s1 - s2) / (1.0f + R2 * g + g * g);
+        const float bp = g * hp + s1; s1 = g * hp + bp;
+        const float lp = g * bp + s2; s2 = g * bp + lp;
+        return hp;
+    }
+
+    double sampleRate = 44100.0;
+    float g = 0.05f, gTarget = 0.05f, R2 = 1.41421356f, s1 = 0.0f, s2 = 0.0f;
+};
+
+// ==========================================
 // BrickLimiter — マスター用ブリックウォールリミッター
-//   アタック即時（天井を絶対に超えない）/ リリース50msスムーズ
+//   アタック即時（天井を絶対に超えない）/ リリース可変
 // ==========================================
 class BrickLimiter
 {
 public:
     void prepare(double sr) noexcept
     {
-        releaseCoef = 1.0f - std::exp((float)(-1.0 / (0.05 * sr)));
+        sampleRate = sr;
+        setReleaseMs(50.0f);
         gain = 1.0f;
+    }
+    void setReleaseMs(float ms) noexcept
+    {
+        const double t = juce::jmax(0.5f, ms) * 0.001;
+        releaseCoef = 1.0f - std::exp((float)(-1.0 / (t * sampleRate)));
     }
     inline void process(float& l, float& r, float ceilingLin) noexcept
     {
@@ -197,6 +253,7 @@ public:
         r *= gain;
     }
 private:
+    double sampleRate = 44100.0;
     float gain = 1.0f;
     float releaseCoef = 0.0005f;
 };
@@ -324,8 +381,11 @@ private:
     std::array<GranularVoice, NUM_VOICES> voices;
     std::array<std::array<float, 4096>, 4> windowTables;
 
-    juce::IIRFilter filterHPF[2];
-    juce::IIRFilter filterLPF[2];
+    // マスターフィルタ: [ch][stage] (stage1は24dB/oct時のみ使用)
+    TptSvf svfHP[2][2];
+    TptSvf svfLP[2][2];
+
+    float prevOutGain = 0.0f;   // 出力ゲインのランプ用
 
     double currentSampleRate = 44100.0;
     uint64_t noteCounter = 0;

@@ -430,6 +430,9 @@ namespace gfx
             writeIndex = 0;
             envelope = 0.0f;
             currentDelaySamps = 0.0f;
+            curAmount = 0.0f;
+            curFeedback = 0.0f;
+            lpStateL = lpStateR = 0.0f;
         }
 
         // amount=Wet量, timeBeats=ディレイタイム(拍), feedback=0..0.95,
@@ -437,7 +440,11 @@ namespace gfx
         void process(float& inOutL, float& inOutR, float amount, double bpm,
                      float timeBeats, float feedback, float duck, float damp) noexcept
         {
-            if (amount <= 0.0f) return;
+            // amount/feedback をサンプル単位でスムージング（ブロック境界のプチ音防止）。
+            // amount==0でも早期リターンせずディレイラインを回し続け、書き込みの
+            // 途切れ(=クラックの原因)を無くす。
+            curAmount   += 0.0015f * (amount - curAmount);
+            curFeedback += 0.0015f * (juce::jlimit(0.0f, 0.95f, feedback) - curFeedback);
 
             const float inSum = std::abs(inOutL) + std::abs(inOutR);
             const float attack = 0.001f;
@@ -479,7 +486,7 @@ namespace gfx
             dR = lpStateR;
 
             // ループ書き込みはソフトクリップで安全化（持続音×高FBの蓄積を抑える）
-            const float fb = juce::jlimit(0.0f, 0.95f, feedback);
+            const float fb = curFeedback;
             delayBuffer[(size_t)writeIndex * 2] =
                 gfx::antiDenormal(gfx::safeLoopSaturate((inOutL * duckingGain) + (dL * fb)));
             delayBuffer[(size_t)writeIndex * 2 + 1] =
@@ -487,8 +494,8 @@ namespace gfx
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
-            inOutL += dL * amount;
-            inOutR += dR * amount;
+            inOutL += dL * curAmount;
+            inOutR += dR * curAmount;
         }
 
     private:
@@ -498,6 +505,8 @@ namespace gfx
         float envelope = 0.0f;
         float currentDelaySamps = 0.0f;
         float lpStateL = 0.0f, lpStateR = 0.0f;
+        float curAmount = 0.0f;      // スムージング済みWet量
+        float curFeedback = 0.0f;    // スムージング済みFeedback
     };
 
     // ------------------------------------------

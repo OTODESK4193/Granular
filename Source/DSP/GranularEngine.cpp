@@ -419,10 +419,12 @@ void GranularSynth::prepareToPlay(double sr, int spb)
 {
     currentSampleRate = sr;
     for (int ch = 0; ch < 2; ++ch)
-    {
-        filterHPF[ch].reset();
-        filterLPF[ch].reset();
-    }
+        for (int st = 0; st < 2; ++st)
+        {
+            svfHP[ch][st].prepare(sr);
+            svfLP[ch][st].prepare(sr);
+        }
+    prevOutGain = juce::Decibels::decibelsToGain(-12.0f);
     for (auto& v : voices) v.prepareToPlay(sr, spb);
 }
 
@@ -440,25 +442,32 @@ void GranularSynth::handleMidi(const juce::MidiBuffer& midi, const GranularParam
         if (msg.isNoteOn())
         {
             GranularVoice* target = nullptr;
+            const int maxV = juce::jlimit(1, NUM_VOICES, p.poly); // 同時発音数の上限
 
             // 1) 空きボイス
-            for (auto& v : voices)
-                if (!v.isActive()) { target = &v; break; }
+            for (int i = 0; i < maxV; ++i)
+                if (!voices[(size_t)i].isActive()) { target = &voices[(size_t)i]; break; }
 
             // 2) リリース中の最古ボイス
             if (target == nullptr)
             {
                 uint64_t oldest = UINT64_MAX;
-                for (auto& v : voices)
+                for (int i = 0; i < maxV; ++i)
+                {
+                    auto& v = voices[(size_t)i];
                     if (v.isReleasing() && v.getNoteStamp() < oldest) { oldest = v.getNoteStamp(); target = &v; }
+                }
             }
 
             // 3) 最古ノートを強制スチール
             if (target == nullptr)
             {
                 uint64_t oldest = UINT64_MAX;
-                for (auto& v : voices)
+                for (int i = 0; i < maxV; ++i)
+                {
+                    auto& v = voices[(size_t)i];
                     if (v.getNoteStamp() < oldest) { oldest = v.getNoteStamp(); target = &v; }
+                }
             }
 
             if (target != nullptr)
@@ -508,20 +517,40 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
         playheadDisplay.store(ph, std::memory_order_relaxed);
     }
 
-    // マスターフィルター
-    for (int ch = 0; ch < 2; ++ch)
+    // マスターフィルター (TPT SVF, カットオフはper-sampleスムージング)
+    const float hpFreq = juce::jlimit(20.0f, 2000.0f, p.masterHPF);
+    const float lpFreq = juce::jlimit(200.0f, 20000.0f, p.masterLPF);
+    const bool twoStage = (p.filterSlope >= 1);          // 24dB/oct
+    const float qFilter = 0.70710678f;                    // Butterworth
+    const int nCh = juce::jmin(2, buf.getNumChannels());
+    const int nSmp = buf.getNumSamples();
+
+    for (int ch = 0; ch < nCh; ++ch)
     {
-        filterHPF[ch].setCoefficients(juce::IIRCoefficients::makeHighPass(currentSampleRate, juce::jlimit(20.0f, 2000.0f, p.masterHPF)));
-        filterLPF[ch].setCoefficients(juce::IIRCoefficients::makeLowPass(currentSampleRate, juce::jlimit(200.0f, 20000.0f, p.masterLPF)));
-    }
-    for (int ch = 0; ch < buf.getNumChannels() && ch < 2; ++ch)
-    {
+        svfHP[ch][0].setTarget(hpFreq, qFilter);
+        svfHP[ch][1].setTarget(hpFreq, qFilter);
+        svfLP[ch][0].setTarget(lpFreq, qFilter);
+        svfLP[ch][1].setTarget(lpFreq, qFilter);
+
         float* d = buf.getWritePointer(ch);
-        filterHPF[ch].processSamples(d, buf.getNumSamples());
-        filterLPF[ch].processSamples(d, buf.getNumSamples());
+        for (int i = 0; i < nSmp; ++i)
+        {
+            float x = d[i];
+            x = svfHP[ch][0].processHP(x);
+            if (twoStage) x = svfHP[ch][1].processHP(x);
+            x = svfLP[ch][0].processLP(x);
+            if (twoStage) x = svfLP[ch][1].processLP(x);
+            d[i] = x;
+        }
     }
 
-    buf.applyGain(juce::Decibels::decibelsToGain(p.outGainDb));
+    // 出力ゲイン: ブロック間をランプしてジッパー音を防止
+    const float targetGain = juce::Decibels::decibelsToGain(p.outGainDb);
+    if (nSmp > 0)
+    {
+        buf.applyGainRamp(0, nSmp, prevOutGain, targetGain);
+        prevOutGain = targetGain;
+    }
 
     // ※ FXチェーンとマスターリミッターはこの後段 (Processor側) で適用される
     const int channels = buf.getNumChannels();

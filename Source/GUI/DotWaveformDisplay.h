@@ -41,7 +41,8 @@ private:
     struct RegionGeometry
     {
         float autoSN = 0.0f, autoEN = 1.0f;  // 自動トリム (フルバッファ正規化)
-        float effSN = 0.0f, effEN = 1.0f;    // 実効範囲   (フルバッファ正規化)
+        float effSN = 0.0f, effEN = 1.0f;    // 実効範囲   (フルバッファ正規化, 生パラメータ)
+        float effSNmod = 0.0f, effENmod = 1.0f; // Start/End変調を反映したマーカー位置
         float waveX = 0.0f, waveW = 1.0f;    // 描画領域
         float effX = 0.0f, effW = 1.0f;      // 実効範囲のピクセル座標
     };

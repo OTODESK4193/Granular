@@ -62,6 +62,10 @@ private:
     ValueKnob hpfKnob, lpfKnob, gainKnob;
     juce::Label hpfLabel, lpfLabel, gainLabel;
 
+    // --- LIMITER (Ceiling) ---
+    ValueKnob ceilingKnob;
+    juce::Label ceilingLabel;
+
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>>   sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>>   buttonAttachments;

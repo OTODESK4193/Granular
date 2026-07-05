@@ -48,6 +48,12 @@ DotWaveformDisplay::RegionGeometry DotWaveformDisplay::getRegionGeometry() const
     geo.effSN = geo.autoSN + s01 * span;
     geo.effEN = geo.autoSN + e01 * span;
 
+    // Start/End のMOD変調を反映したマーカー位置（描画・ヒットテスト用）
+    const float s01m = juce::jlimit(0.0f, 1.0f, s01 + proc.modMatrix.get(ModMatrix::DstSampleStart));
+    const float e01m = juce::jlimit(0.0f, 1.0f, e01 + proc.modMatrix.get(ModMatrix::DstSampleEnd));
+    geo.effSNmod = geo.autoSN + s01m * span;
+    geo.effENmod = geo.autoSN + e01m * span;
+
     geo.effX = geo.waveX + geo.effSN * geo.waveW;
     geo.effW = juce::jmax(1.0f, (geo.effEN - geo.effSN) * geo.waveW);
     return geo;
@@ -195,31 +201,11 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         g.fillPath(tri);
     };
 
-    const float startX = geo.waveX + geo.effSN * geo.waveW;
-    const float endX = geo.waveX + geo.effEN * geo.waveW;
+    // Start/End マーカーは MOD変調を反映した位置に描画（マーカー自体が動く）
+    const float startX = geo.waveX + geo.effSNmod * geo.waveW;
+    const float endX = geo.waveX + geo.effENmod * geo.waveW;
     drawMarker(startX, true, GranularColors::peach);
     drawMarker(endX, false, GranularColors::peach);
-
-    // Start/End への変調を白い細線で表示（実効マーカーはドラッグ用に据え置き）
-    {
-        const float span = geo.autoEN - geo.autoSN;
-        const float s01 = proc.apvts.getRawParameterValue("sampleStart")->load();
-        const float e01 = proc.apvts.getRawParameterValue("sampleEnd")->load();
-        const float sMod = proc.modMatrix.get(ModMatrix::DstSampleStart);
-        const float eMod = proc.modMatrix.get(ModMatrix::DstSampleEnd);
-        if (std::abs(sMod) > 1.0e-4f)
-        {
-            const float x = geo.waveX + (geo.autoSN + juce::jlimit(0.0f, 1.0f, s01 + sMod) * span) * geo.waveW;
-            g.setColour(juce::Colours::white.withAlpha(0.7f));
-            g.fillRect(x - 0.75f, wave.getY(), 1.5f, wave.getHeight());
-        }
-        if (std::abs(eMod) > 1.0e-4f)
-        {
-            const float x = geo.waveX + (geo.autoSN + juce::jlimit(0.0f, 1.0f, e01 + eMod) * span) * geo.waveW;
-            g.setColour(juce::Colours::white.withAlpha(0.7f));
-            g.fillRect(x - 0.75f, wave.getY(), 1.5f, wave.getHeight());
-        }
-    }
 
     // --- Position / Spray インジケーター (Sprayは変調を反映して呼吸する) ---
     const float posNorm = proc.apvts.getRawParameterValue("position")->load();
@@ -326,8 +312,8 @@ void DotWaveformDisplay::mouseMove(const juce::MouseEvent& e)
 
     const auto geo = getRegionGeometry();
     const float x = (float)e.position.getX();
-    const float startX = geo.waveX + geo.effSN * geo.waveW;
-    const float endX = geo.waveX + geo.effEN * geo.waveW;
+    const float startX = geo.waveX + geo.effSNmod * geo.waveW;
+    const float endX = geo.waveX + geo.effENmod * geo.waveW;
 
     const bool nearMarker = std::abs(x - startX) <= kMarkerHitPx || std::abs(x - endX) <= kMarkerHitPx;
     setMouseCursor(nearMarker ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
@@ -339,8 +325,8 @@ void DotWaveformDisplay::mouseDown(const juce::MouseEvent& e)
 
     const auto geo = getRegionGeometry();
     const float x = (float)e.position.getX();
-    const float startX = geo.waveX + geo.effSN * geo.waveW;
-    const float endX = geo.waveX + geo.effEN * geo.waveW;
+    const float startX = geo.waveX + geo.effSNmod * geo.waveW;
+    const float endX = geo.waveX + geo.effENmod * geo.waveW;
 
     if (std::abs(x - startX) <= kMarkerHitPx)
     {
