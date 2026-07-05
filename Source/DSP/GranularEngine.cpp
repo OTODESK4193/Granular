@@ -53,6 +53,8 @@ void GranularVoice::releaseResources()
 
 void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, const GranularParams& p)
 {
+    const bool wasPlaying = playing; // ボイススチール(発音中の再スタート)かどうか
+
     currentMidiNote = midiNote;
     playing = true;
     heldDown = true;
@@ -62,12 +64,17 @@ void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, cons
     smoothedPos01 = (double)p.position; // ノート開始位置は即時（グライドは保持中のノブ移動のみ）
     samplesToNextSpawn = 0; // 即時に最初のグレインを発火
 
-    for (auto& g : grains) g.isActive = false;
-
-    // コム状態リセット（前ノートの残響を持ち越さない）
-    std::fill(combBufL.begin(), combBufL.end(), 0.0f);
-    std::fill(combBufR.begin(), combBufR.end(), 0.0f);
-    combLpL = combLpR = 0.0f;
+    if (!wasPlaying)
+    {
+        // 空きボイスからの新規発音: 停止時に凍結した古いグレインを掃除して清潔に開始
+        for (auto& g : grains) g.isActive = false;
+        std::fill(combBufL.begin(), combBufL.end(), 0.0f);
+        std::fill(combBufR.begin(), combBufR.end(), 0.0f);
+        combLpL = combLpR = 0.0f;
+    }
+    // ボイススチール時は古いグレインを即kill「しない」。
+    //   → 古い粒は各自の窓で自然に減衰し、新しい粒が立ち上がるので実質クロスフェード。
+    //     env も現在値から継続するため、Reverbを励起する広帯域クリックが出ない。
 
     env.setParameters(p.attack, p.decay, p.sustain, p.release);
     env.noteOn();

@@ -194,6 +194,7 @@ namespace gfx
         std::array<int, NUM_CHANNELS> delayLengths {};
         std::array<float, NUM_CHANNELS> dampStates {};
         std::array<float, NUM_CHANNELS> dcX1 {}, dcY1 {}; // DCブロッカー状態
+        float curAmount = 0.0f;                            // スムージング済みwet量
         std::array<ChaosLFO, NUM_CHANNELS> lfos;
 
         VelvetNoiseDiffuser velvetL, velvetR;
@@ -225,6 +226,7 @@ namespace gfx
                 writePos[(size_t)i] = 0;
                 dampStates[(size_t)i] = 0.0f;
                 dcX1[(size_t)i] = dcY1[(size_t)i] = 0.0f;
+                curAmount = 0.0f;
                 lfos[(size_t)i].setFrequency(0.5f * LFO_RATIOS[i], (float)sr);
                 lfos[(size_t)i].setPhase((float)i / (float)NUM_CHANNELS);
             }
@@ -235,7 +237,10 @@ namespace gfx
         void process(float& inOutL, float& inOutR, float amount,
                      float decay, float shimmer, float damp, float mod) noexcept
         {
-            if (amount <= 0.0f) return;
+            // wet量をスムージング（変調で急に0↔xすると段差=クリックになりReverbが弾ける）
+            curAmount += 0.002f * (amount - curAmount);
+            if (amount <= 0.0f && curAmount < 1.0e-4f) return;
+            amount = curAmount;
 
             velvetL.setAmount(amount * 0.8f);
             velvetR.setAmount(amount * 0.8f);
