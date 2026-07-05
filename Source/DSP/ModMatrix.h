@@ -43,6 +43,7 @@ public:
         DstHpf, DstLpf,
         DstSampleStart, DstSampleEnd,
         DstArpOct, DstArpRate, DstArpGate,
+        DstDryWet,
         DstFx1, DstFx2, DstFx3, DstFx4, DstFx5,
         NumDsts
     };
@@ -60,6 +61,7 @@ public:
                  "HPF", "LPF",
                  "Sample Start", "Sample End",
                  "Arp Octaves", "Arp Rate", "Arp Gate",
+                 "FX Dry/Wet",
                  "FX1 Amount", "FX2 Amount", "FX3 Amount", "FX4 Amount", "FX5 Amount" };
     }
     static juce::StringArray getWaveNames()

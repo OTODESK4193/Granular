@@ -35,6 +35,8 @@ private:
     juce::Label polyLabel;
     juce::ComboBox slopeBox;
     juce::Label    slopeLabel;
+    juce::ComboBox themeBox;
+    juce::Label    themeLabel;
 
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>>   sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;

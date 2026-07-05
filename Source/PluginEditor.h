@@ -57,8 +57,10 @@ private:
     juce::TextButton analyzeButton { "ANALYZE" };
     juce::TextButton deleteButton  { "DELETE" };
     juce::TextButton resetButton   { "RESET" };
+    juce::TextButton dryPlayButton { "PLAY DRY" };
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::String hudFile, hudTask, hudOrig, hudCorr;
+    int lastThemeIndex = -1;   // カラーテーマ変更検知
 
     void confirmThen(const juce::String& title, const juce::String& message,
                      std::function<void()> action);

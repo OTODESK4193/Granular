@@ -85,6 +85,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
         juce::StringArray { "12 dB/oct", "24 dB/oct" }, 0));
     params.push_back(std::make_unique<juce::AudioParameterInt>("poly", "Polyphony", 1, 24, 24));
 
+    // --- FX Dry/Wet (Masterエリア, MOD対象) 1.0=full wet ---
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("fxMix", "FX Dry/Wet", 0.0f, 1.0f, 1.0f));
+
+    // --- カラーテーマ (Config, 表示のみ) ---
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("colorTheme", "Color Theme",
+        GranularColors::getThemeNames(), 0));
+
     // --- FXチェーン (5スロット、順序はD&Dで入替=値のスワップ) ---
     for (int i = 1; i <= FxChain::kNumSlots; ++i)
     {
@@ -207,6 +214,9 @@ GranularAudioProcessor::GranularAudioProcessor()
 {
     formatManager.registerBasicFormats();
     waveformPeaks.fill(0.0f);
+
+    // 保存済みカラーテーマをUI構築前に適用（ノブ等のアクセント色を正しくキャッシュ）
+    GranularColors::setTheme((int)apvts.getRawParameterValue("colorTheme")->load());
 }
 
 GranularAudioProcessor::~GranularAudioProcessor() { stopThread(4000); }
@@ -230,6 +240,10 @@ void GranularAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     fxChain.prepare(sampleRate);
     masterLimiter.prepare(sampleRate);
     modMatrix.prepare(sampleRate);
+    fxDryBuffer.setSize(2, samplesPerBlock, false, false, true);
+
+    // ルックアヘッド等の遅延は無いためレイテンシ0を明示的にDAWへ報告
+    setLatencySamples(0);
 
     // DAWのSRが変わった場合は新SRへ自動再インジェスト（最高音質へ復帰）
     // 完了までの間は processBlock 側の srComp 補正がピッチを守る
@@ -441,7 +455,53 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     fxP.revShimmer  = apvts.getRawParameterValue("revShimmer")->load();
     fxP.revDamp     = apvts.getRawParameterValue("revDamp")->load();
     fxP.revMod      = apvts.getRawParameterValue("revMod")->load();
+
+    // --- FX Dry/Wet (MOD対象): プリFXを退避 → FX後にブレンド ---
+    const int numCh = buffer.getNumChannels();
+    const int numSm = buffer.getNumSamples();
+    const float fxMix = juce::jlimit(0.0f, 1.0f,
+        apvts.getRawParameterValue("fxMix")->load() + modMatrix.get(ModMatrix::DstDryWet));
+
+    if (fxMix < 0.999f)
+    {
+        fxDryBuffer.setSize(numCh, numSm, false, false, true);
+        for (int ch = 0; ch < numCh; ++ch)
+            fxDryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSm);
+    }
+
     fxChain.process(buffer, fxP);
+
+    if (fxMix < 0.999f)
+    {
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            buffer.applyGain(ch, 0, numSm, fxMix);
+            buffer.addFrom(ch, 0, fxDryBuffer, ch, 0, numSm, 1.0f - fxMix);
+        }
+    }
+
+    // --- Dryサンプル・プレビュー (原音をそのまま出力に加算) ---
+    if (dryPreviewActive.load() && sharedAudioBuffer.getNumSamples() > 0)
+    {
+        const int total = sharedAudioBuffer.getNumSamples();
+        const int srcCh = sharedAudioBuffer.getNumChannels();
+        int startS = trimStartSample.load();
+        int endS   = trimEndSample.load();
+        if (endS <= startS || endS > total) { startS = 0; endS = total; }
+        if (dryPreviewPos < 0.0) dryPreviewPos = (double)startS;
+
+        for (int i = 0; i < numSm; ++i)
+        {
+            const int sp = (int)dryPreviewPos;
+            if (sp >= endS) { dryPreviewActive.store(false); dryPreviewPos = -1.0; break; }
+            for (int ch = 0; ch < numCh; ++ch)
+            {
+                const float s = sharedAudioBuffer.getSample(juce::jmin(ch, srcCh - 1), sp);
+                buffer.addSample(ch, i, s);
+            }
+            dryPreviewPos += 1.0;
+        }
+    }
 
     // --- マスターブリックウォールリミッター + NaN/Infガード ---
     {

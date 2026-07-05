@@ -59,6 +59,11 @@ public:
     juce::String getFileName() const { return fileToIngest.getFileName(); }
     bool hasSampleFile() const { return fileToIngest.existsAsFile(); }
 
+    // --- Dryサンプル・プレビュー再生 (取り込んだ原音を試聴) ---
+    void startDryPreview() { dryPreviewPos = -1.0; dryPreviewActive.store(true); }
+    void stopDryPreview()  { dryPreviewActive.store(false); }
+    std::atomic<bool> dryPreviewActive { false };
+
     juce::AudioFormatManager formatManager;
     juce::AudioBuffer<float> sharedAudioBuffer;
 
@@ -93,6 +98,8 @@ private:
     juce::File fileToIngest;
     double currentSampleRate = 44100.0;
     PitchInfo currentPitch;
+    juce::AudioBuffer<float> fxDryBuffer;   // FX Dry/Wet 用のプリFXコピー
+    double dryPreviewPos = -1.0;            // Dryプレビューの再生位置 (-1=未初期化)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GranularAudioProcessor)
 };

@@ -59,8 +59,8 @@ private:
     GlowToggle speedSyncButton { "S-SYNC", GranularColors::babyBlue };
 
     // --- MASTER ---
-    ValueKnob hpfKnob, lpfKnob, gainKnob;
-    juce::Label hpfLabel, lpfLabel, gainLabel;
+    ValueKnob hpfKnob, lpfKnob, gainKnob, mixKnob;
+    juce::Label hpfLabel, lpfLabel, gainLabel, mixLabel;
 
     // --- LIMITER (Ceiling) ---
     ValueKnob ceilingKnob;

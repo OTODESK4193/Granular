@@ -45,6 +45,16 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     styleHeaderButton(analyzeButton);
     styleHeaderButton(deleteButton);
     styleHeaderButton(resetButton);
+    styleHeaderButton(dryPlayButton);
+
+    dryPlayButton.onClick = [this]
+    {
+        if (proc.hasSampleFile()) proc.startDryPreview();
+    };
+
+    // カラーテーマの初期反映
+    lastThemeIndex = (int)proc.apvts.getRawParameterValue("colorTheme")->load();
+    GranularColors::setTheme(lastThemeIndex);
 
     loadButton.onClick = [this]
     {
@@ -142,6 +152,16 @@ void GranularAudioProcessorEditor::setActiveTab(Tab t)
 // ------------------------------------------
 void GranularAudioProcessorEditor::timerCallback()
 {
+    // カラーテーマ切替の検知 → パレット更新 & 全再描画
+    const int themeIdx = (int)proc.apvts.getRawParameterValue("colorTheme")->load();
+    if (themeIdx != lastThemeIndex)
+    {
+        lastThemeIndex = themeIdx;
+        GranularColors::setTheme(themeIdx);
+        repaint();
+        for (auto* child : getChildren()) child->repaint();
+    }
+
     juce::String f, t, o, c;
     {
         juce::ScopedLock sl(proc.stateLock);
@@ -176,14 +196,14 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawText("OTODESK  |  24-voice Scale-Quantized Granular", 22, 40, 400, 14, juce::Justification::centredLeft);
 
-    // --- HUD (ヘッダー中央・解析結果4行) ---
+    // --- HUD (ロゴの隣・解析結果4行、左揃え) ---
     g.setFont(juce::Font(juce::FontOptions(10.5f)));
     g.setColour(GranularColors::text.withAlpha(0.85f));
-    g.drawText(hudFile, 430, 8,  440, 13, juce::Justification::centred);
+    g.drawText(hudFile, 360, 8,  420, 13, juce::Justification::centredLeft);
     g.setColour(GranularColors::textDim);
-    g.drawText(hudTask, 430, 22, 440, 13, juce::Justification::centred);
-    g.drawText(hudOrig, 430, 36, 440, 13, juce::Justification::centred);
-    g.drawText(hudCorr, 430, 50, 440, 13, juce::Justification::centred);
+    g.drawText(hudTask, 360, 22, 420, 13, juce::Justification::centredLeft);
+    g.drawText(hudOrig, 360, 36, 420, 13, juce::Justification::centredLeft);
+    g.drawText(hudCorr, 360, 50, 420, 13, juce::Justification::centredLeft);
 
     // --- アクティブタブのアンダーライン ---
     auto underline = [&g](const juce::TextButton& b, juce::Colour c)
@@ -213,6 +233,9 @@ void GranularAudioProcessorEditor::resized()
     analyzeButton.setBounds(976, 8, 88, 22);
     deleteButton.setBounds(888, 34, 80, 22);
     resetButton.setBounds(976, 34, 88, 22);
+
+    // Dryプレビュー再生ボタン (ボタングリッドの左)
+    dryPlayButton.setBounds(792, 8, 88, 22);
 
     mainTabButton.setBounds(20,  kTabY, 92, kTabH);
     arpTabButton.setBounds(118, kTabY, 92, kTabH);

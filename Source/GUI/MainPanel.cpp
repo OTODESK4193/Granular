@@ -54,6 +54,7 @@ MainPanel::MainPanel(GranularAudioProcessor& p) : proc(p)
     setupKnob(hpfKnob,  hpfLabel,  "HPF",  "masterHPF", master);
     setupKnob(lpfKnob,  lpfLabel,  "LPF",  "masterLPF", master);
     setupKnob(gainKnob, gainLabel, "GAIN", "outGain",   master);
+    setupKnob(mixKnob,  mixLabel,  "DRY/WET", "fxMix",  master);
 
     // --- LIMITER (Configから移設) ---
     setupKnob(ceilingKnob, ceilingLabel, "CEILING", "ceiling", master);
@@ -134,6 +135,7 @@ void MainPanel::timerCallback()
     applyModRing(lpfKnob,      D::DstLpf,        ExpOct,    6.0f);
     applyModRing(startKnob,    D::DstSampleStart,LinearAdd, 1.0f);
     applyModRing(endKnob,      D::DstSampleEnd,  LinearAdd, 1.0f);
+    applyModRing(mixKnob,      D::DstDryWet,     LinearAdd, 1.0f);
 }
 
 void MainPanel::setupKnob(juce::Slider& s, juce::Label& l, const juce::String& text,
@@ -188,8 +190,8 @@ void MainPanel::paint(juce::Graphics& g)
     drawSection("ENVELOPE", 772, 6,   4 * kKnobW - 8, GranularColors::accentEnv);
     drawSection("SAMPLE",   20,  150, 3 * kKnobW - 8, GranularColors::accentMaster);
     drawSection("MOTION",   256, 150, 250,            GranularColors::accentGrain);
-    drawSection("MASTER",   516, 150, 3 * kKnobW - 8, GranularColors::accentMaster);
-    drawSection("LIMITER",  760, 150, kKnobW - 8,     GranularColors::accentMaster);
+    drawSection("MASTER",   516, 150, 4 * kKnobW - 8, GranularColors::accentMaster);
+    drawSection("LIMITER",  844, 150, kKnobW - 8,     GranularColors::accentMaster);
 
     // MOTION 補足説明（Mode/SCANの下に配置）
     g.setColour(GranularColors::textDim.withAlpha(0.6f));
@@ -241,7 +243,8 @@ void MainPanel::resized()
     placeKnob(hpfKnob,  hpfLabel,  516 + 0 * kKnobW, row2);
     placeKnob(lpfKnob,  lpfLabel,  516 + 1 * kKnobW, row2);
     placeKnob(gainKnob, gainLabel, 516 + 2 * kKnobW, row2);
+    placeKnob(mixKnob,  mixLabel,  516 + 3 * kKnobW, row2);
 
     // LIMITER (Ceiling, Configから移設)
-    placeKnob(ceilingKnob, ceilingLabel, 760, row2);
+    placeKnob(ceilingKnob, ceilingLabel, 844, row2);
 }

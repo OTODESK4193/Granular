@@ -49,9 +49,10 @@ ConfigPanel::ConfigPanel(GranularAudioProcessor& p) : proc(p)
     // LIMITER: Release (天井CeilingはMainタブへ移設)
     setupKnob(limReleaseKnob, limReleaseLabel, "RELEASE", "limRelease");
 
-    // SYSTEM: Polyphony / Filter Slope
+    // SYSTEM: Polyphony / Filter Slope / Color Theme
     setupKnob(polyKnob, polyLabel, "POLY", "poly");
     setupCombo(slopeBox, slopeLabel, "FILTER SLOPE", "filterSlope");
+    setupCombo(themeBox, themeLabel, "COLOR THEME", "colorTheme");
 }
 
 void ConfigPanel::paint(juce::Graphics& g)
@@ -100,4 +101,7 @@ void ConfigPanel::resized()
 
     slopeLabel.setBounds(540, 40, 110, 14);
     slopeBox.setBounds(540, 56, 130, 26);
+
+    themeLabel.setBounds(700, 40, 110, 14);
+    themeBox.setBounds(700, 56, 150, 26);
 }

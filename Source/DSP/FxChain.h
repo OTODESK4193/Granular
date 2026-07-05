@@ -287,7 +287,10 @@ namespace gfx
                 if (bufSize == 0) continue;
 
                 const float inSig = (i % 2 == 0) ? injectL : injectR;
-                float v_n = inSig + feedbackInputs[i] * feedback;
+                // in×(1-fb)+loop×fb : 定常ゲインが1に収束し、ARP等の連続入力でも
+                // FDNにエネルギーが蓄積して暴発（たまに残響が大音量化）しない。
+                // (旧: inSig + loop×fb は 1/(1-fb) 倍まで蓄積 → fb0.98で飽和爆音)
+                float v_n = inSig * (1.0f - feedback) + feedbackInputs[i] * feedback;
                 v_n = antiDenormal(safeLoopSaturate(v_n));
 
                 delayBuffers[(size_t)i][(size_t)writePos[(size_t)i]] = v_n;
