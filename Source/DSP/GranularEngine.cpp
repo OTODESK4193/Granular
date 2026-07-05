@@ -59,6 +59,7 @@ void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, cons
     noteStamp = stamp;
     velocityGain = 0.25f + 0.75f * juce::jlimit(0.0f, 1.0f, velocity);
     playheadOffset = 0.0;
+    smoothedPos01 = (double)p.position; // ノート開始位置は即時（グライドは保持中のノブ移動のみ）
     samplesToNextSpawn = 0; // 即時に最初のグレインを発火
 
     for (auto& g : grains) g.isActive = false;
@@ -256,12 +257,16 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     const float toneMix = p.tone;
 
     const double L = (double)validLength;
-    const double posBase = L * (double)p.position;
     const double edgeFadeLen = juce::jmax(1.0, juce::jmin(L * 0.25, currentSampleRate * 0.003)); // 端フェード ~3ms
+    const double posCoef = 1.0 - std::exp(-1.0 / (0.02 * currentSampleRate));  // Positionグライド ~20ms
     double lastRel = 0.0;
 
     for (int i = 0; i < numSamples; ++i)
     {
+        // Position をサンプル単位でグライド（ノブの急ジャンプが大音量遷移=バーストを生むのを防ぐ）
+        smoothedPos01 += posCoef * ((double)p.position - smoothedPos01);
+        const double posBase = L * smoothedPos01;
+
         // --------------------------------------
         // プレイヘッド移動 (MODE: Forward/Backward/Ping-Pong/Random)
         //  Positionを起点に領域内を移動する

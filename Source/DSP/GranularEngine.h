@@ -329,6 +329,7 @@ private:
     float  panSide = 1.0f;          // Pan交互配置用（グレイン毎にL/R反転）
     float  lastRelNorm = -1.0f;     // GUI表示用の実プレイヘッド位置
     int    samplesToNextSpawn = 0;
+    double smoothedPos01 = 0.0;     // Position のサンプル単位グライド（急ジャンプ→バースト防止）
 
     PadEnvelope env;
 

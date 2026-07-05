@@ -62,6 +62,7 @@ private:
     juce::TextButton resetButton   { "RESET" };
     juce::TextButton dryPlayButton { "PLAY DRY" };
     juce::TextButton browseButton  { "BROWSE" };
+    juce::TextButton randomButton  { "RANDOM" };
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::String hudFile, hudTask, hudOrig, hudCorr;
     int lastThemeIndex = -1;    // カラーテーマ変更検知

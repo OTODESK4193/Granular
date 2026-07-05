@@ -64,14 +64,12 @@ public:
         };
         styleBtn(prevBtn, GranularColors::text);
         styleBtn(nextBtn, GranularColors::text);
-        styleBtn(randomBtn, GranularColors::lilac);
         styleBtn(saveBtn, GranularColors::mint);
         styleBtn(initBtn, GranularColors::text);
         styleBtn(closeBtn, GranularColors::pink);
 
         prevBtn.onClick   = [this] { step(-1); };
         nextBtn.onClick   = [this] { step(+1); };
-        randomBtn.onClick = [this] { if (onRandom) onRandom(); };
         saveBtn.onClick   = [this] { if (onSave && saveName.getText().trim().isNotEmpty()) { onSave(saveName.getText().trim()); rebuild(); } };
         initBtn.onClick   = [this] { if (onInit) onInit(); };
         closeBtn.onClick  = [this] { if (onClose) onClose(); };
@@ -110,8 +108,7 @@ public:
         closeBtn.setBounds(top.removeFromRight(64).reduced(2));
         initBtn.setBounds(top.removeFromRight(56).reduced(2));
         saveBtn.setBounds(top.removeFromRight(56).reduced(2));
-        randomBtn.setBounds(top.removeFromRight(74).reduced(2));
-        saveName.setBounds(top.removeFromRight(150).reduced(2));
+        saveName.setBounds(top.removeFromRight(160).reduced(2));
         nextBtn.setBounds(top.removeFromRight(28).reduced(2));
         prevBtn.setBounds(top.removeFromRight(28).reduced(2));
 
@@ -132,7 +129,7 @@ private:
 
     juce::ListBox catList, presetList;
     juce::TextEditor search, saveName;
-    juce::TextButton prevBtn { "<" }, nextBtn { ">" }, randomBtn { "RANDOM" },
+    juce::TextButton prevBtn { "<" }, nextBtn { ">" },
                      saveBtn { "SAVE" }, initBtn { "INIT" }, closeBtn { "CLOSE" };
 
     juce::File favFile() const { return userDir.getChildFile("_favorites.txt"); }

@@ -47,6 +47,8 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     styleHeaderButton(resetButton);
     styleHeaderButton(dryPlayButton);
     styleHeaderButton(browseButton);
+    styleHeaderButton(randomButton);
+    randomButton.onClick = [this] { proc.randomizePreset(); };
 
     dryPlayButton.onClick = [this]
     {
@@ -260,11 +262,11 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
     // --- HUD (ロゴの隣・解析結果4行、左揃え) ---
     g.setFont(juce::Font(juce::FontOptions(10.5f)));
     g.setColour(GranularColors::text.withAlpha(0.85f));
-    g.drawText(hudFile, 360, 8,  420, 13, juce::Justification::centredLeft);
+    g.drawText(hudFile, 360, 8,  316, 13, juce::Justification::centredLeft);
     g.setColour(GranularColors::textDim);
-    g.drawText(hudTask, 360, 22, 420, 13, juce::Justification::centredLeft);
-    g.drawText(hudOrig, 360, 36, 420, 13, juce::Justification::centredLeft);
-    g.drawText(hudCorr, 360, 50, 420, 13, juce::Justification::centredLeft);
+    g.drawText(hudTask, 360, 22, 316, 13, juce::Justification::centredLeft);
+    g.drawText(hudOrig, 360, 36, 316, 13, juce::Justification::centredLeft);
+    g.drawText(hudCorr, 360, 50, 316, 13, juce::Justification::centredLeft);
 
     // --- アクティブタブのアンダーライン ---
     auto underline = [&g](const juce::TextButton& b, juce::Colour c)
@@ -298,6 +300,8 @@ void GranularAudioProcessorEditor::resized()
     // Dryプレビュー再生ボタン + BROWSE (ボタングリッドの左に縦積み)
     dryPlayButton.setBounds(792, 8, 88, 22);
     browseButton.setBounds(792, 34, 88, 22);
+    // RANDOM (BROWSEの左)
+    randomButton.setBounds(696, 34, 88, 22);
 
     // プリセットブラウザ (タブパネルと同じ下部領域に展開)
     presetBrowser.setBounds(0, kPanelY, getWidth(), getHeight() - kPanelY);

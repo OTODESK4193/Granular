@@ -56,6 +56,13 @@ JUCE 8.0系 / VST3 + Standalone / C++20。
   （破壊的操作はY/N確認付き）
 - **カラーテーマ（10種）**: Midnight / Sakura / Ocean / Forest / Sunset / Mono /
   Neon / Vaporwave / Amber / Arctic。CONFIGで切替（完全反映はUI再オープン時）
+- **プリセットブラウザ**: ヘッダーの BROWSE で下部に展開（BassSynth風）。
+  ファクトリー80種（8カテゴリ×サブカテゴリ、オーソドックス〜奇抜まで）＋ユーザー保存。
+  カテゴリ/検索/★お気に入り/右クリック削除（確認付き）/▲▼・キーボード↑↓で切替。
+  ヘッダーの **RANDOM** でノブ・MOD（3〜10本）・FXをランダマイズ。
+  ユーザープリセットは **ドキュメント/OTODESK/Granular/Presets/** に保存（Sampleはパス参照）
+- **安全設計**: FX前の安全ソフトクリップ・TONEコム/リバーブFDN/ディレイの飽和＆DCブロッカー・
+  グレイン境界フェード・Positionのサンプル単位グライドで、突発的な大音量やクリックを防止
 - **パステル・ドット波形GUI**:
   波形を小さなドットの縦積みで表現。**読み込んだ音の周波数を解析して着色**
   （低域=暖色 / 高域=寒色、明暗コントラスト付き。色はカラーテーマに連動）。
@@ -91,8 +98,11 @@ Granular/
    │  ├─ ColorPalette.h          … 10カラーテーマ / スペクトルカラー
    │  ├─ ArcDial.h/.cpp          … アークダイアル LookAndFeel（変調範囲アーク）
    │  ├─ MainPanel / ModPanel / FxPanel / ArpPanel / ConfigPanel … 各タブUI
+   │  ├─ PresetBrowser.h        … プリセットブラウザ（Factory/User/Favorites）
    │  ├─ ValueKnob.h / GlowToggle.h … 数値入力ノブ / LEDトグル
    │  └─ DotWaveformDisplay.h/.cpp … ドット波形＋グレイン可視化＋周波数カラー
+   ├─ Presets/
+   │  └─ PresetData.h           … ファクトリープリセット80種（パラメータ上書き方式）
    └─ third_party/
       └─ signalsmith-stretch/    … MITライセンス（下記参照）
 ```
@@ -132,6 +142,8 @@ Granular/
        Reverb=DECAY/SHIMMER/DAMP/MOD
 4. [x] **Configタブ**: カラーテーマ（10種）、同時発音数（POLY 1-24）、Filter Slope、
        Limiter Release、MATERIAL解析モード（Ceilingは Main へ移設）
-5. [ ] グレインループのSIMD化（グレイン主導ブロック処理への再設計、2〜3倍高速化見込み）
-6. [ ] プリセットブラウザ、リサイズGUI、MPE/ピッチベンド
-7. [ ] スペクトルカラーのFFTベース高精度化、Limiterルックアヘッド
+5. [x] **プリセットブラウザ**: ファクトリー80（8カテゴリ×サブ）＋ユーザー保存（ドキュメント）、
+       お気に入り・検索・削除・▲▼/キーボード切替、RANDOMマクロ
+6. [ ] グレインループのSIMD化（グレイン主導ブロック処理への再設計、2〜3倍高速化見込み）
+7. [ ] リサイズGUI、MPE/ピッチベンド
+8. [ ] スペクトルカラーのFFTベース高精度化、Limiterルックアヘッド
