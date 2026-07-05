@@ -16,6 +16,140 @@
  #pragma warning(pop)
 #endif
 
+#include <fstream>
+#include <cstring>
+#include <cmath>
+
+// 80-bit IEEE-754 拡張精度浮動小数点数をパースするヘルパー (AIFF-Cサンプルレート用)
+static double readExtendedFloat(const uint8_t* bytes) noexcept
+{
+    uint16_t exp = ((uint16_t)bytes[0] << 8) | bytes[1];
+    uint64_t mant = 0;
+    for (int i = 0; i < 8; ++i)
+        mant = (mant << 8) | bytes[2 + i];
+
+    if (exp == 0 && mant == 0) return 0.0;
+    
+    // サンプルレートは常に正と仮定
+    double val = (double)mant * std::pow(2.0, (double)(int)exp - 16383.0 - 63.0);
+    return val;
+}
+
+// 4バイトのビッグエンディアンをリトルエンディアンの float にスワップする
+static float swapFloat(float f) noexcept
+{
+    union { float f; uint8_t b[4]; } uIn, uOut;
+    uIn.f = f;
+    uOut.b[0] = uIn.b[3];
+    uOut.b[1] = uIn.b[2];
+    uOut.b[2] = uIn.b[1];
+    uOut.b[3] = uIn.b[0];
+    return uOut.f;
+}
+
+static uint32_t readBigEndian32(const uint8_t* b) noexcept
+{
+    return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | b[3];
+}
+
+static uint16_t readBigEndian16(const uint8_t* b) noexcept
+{
+    return ((uint16_t)b[0] << 8) | b[1];
+}
+
+// Ableton Live が内部結合 (Ctrl+J) やファクトリー Pack 等で使用する 32-bit float AIFF-C (fl32) ファイルを、
+// JUCE の組み込み AiffAudioFormat に代わって独自に解析・ロードするフォールバック・デコーダー
+static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& destBuffer, double& sampleRate)
+{
+    std::ifstream fs(file.getFullPathName().toWideCharPointer(), std::ios::binary);
+    if (!fs.is_open()) return false;
+
+    char header[12];
+    if (!fs.read(header, 12)) return false;
+
+    // "FORM" と "AIFC" のシグネチャをチェック
+    if (std::memcmp(header, "FORM", 4) != 0 || std::memcmp(header + 8, "AIFC", 4) != 0)
+        return false;
+
+    uint32_t fileSize = readBigEndian32((const uint8_t*)header + 4);
+
+    uint32_t commOffset = 0;
+    uint32_t commSize = 0;
+    uint32_t ssndOffset = 0;
+    uint32_t ssndSize = 0;
+
+    // IFF チャンクを走査
+    while (fs.tellg() < (std::streampos)(fileSize + 8) && !fs.eof())
+    {
+        char chunkId[4];
+        char chunkSizeBuf[4];
+        if (!fs.read(chunkId, 4) || !fs.read(chunkSizeBuf, 4)) break;
+
+        uint32_t chunkSize = readBigEndian32((const uint8_t*)chunkSizeBuf);
+        std::streampos nextChunk = fs.tellg() + (std::streamoff)chunkSize;
+        if (chunkSize % 2 != 0) nextChunk += 1; // 奇数サイズ時のアライメント
+
+        if (std::memcmp(chunkId, "COMM", 4) == 0)
+        {
+            commOffset = (uint32_t)fs.tellg();
+            commSize = chunkSize;
+        }
+        else if (std::memcmp(chunkId, "SSND", 4) == 0)
+        {
+            ssndOffset = (uint32_t)fs.tellg();
+            ssndSize = chunkSize;
+        }
+
+        fs.seekg(nextChunk);
+    }
+
+    if (commOffset == 0 || ssndOffset == 0) return false;
+
+    // COMM チャンク解析
+    fs.seekg(commOffset);
+    uint8_t commData[18];
+    if (!fs.read((char*)commData, 18)) return false;
+
+    uint16_t numChannels = readBigEndian16(commData);
+    uint32_t numSampleFrames = readBigEndian32(commData + 2);
+    uint16_t sampleSize = readBigEndian16(commData + 6);
+    double sr = readExtendedFloat(commData + 8);
+
+    // 圧縮タイプの判定
+    char compType[4] = {0};
+    fs.read(compType, 4);
+
+    // 'fl32' または 'FL32' でないなら、JUCEの標準デコーダーにフォールバックさせるため処理を中断
+    if (std::memcmp(compType, "fl32", 4) != 0 && std::memcmp(compType, "FL32", 4) != 0)
+        return false;
+
+    // SSND チャンク解析
+    fs.seekg(ssndOffset);
+    uint8_t ssndHeader[8];
+    if (!fs.read((char*)ssndHeader, 8)) return false;
+
+    uint32_t offset = readBigEndian32(ssndHeader);
+    fs.seekg(ssndOffset + 8 + offset);
+
+    // バッファにデータを展開
+    destBuffer.setSize((int)numChannels, (int)numSampleFrames);
+    sampleRate = sr;
+
+    std::vector<float> tempFrame((size_t)numChannels);
+    for (uint32_t f = 0; f < numSampleFrames; ++f)
+    {
+        if (!fs.read((char*)tempFrame.data(), (std::streamsize)(numChannels * 4))) break;
+
+        for (uint16_t ch = 0; ch < numChannels; ++ch)
+        {
+            float val = swapFloat(tempFrame[(size_t)ch]);
+            destBuffer.setSample((int)ch, (int)f, val);
+        }
+    }
+
+    return true;
+}
+
 // ------------------------------------------
 // パラメータレイアウト
 // ------------------------------------------
@@ -655,10 +789,22 @@ void GranularAudioProcessor::run()
 
     // DAWのファイルロック解除待ちを含むリトライ読み込み
     std::unique_ptr<juce::AudioFormatReader> reader;
+    juce::AudioBuffer<float> tempRaw;
+    double fileSampleRate = 44100.0;
+    bool loadedViaFallback = false;
+
     for (int i = 0; i < 200 && !threadShouldExit(); ++i)
     {
         if (fileToIngest.existsAsFile() && fileToIngest.getSize() > 0)
         {
+            // 1. Ableton fl32 AIFF-C フォールバック読み込み
+            if (readAbletonAif(fileToIngest, tempRaw, fileSampleRate))
+            {
+                loadedViaFallback = true;
+                break;
+            }
+
+            // 2. 通常のJUCEデコーダー
             auto stream = fileToIngest.createInputStream();
             if (stream != nullptr && !stream->isExhausted())
             {
@@ -669,7 +815,7 @@ void GranularAudioProcessor::run()
         juce::Thread::sleep(100);
     }
 
-    if (!reader || reader->lengthInSamples == 0)
+    if (!loadedViaFallback && (!reader || reader->lengthInSamples == 0))
     {
         ingestState.store(IngestState::Failed);
         { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Failed (Timeout or Empty)"; }
@@ -679,10 +825,27 @@ void GranularAudioProcessor::run()
     ingestProgress.store(0.10f);
 
     // 読み込み（最大60秒に制限）
-    const double fileSampleRate = reader->sampleRate;
-    const int maxSamples = (int)juce::jmin<juce::int64>(reader->lengthInSamples, (juce::int64)(fileSampleRate * 60.0));
-    juce::AudioBuffer<float> tempRaw((int)reader->numChannels, maxSamples);
-    reader->read(&tempRaw, 0, maxSamples, 0, true, true);
+    if (!loadedViaFallback)
+    {
+        const double fileSR = reader->sampleRate;
+        const int maxSamples = (int)juce::jmin<juce::int64>(reader->lengthInSamples, (juce::int64)(fileSR * 60.0));
+        tempRaw.setSize((int)reader->numChannels, maxSamples);
+        reader->read(&tempRaw, 0, maxSamples, 0, true, true);
+        fileSampleRate = fileSR;
+    }
+    else
+    {
+        // フォールバックロード時は、すでに tempRaw にデータが入り、fileSampleRate がセットされています。
+        // 最大60秒の制限を適用
+        const int maxSamples = (int)juce::jmin<juce::int64>(tempRaw.getNumSamples(), (juce::int64)(fileSampleRate * 60.0));
+        if (tempRaw.getNumSamples() > maxSamples)
+        {
+            juce::AudioBuffer<float> truncated(tempRaw.getNumChannels(), maxSamples);
+            for (int ch = 0; ch < tempRaw.getNumChannels(); ++ch)
+                truncated.copyFrom(ch, 0, tempRaw, ch, 0, maxSamples);
+            tempRaw = truncated;
+        }
+    }
 
     // ホストSRへリサンプル
     if (fileSampleRate != targetSR && fileSampleRate > 0.0)
