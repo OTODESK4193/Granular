@@ -62,7 +62,9 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     presetBrowser.onLoadUser    = [this](const juce::File& f) { proc.loadUserPresetFile(f); };
     presetBrowser.onSave        = [this](const juce::String& n) { proc.saveUserPreset(n); };
     presetBrowser.onInit        = [this] { proc.resetAllParametersToDefault(); };
-    presetBrowser.onClose       = [this] { presetBrowser.setVisible(false); };
+    presetBrowser.onRandom      = [this] { proc.randomizePreset(); };
+    presetBrowser.onClose       = [this] { presetBrowser.setVisible(false);
+                                           browseButton.setColour(juce::TextButton::textColourOffId, GranularColors::text); };
 
     // カラーテーマの初期反映
     lastThemeIndex = (int)proc.apvts.getRawParameterValue("colorTheme")->load();
@@ -170,6 +172,13 @@ void GranularAudioProcessorEditor::styleTabButton(juce::TextButton& b, bool acti
 void GranularAudioProcessorEditor::setActiveTab(Tab t)
 {
     activeTab = t;
+
+    // タブを押したらブラウザを閉じて該当タブを表示
+    if (presetBrowser.isVisible())
+    {
+        presetBrowser.setVisible(false);
+        browseButton.setColour(juce::TextButton::textColourOffId, GranularColors::text);
+    }
     mainPanel.setVisible(t == Tab::Main);
     arpPanel.setVisible(t == Tab::Arp);
     modPanel.setVisible(t == Tab::Mod);

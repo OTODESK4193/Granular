@@ -200,7 +200,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     // --- マスター ---
     params.push_back(std::make_unique<juce::AudioParameterFloat>("masterHPF", "HPF (Hz)", juce::NormalisableRange<float>(20.0f, 2000.0f, 1.0f, 0.3f), 20.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("masterLPF", "LPF (Hz)", juce::NormalisableRange<float>(200.0f, 20000.0f, 1.0f, 0.3f), 20000.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("outGain",   "Out Gain", -36.0f, 12.0f, -12.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("outGain",   "Out Gain", -36.0f, 12.0f, 0.0f));
 
     return { params.begin(), params.end() };
 }
@@ -426,6 +426,27 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     }
 
     synth.processBlock(buffer, midiMessages, &sharedAudioBuffer, effS, effE, p);
+
+    // --- FX前の安全ソフトクリップ ---
+    // グレインの位相整列(pitchSync×高密度)やTONEコム共鳴などで稀に生じる突発ピークが、
+    // 高フィードバックのReverb/Delayを過励起して「バシャーン」(大音量の減衰ノイズ)になるのを防ぐ。
+    // 通常レベル(|x|<0.9)はそのまま素通しし、0.9超のみ~1.0付近へ滑らかに制限する。
+    {
+        auto softClipHi = [](float x) noexcept
+        {
+            const float t = 0.9f;
+            const float a = std::abs(x);
+            if (a <= t) return x;
+            const float s = x < 0.0f ? -1.0f : 1.0f;
+            return s * (t + (1.0f - t) * std::tanh((a - t) / (1.0f - t)));
+        };
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            float* d = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                d[i] = softClipHi(d[i]);
+        }
+    }
 
     // --- FXチェーン (シンセ後段) ---
     FxChain::Params fxP;
@@ -850,6 +871,90 @@ void GranularAudioProcessor::applyFactoryPreset(int index)
         }
     }
     currentPresetName = preset.name;
+}
+
+void GranularAudioProcessor::randomizePreset()
+{
+    resetAllParametersToDefault();
+    juce::Random r;
+    auto setV = [&](juce::String id, float v)
+    {
+        if (auto* p = apvts.getParameter(id))
+            p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, p->convertTo0to1(v)));
+    };
+    auto rf = [&](float a, float b) { return a + (b - a) * r.nextFloat(); };
+    auto ri = [&](int a, int b) { return a + r.nextInt(b - a + 1); };
+
+    // --- 音作りの基本 ---
+    setV("grainSize", rf(0.03f, 0.45f));
+    setV("density", rf(0.3f, 0.95f));
+    setV("positionSpray", rf(0.0f, 0.7f));
+    setV("pitchJitter", rf(0.0f, 150.0f));
+    setV("panSpread", rf(0.3f, 1.0f));
+    setV("speed", rf(0.1f, 1.5f));
+    setV("playMode", (float)ri(0, 3));
+    setV("windowShape", (float)ri(0, 3));
+    setV("octave", (float)ri(-2, 1));
+    setV("tone", rf(0.0f, 0.6f));
+    setV("pitchSync", r.nextBool() ? 1.0f : 0.0f);
+    setV("masterHPF", rf(20.0f, 400.0f));
+    setV("masterLPF", rf(3000.0f, 20000.0f));
+    setV("attack", rf(0.002f, 2.0f));
+    setV("decay", rf(0.05f, 1.5f));
+    setV("sustain", rf(0.3f, 1.0f));
+    setV("release", rf(0.1f, 2.5f));
+    setV("fxMix", rf(0.6f, 1.0f));
+    setV("outGain", 0.0f);                    // 安全のため0dB固定
+    if (r.nextFloat() < 0.5f) setV("scale", (float)ri(1, 4));
+
+    // --- LFO/ENV/Macro に動きを仕込む ---
+    for (int i = 1; i <= 4; ++i)
+    {
+        const juce::String x(i);
+        setV("lfo" + x + "Rate", rf(0.1f, 8.0f));
+        setV("lfo" + x + "Wave", (float)ri(0, 5));
+        setV("lfo" + x + "Sync", r.nextBool() ? 1.0f : 0.0f);
+        setV("lfo" + x + "SyncRate", (float)ri(0, 12));
+        setV("macro" + x, rf(0.0f, 1.0f));
+    }
+    for (int i = 1; i <= 3; ++i)
+    {
+        const juce::String x(i);
+        setV("env" + x + "Attack", rf(0.01f, 3.0f));
+        setV("env" + x + "Decay", rf(0.05f, 3.0f));
+        setV("env" + x + "Sustain", rf(0.0f, 1.0f));
+        setV("env" + x + "Release", rf(0.05f, 2.0f));
+        setV("env" + x + "Loop", r.nextBool() ? 1.0f : 0.0f);
+    }
+
+    // --- MODマトリクス: ランダムな本数(3〜10)を有効化 ---
+    for (int i = 1; i <= 16; ++i)
+    {
+        const juce::String x(i);
+        setV("mod" + x + "Src", 0.0f); setV("mod" + x + "Dst", 0.0f);
+        setV("mod" + x + "Amt", 0.0f); setV("mod" + x + "Uni", 0.0f);
+    }
+    const int k = ri(3, 10);
+    for (int j = 0; j < k; ++j)
+    {
+        const juce::String x(1 + r.nextInt(16));
+        setV("mod" + x + "Src", (float)ri(1, 15));
+        setV("mod" + x + "Dst", (float)ri(1, 17));
+        setV("mod" + x + "Amt", rf(-1.0f, 1.0f));
+        setV("mod" + x + "Uni", r.nextBool() ? 1.0f : 0.0f);
+    }
+
+    // --- FX: 1〜3スロットをランダムに有効化 ---
+    for (int i = 1; i <= 5; ++i) setV("fx" + juce::String(i) + "Type", 0.0f);
+    const int nfx = ri(1, 3);
+    for (int j = 0; j < nfx; ++j)
+    {
+        const juce::String x(1 + r.nextInt(5));
+        setV("fx" + x + "Type", (float)ri(1, 5));
+        setV("fx" + x + "Amount", rf(20.0f, 60.0f));
+    }
+
+    currentPresetName = "Random";
 }
 
 juce::File GranularAudioProcessor::getUserPresetDir() const

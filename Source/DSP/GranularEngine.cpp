@@ -374,7 +374,10 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                 const float delayed = buf[(size_t)i1] * (1.0f - frac) + buf[(size_t)i2] * frac;
 
                 lpState += combDamp * (delayed - lpState);            // フィードバック内LPF
-                buf[(size_t)writeIdx] = in + lpState * combFb;
+                // ソフトクリップで共鳴の暴走を抑制（加算FBは 1/(1-fb) 倍まで蓄積するため、
+                // 高toneで連続入力するとレゾナンスが爆発し「バシャーン」の一因になる）
+                const float w = in + lpState * combFb;
+                buf[(size_t)writeIdx] = 1.5f * std::tanh(w * 0.6667f);  // ±1.5で滑らかに飽和
                 return lpState;
             };
 
@@ -434,7 +437,7 @@ void GranularSynth::prepareToPlay(double sr, int spb)
             svfHP[ch][st].prepare(sr);
             svfLP[ch][st].prepare(sr);
         }
-    prevOutGain = juce::Decibels::decibelsToGain(-12.0f);
+    prevOutGain = juce::Decibels::decibelsToGain(0.0f);
     for (auto& v : voices) v.prepareToPlay(sr, spb);
 }
 
