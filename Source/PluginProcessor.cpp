@@ -819,6 +819,70 @@ void GranularAudioProcessor::run()
     {
         ingestState.store(IngestState::Failed);
         { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Failed (Timeout or Empty)"; }
+
+        // --- 読み込み失敗時の詳細デバッグログを出力 ---
+        juce::File desktopDir = juce::File::getSpecialLocation(juce::File::userDesktopDirectory);
+        juce::File logFile = desktopDir.getChildFile("granular_vst_debug_log.txt");
+
+        juce::String errLog;
+        errLog << "=== Granular VST Load Failed Log ===\n\n";
+        errLog << "Target File Path: " << fileToIngest.getFullPathName() << "\n";
+        errLog << "File Exists: " << (fileToIngest.existsAsFile() ? "Yes" : "No") << "\n";
+        errLog << "File Size: " << fileToIngest.getSize() << " bytes\n";
+        errLog << "File Can Read: " << (fileToIngest.createInputStream() != nullptr ? "Yes" : "No") << "\n";
+
+        if (fileToIngest.existsAsFile() && fileToIngest.getSize() >= 12)
+        {
+            std::ifstream fs(fileToIngest.getFullPathName().toWideCharPointer(), std::ios::binary);
+            if (fs.is_open())
+            {
+                char header[12];
+                if (fs.read(header, 12))
+                {
+                    uint32_t fileSize = ((uint32_t)(uint8_t)header[4] << 24) | ((uint32_t)(uint8_t)header[5] << 16) | ((uint32_t)(uint8_t)header[6] << 8) | (uint8_t)header[7];
+                    
+                    errLog << "\nChunks in AIFF:\n";
+                    while (fs.tellg() < (std::streampos)(fileSize + 8) && !fs.eof())
+                    {
+                        char chunkId[4];
+                        char chunkSizeBuf[4];
+                        if (!fs.read(chunkId, 4) || !fs.read(chunkSizeBuf, 4)) break;
+
+                        uint32_t chunkSize = ((uint32_t)(uint8_t)chunkSizeBuf[0] << 24) | ((uint32_t)(uint8_t)chunkSizeBuf[1] << 16) | ((uint32_t)(uint8_t)chunkSizeBuf[2] << 8) | (uint8_t)chunkSizeBuf[3];
+                        std::streampos nextChunk = fs.tellg() + (std::streamoff)chunkSize;
+                        if (chunkSize % 2 != 0) nextChunk += 1;
+
+                        char idStr[5] = { chunkId[0], chunkId[1], chunkId[2], chunkId[3], 0 };
+                        errLog << "  Chunk: " << idStr << " | Size: " << chunkSize << " bytes\n";
+
+                        if (std::memcmp(chunkId, "COMM", 4) == 0)
+                        {
+                            uint8_t commData[18];
+                            if (fs.read((char*)commData, 18))
+                            {
+                                uint16_t numChannels = ((uint16_t)commData[0] << 8) | commData[1];
+                                uint32_t numSampleFrames = ((uint32_t)commData[2] << 24) | ((uint32_t)commData[3] << 16) | ((uint32_t)commData[4] << 8) | commData[5];
+                                uint16_t sampleSize = ((uint16_t)commData[6] << 8) | commData[7];
+                                
+                                errLog << "    COMM Metadata:\n";
+                                errLog << "      Channels: " << numChannels << "\n";
+                                errLog << "      Frames: " << numSampleFrames << "\n";
+                                errLog << "      SampleSize: " << sampleSize << " bits\n";
+                                
+                                char compType[4] = {0};
+                                fs.read(compType, 4);
+                                char compStr[5] = { compType[0], compType[1], compType[2], compType[3], 0 };
+                                errLog << "      CompressionType: " << compStr << "\n";
+                            }
+                        }
+
+                        fs.seekg(nextChunk);
+                    }
+                }
+            }
+        }
+
+        logFile.replaceWithText(errLog);
         return;
     }
 
