@@ -238,7 +238,8 @@ namespace gfx
                      float decay, float shimmer, float damp, float mod) noexcept
         {
             // wet量をスムージング（変調で急に0↔xすると段差=クリックになりReverbが弾ける）
-            curAmount += 0.002f * (amount - curAmount);
+            // 係数を0.002→0.008に引き上げ: 急な変調復帰時にFDN蓄積分が一気に開放されるのを防ぐ
+            curAmount += 0.008f * (amount - curAmount);
             if (amount <= 0.0f && curAmount < 1.0e-4f) return;
             amount = curAmount;
 
@@ -325,8 +326,8 @@ namespace gfx
                 return x * (1.5f - 0.5f * x * x);
             };
 
-            inOutL = inOutL * (1.0f - amount) + softClipOutput(sumL) * amount * 1.5f;
-            inOutR = inOutR * (1.0f - amount) + softClipOutput(sumR) * amount * 1.5f;
+            inOutL = inOutL * (1.0f - amount) + softClipOutput(sumL) * amount * 1.2f;
+            inOutR = inOutR * (1.0f - amount) + softClipOutput(sumR) * amount * 1.2f;
         }
     };
 
@@ -550,7 +551,9 @@ namespace gfx
         void process(float& inOutL, float& inOutR, float amount,
                      float sizeMs, float feedback, float damp) noexcept
         {
-            if (amount <= 0.0f) return;
+            // amount==0 でもバッファ書き込みは継続する（早期リターンしない）。
+            // バッファを常に最新入力で更新し続けることで、amount が 0→非0 に
+            // 変わった瞬間に古い残存データがフィードバックに載って爆発するのを防ぐ。
 
             const int halfSize = (int)(buffer.size() / 2);
             const int delaySamps = juce::jlimit(64, halfSize - 2,
@@ -579,8 +582,12 @@ namespace gfx
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
-            inOutL = inOutL * (1.0f - amount) + smL * amount;
-            inOutR = inOutR * (1.0f - amount) + smR * amount;
+            // amount > 0 のときだけWet信号を出力にミックス
+            if (amount > 0.0f)
+            {
+                inOutL = inOutL * (1.0f - amount) + smL * amount;
+                inOutR = inOutR * (1.0f - amount) + smR * amount;
+            }
         }
 
     private:
@@ -799,10 +806,15 @@ public:
         const int channels = buf.getNumChannels();
         if (numSamples <= 0 || channels == 0) return;
 
-        bool anyActive = false;
+        // anyActive 早期リターンを削除。
+        // FXスロットが全て amount==0 でも、Delay/Freeze/Reverb の内部バッファに
+        // 入力を流し続ける必要がある。書き込みを止めると、amount が 0→非0 に
+        // 変わった瞬間に古いバッファ残存データがフィードバックに載り爆発する。
+        // 代わりに、全スロットが None の場合のみ早期リターンする。
+        bool anyTyped = false;
         for (int s = 0; s < kNumSlots; ++s)
-            if (p.type[(size_t)s] > 0 && p.amount[(size_t)s] > 0.0005f) anyActive = true;
-        if (!anyActive) return;
+            if (p.type[(size_t)s] > 0) anyTyped = true;
+        if (!anyTyped) return;
 
         float* dL = buf.getWritePointer(0);
         float* dR = channels > 1 ? buf.getWritePointer(1) : dL;
@@ -813,6 +825,16 @@ public:
                                        * juce::jlimit(20.0f, 2000.0f, p.satPreHz) / (float)sampleRate);
         const float dlyBeats = delayTimeToBeats(p.dlyTime);
 
+        // スロット間ソフトクリップ: 前段FXが異常な振幅を出力しても後段で爆発しない
+        auto interSlotClip = [](float x) noexcept -> float
+        {
+            const float t = 1.2f;
+            const float a = std::abs(x);
+            if (a <= t) return x;
+            const float s = x < 0.0f ? -1.0f : 1.0f;
+            return s * (t + (1.0f - t * 0.25f) * std::tanh((a - t) * 2.0f));
+        };
+
         for (int i = 0; i < numSamples; ++i)
         {
             float l = dL[i];
@@ -820,16 +842,22 @@ public:
 
             for (int s = 0; s < kNumSlots; ++s)
             {
-                const float amt = p.amount[(size_t)s];
-                if (amt <= 0.0005f) continue;
+                const int fxType = p.type[(size_t)s];
+                if (fxType == None) continue;
 
-                switch (p.type[(size_t)s])
+                const float amt = p.amount[(size_t)s];
+
+                // Delay/Freeze/Reverb は amount==0 でも内部バッファを更新し続ける。
+                // Saturation/Chorus はステートレスに近いため amount==0 でスキップ可。
+                switch (fxType)
                 {
                 case Saturation:
-                    saturate(l, r, amt, satType, p.satDrive, preAlpha, trimGain);
+                    if (amt > 0.0005f)
+                        saturate(l, r, amt, satType, p.satDrive, preAlpha, trimGain);
                     break;
                 case Chorus:
-                    chorus.process(l, r, amt, p.choRate, p.choDepth, p.choWidth);
+                    if (amt > 0.0005f)
+                        chorus.process(l, r, amt, p.choRate, p.choDepth, p.choWidth);
                     break;
                 case Delay:
                     delay.process(l, r, amt, p.bpm, dlyBeats, p.dlyFeedback, p.dlyDuck, p.dlyDamp);
@@ -841,6 +869,13 @@ public:
                     reverb.process(l, r, amt, p.revDecay, p.revShimmer, p.revDamp, p.revMod);
                     break;
                 default: break;
+                }
+
+                // スロット間ソフトクリップ（最終スロット以外）
+                if (s < kNumSlots - 1)
+                {
+                    l = interSlotClip(l);
+                    r = interSlotClip(r);
                 }
             }
 
