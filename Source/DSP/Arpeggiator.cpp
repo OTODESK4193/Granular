@@ -249,11 +249,11 @@ void Arpeggiator::fireStep(juce::MidiBuffer& out, int offset, int gateSamples, c
         const int note = juce::jlimit(0, 127, quantizeNote(pn.note, p));
 
         // 安全リトリガー: 同一ノートがまだ発音中(active)なら、先に noteOff を出す。
-        // Rate/Gate/Octave変更でステップ間隔とゲート長がズレても、同一ピッチの
-        // 二重発音・noteOff取りこぼしによるボイス・スタック(=突発的大音量)を防ぐ。
+        // noteOffのオフセットを「offset - 1」（最低0）にすることで、同一サンプル内での
+        // noteOff -> noteOn の処理順序を確実に保証し、ボイス詰まりを完全に防ぎます。
         for (auto it = active.begin(); it != active.end(); )
         {
-            if (it->note == note) { out.addEvent(juce::MidiMessage::noteOff(1, note), offset); it = active.erase(it); }
+            if (it->note == note) { out.addEvent(juce::MidiMessage::noteOff(1, note), juce::jmax(0, offset - 1)); it = active.erase(it); }
             else ++it;
         }
 
@@ -299,9 +299,11 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
         if (wasEnabled)
         {
             // OFF切替: 鳴っているアルペジオノートを止めて入力をスルーに戻す
+            // noteOffをブロックの末尾(numSamples-1)に配置することで、同一ブロック内の
+            // 直前の発音（noteOn）が先に処理されることを保証し、ノート詰まりを防止します。
             juce::MidiBuffer out;
             for (const auto& a : active)
-                out.addEvent(juce::MidiMessage::noteOff(1, a.note), 0);
+                out.addEvent(juce::MidiMessage::noteOff(1, a.note), juce::jmax(0, numSamples - 1));
             active.clear();
             held.clear();
             physical.fill(false);
