@@ -366,8 +366,12 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             // 領域内ラップ再生 (End→Start へ折り返し):
             // グレイン全長がEndまでに収まる必要がなくなり、Positionが常に尊重される
             grain.position += grain.step;
-            if (grain.position >= (double)trimEnd)      grain.position -= L;
-            else if (grain.position < (double)trimStart) grain.position += L;
+            if (grain.position >= (double)trimEnd || grain.position < (double)trimStart)
+            {
+                double t = std::fmod(grain.position - (double)trimStart, L);
+                if (t < 0.0) t += L;
+                grain.position = (double)trimStart + t;
+            }
 
             if (++grain.age >= grain.life) grain.isActive = false;
         }
