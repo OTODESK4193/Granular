@@ -15,8 +15,6 @@ namespace
     inline int lfoRowY(int i)   { return kContentTop + 8 + i * 56; }
     inline int envBlockY(int i) { return kContentTop + 2 + i * 76; }
     inline int envKnobX(int k)  { return 22 + k * 58; }
-    inline int macroKnobX(int i){ return 28 + i * 90; }
-    constexpr int kMacroKnobY = 96;
     constexpr int kMatrixTop  = 56;  // マトリクス行の開始Y
 }
 
@@ -24,17 +22,15 @@ ModPanel::ModPanel(GranularAudioProcessor& p) : proc(p)
 {
     const auto lav   = GranularColors::accentPitch;
     const auto peach = GranularColors::accentEnv;
-    const auto pink  = GranularColors::accentMaster;
 
     // --- ソース・サブタブ ---
-    for (auto* b : { &lfoTabBtn, &envTabBtn, &macroTabBtn, &page1Btn, &page2Btn })
+    for (auto* b : { &lfoTabBtn, &envTabBtn, &page1Btn, &page2Btn })
     {
         b->setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
         addAndMakeVisible(*b);
     }
     lfoTabBtn.onClick   = [this] { setSourceTab(0); };
     envTabBtn.onClick   = [this] { setSourceTab(1); };
-    macroTabBtn.onClick = [this] { setSourceTab(2); };
     page1Btn.onClick    = [this] { setMatrixPage(0); };
     page2Btn.onClick    = [this] { setMatrixPage(1); };
 
@@ -66,10 +62,6 @@ ModPanel::ModPanel(GranularAudioProcessor& p) : proc(p)
         buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
             proc.apvts, "env" + idx + "Loop", *envLoopButton[(size_t)i]));
     }
-
-    // --- MACRO ×4 ---
-    for (int i = 0; i < ModMatrix::kNumMacros; ++i)
-        setupKnob(macroKnob[(size_t)i], "macro" + juce::String(i + 1), pink);
 
     // --- マトリクス16行 (直接配置 / ページ切替) ---
     for (int i = 0; i < ModMatrix::kNumSlots; ++i)
@@ -136,8 +128,8 @@ void ModPanel::styleTab(juce::TextButton& b, bool active)
 
 void ModPanel::setSourceTab(int t)
 {
-    activeSrcTab = t;
-    const bool L = (t == 0), E = (t == 1), M = (t == 2);
+    activeSrcTab = juce::jlimit(0, 1, t);
+    const bool L = (activeSrcTab == 0), E = (activeSrcTab == 1);
 
     for (int i = 0; i < ModMatrix::kNumLfos; ++i)
     {
@@ -154,12 +146,8 @@ void ModPanel::setSourceTab(int t)
         envReleaseKnob[(size_t)i].setVisible(E);
         envLoopButton[(size_t)i]->setVisible(E);
     }
-    for (int i = 0; i < ModMatrix::kNumMacros; ++i)
-        macroKnob[(size_t)i].setVisible(M);
-
-    styleTab(lfoTabBtn,   L);
-    styleTab(envTabBtn,   E);
-    styleTab(macroTabBtn, M);
+    styleTab(lfoTabBtn, L);
+    styleTab(envTabBtn, E);
     repaint();
 }
 
@@ -205,7 +193,6 @@ void ModPanel::paint(juce::Graphics& g)
     };
     underline(lfoTabBtn,   activeSrcTab == 0, GranularColors::lavender);
     underline(envTabBtn,   activeSrcTab == 1, GranularColors::lavender);
-    underline(macroTabBtn, activeSrcTab == 2, GranularColors::lavender);
     underline(page1Btn,    matrixPage == 0,   GranularColors::mint);
     underline(page2Btn,    matrixPage == 1,   GranularColors::mint);
 
@@ -218,7 +205,7 @@ void ModPanel::paint(juce::Graphics& g)
             g.drawText("LFO" + juce::String(i + 1), kSrcX + 4, lfoRowY(i) + 4, 42, 24,
                        juce::Justification::centredLeft);
     }
-    else if (activeSrcTab == 1)  // ENV (ADSR) ×3
+    else  // ENV (ADSR) ×3
     {
         static const char* adsr[4] = { "A", "D", "S", "R" };
         for (int i = 0; i < ModMatrix::kNumEnvs; ++i)
@@ -234,16 +221,6 @@ void ModPanel::paint(juce::Graphics& g)
                 g.drawText(adsr[k], envKnobX(k), yb + 16 + 44, 44, 11, juce::Justification::centred);
         }
     }
-    else  // MACRO
-    {
-        for (int i = 0; i < ModMatrix::kNumMacros; ++i)
-            g.drawText("MACRO " + juce::String(i + 1), macroKnobX(i) - 8, kMacroKnobY + 66, 80, 14,
-                       juce::Justification::centred);
-        g.setColour(GranularColors::textDim.withAlpha(0.7f));
-        g.setFont(juce::Font(juce::FontOptions(10.5f)));
-        g.drawText("Tip: assign one Macro to several matrix rows, set +/- amount per destination.",
-                   20, kMacroKnobY + 92, kSrcW, 14, juce::Justification::centredLeft);
-    }
 }
 
 void ModPanel::resized()
@@ -251,7 +228,6 @@ void ModPanel::resized()
     // --- ソース・サブタブ ---
     lfoTabBtn.setBounds(20, 26, 72, 24);
     envTabBtn.setBounds(96, 26, 72, 24);
-    macroTabBtn.setBounds(172, 26, 84, 24);
 
     // --- マトリクス・ページタブ ---
     page1Btn.setBounds(kMatrixX, 28, 72, 22);
@@ -278,10 +254,6 @@ void ModPanel::resized()
         envReleaseKnob[(size_t)i].setBounds(envKnobX(3), ky, 44, 44);
         envLoopButton[(size_t)i]->setBounds(envKnobX(3) + 52, ky + 9, 70, 26);
     }
-
-    // --- MACRO: 大きめノブ×4 ---
-    for (int i = 0; i < ModMatrix::kNumMacros; ++i)
-        macroKnob[(size_t)i].setBounds(macroKnobX(i), kMacroKnobY, 64, 64);
 
     // --- マトリクス16行 (ページごとに同じ8スロット位置へ配置) ---
     const int amtX = kMatrixX + 308;

@@ -1,149 +1,361 @@
-# Granular — 24-voice Scale-Quantized Granular Synth (OTODESK)
+# GRANULAR
 
-パステル・ドット波形GUIと「変調後グレインピッチ量子化」を核にしたグラニュラーシンセ。
-JUCE 8.0系 / VST3 + Standalone / C++20。
+![Release](https://img.shields.io/badge/release-v1.0.0-blue)
+![License](https://img.shields.io/badge/license-AGPLv3-green)
+![JUCE](https://img.shields.io/badge/JUCE-8.0.x-blue)
+![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 
-## 特徴
+##
+<img src="Source/Assets/Granular_Main.jpg" width="700">
 
-- **24音ポリフォニー** × ボイスあたり最大**100グレイン**（Quanta 2同等・ボイススチーリング付き）
-  - Density指数カーブ（オーバーラップ 0.25〜64）、1/√overlap音量正規化
-  - 全ボイス合計1200グレインのCPUバジェットで暴走防止
-- **音程感強調（ノイズ系素材を演奏可能な音程に）**
-  - **SYNC**: グレイン発火間隔をノート周波数に同期（pitch-synchronous granular）。
-    発火の周期性がピッチとして知覚され、ホワイトノイズでも音程になる
-  - **TONE**: ノート同調コムレゾネーター（Karplus-Strong系）。弦的な倍音構造を付与
-- **タブUI**: MAIN / ARP / MOD / FX / CONFIG（ドット波形は常時表示、下部のみ切り替え）
-- **グレインピッチ量子化 (QUANTIZE)**
-  ノート + オクターブ/セミ/ファイン + ランダムジッターの**変調後の最終ピッチ**を
-  Key + Scale の構成音へスナップ。Key は手動 (C〜B) と Auto（素材解析結果）両対応。
-  スケール16種（Major / Minor / ペンタ / チャーチモード / Harmonic Minor / Whole Tone / Quartal 等）
-- **高音質化**: グレイン読み出しは4点Hermite補間（Tessellatorの最近傍から改良）
-- **決定論的グレインスケジューラ**: Densityをオーバーラップ量として扱い、
-  低密度でもテクスチャが安定（±25%のゆらぎ付き）
-- **Root Note Tracking**: 補正はセント偏差のみ（音質ほぼ無劣化）。
-  検出ノートをルートとして記憶し、そのノートを弾くと原音の高さで再生。
-  表示はAbleton基準（C3 = MIDI 60）
-- **高精度ピッチ解析**: 正規化自己相関＋オクターブエラーガード＋3窓中央値。
-  ファイル名Keyヒント（"Pad-C4" "Bass(D)" "Am_pluck" "Ebmaj"等）でKeyを確定し
-  解析は高さの特定に専念
-- **PadEnvelope**: Attackはべき乗カーブ最大10秒（ゆっくり立ち上がるPAD）〜
-  最短0.5ms（歯切れのよい発音）。Decay/Releaseは指数カーブ
-- **Start/End**: ノブ＋波形上のマーカードラッグでサンプル範囲を調整。
-  グレインは領域端で約3msのフェード処理を行い、End→Startの折り返しで生じる
-  波形の不連続（クリック・突発ノイズ）を防止
-- **プレイヘッド表示**: 発音中の実再生位置をミント色ラインで波形上に表示
-  （ピンク線=Position起点、ミント線=動くプレイヘッド、白線=Position/Start/Endの変調後位置）
-- **MOTION**: プレイヘッドの動きを Forward / Backward / Ping-Pong / Random から選択。
-  S-SYNCオンで「Start-End領域を指定音価（1拍〜8小節）でスキャン」するDAWテンポ追随。
-  グレインは領域内をラップ再生（Positionが常に発火起点として尊重される）
-- **マスターフィルター（TPT SVF）**: HPF/LPFはTPT（トポロジー保存）ステートバリアブル
-  フィルタで、カットオフをサンプル単位でスムージング（変調してもクリック/ザラつき無し）。
-  12dB/oct（1段）/ 24dB/oct（2段）を Filter Slope で切替
-- **マスターリミッター**: ブリックウォール、Ceiling（-6〜0dB）＋ Release可変。
-  DC/サブソニックはFXフィードバックのDCブロッカーで除去、レイテンシは0報告
-- **Dry/Wet**: FX全体のドライ/ウェットをMasterノブで調整（MOD対象）
-- **Dryプレビュー**: ヘッダーの PLAY DRY で取り込んだ原音を試聴（再押しで停止）
-- **UI**: 5タブ構成 MAIN / ARP / MOD / FX / CONFIG。
-  MAIN=グレイン・ピッチ・ADSRエンベロープ・POSITION/START/END・MOTION・マスター
-  （HPF/LPF/GAIN/DRY-WET）・LIMITER(CEILING)、
-  ARP=アルペジエイター＋QUANTIZE(Key/Scale)＋TEXTURE(WINDOW/TONE/P-SYNC/REV)、
-  MOD=下記モジュレーションマトリクス、
-  FX=5スロットFXチェーン、
-  CONFIG=MATERIAL解析モード・Limiter RELEASE・POLY（同時発音数1-24）・
-  Filter Slope・Color Theme（10種）。
-  全ノブ右クリックで数値入力、トグルはLED点灯式、
-  ヘッダーにロゴ隣の解析HUD（4行）＋ PLAY DRY / LOAD / ANALYZE / DELETE / RESET
-  （破壊的操作はY/N確認付き）
-- **カラーテーマ（10種）**: Midnight / Sakura / Ocean / Forest / Sunset / Mono /
-  Neon / Vaporwave / Amber / Arctic。CONFIGで切替（完全反映はUI再オープン時）
-- **プリセットブラウザ**: ヘッダーの BROWSE で下部に展開（BassSynth風）。
-  ファクトリー80種（8カテゴリ×サブカテゴリ、オーソドックス〜奇抜まで）＋ユーザー保存。
-  カテゴリ/検索/★お気に入り/右クリック削除（確認付き）/▲▼・キーボード↑↓で切替。
-  ヘッダーの **RANDOM** でノブ・MOD（3〜10本）・FXをランダマイズ。
-  ユーザープリセットは **ドキュメント/OTODESK/Granular/Presets/** に保存（Sampleはパス参照）
-- **安全設計**: FX前の安全ソフトクリップ・TONEコム/リバーブFDN/ディレイの飽和＆DCブロッカー・
-  グレイン境界フェード・Positionのサンプル単位グライドで、突発的な大音量やクリックを防止
-- **パステル・ドット波形GUI**:
-  波形を小さなドットの縦積みで表現。**読み込んだ音の周波数を解析して着色**
-  （低域=暖色 / 高域=寒色、明暗コントラスト付き。色はカラーテーマに連動）。
-  グレイン発火をリアルタイムにドットで可視化（ピッチ→高さ・色、時間減衰）。
-  波形クリック/ドラッグで Position 操作、サンプルはD&DまたはLOADボタン。
+## Overview
 
-## ビルド (Windows / Visual Studio 2022)
+**GRANULAR** is a 24-voice granular synthesiser VST3 built around one idea: **modulate the pitch as violently as you like — it still lands in key**.
 
-1. JUCE 8.0系を `C:/JUCE` に配置（別の場所なら CMake の `JUCE_PATH` を変更）
-2. Visual Studio で「フォルダーを開く」→ このフォルダを選択（CMakeSettings.json を自動認識）
-3. 構成 `x64-Release` を選び、ビルド
-4. `COPY_PLUGIN_AFTER_BUILD TRUE` なので VST3 は自動で
-   `C:\Program Files\Common Files\VST3` にコピーされます（Ableton Liveで再スキャン）
+In most granular instruments, pitch jitter, LFOs and random spray are applied *after* any scale correction, so the moment you add movement the result drifts out of tune. GRANULAR inserts its scale quantizer at the very end of the pitch chain: note, octave, semitone, fine tune, random jitter and every modulation slot are summed first, and only then snapped to the selected Key and Scale. Turn Pitch Jitter to ±24 semitones and the texture stays musical.
 
-## フォルダ構成
+On top of that sits a complete instrument: pitch-synchronous grain firing that gives noise a playable pitch, a comb resonator for string-like tone, a 13-pattern arpeggiator, a 16-slot modulation matrix, a drag-to-reorder 5-slot FX rack, and a dot-matrix waveform display coloured by the sample's own frequency content.
+
+**Design goal:** the chaos of granular synthesis, kept in tune.
+
+
+## Key Features
+
+### Scale-Quantized Grain Pitch
+
+* **Post-modulation quantization.** The final pitch — note + octave + semi + fine + random jitter + every matrix slot routed to a pitch destination — is snapped to Key + Scale as the last step. Modulation can be extreme without ever going out of key.
+* **17 scales:** Free, Chromatic, Major, Natural Minor, Major/Minor Pentatonic, Dorian, Lydian, Mixolydian, Phrygian, Harmonic Minor, Melodic Minor, Whole Tone, Octaves & Fifths, Quartal, Sus2/4 Cloud, Diminished. Key is Auto (from analysis) or fixed C–B.
+* **Nearest-octave snapping.** The quantizer searches adjacent octaves too, so a note at the edge of a scale wraps naturally instead of jumping.
+
+### 24 Voices × 100 Grains
+
+* **Up to 100 grains per voice**, capped by a global 1200-grain CPU budget with voice stealing, so dense patches degrade gracefully instead of stalling the host.
+* **Exponential density curve** (overlap 0.25–64) with 1/√overlap gain normalisation, keeping perceived level steady as density climbs.
+* **Deterministic scheduler.** Density is treated as an overlap factor with ±25 % jitter, so even sparse settings produce a stable texture rather than random clumping.
+* **4-point Hermite interpolation** on grain readout.
+* **Graceful voice stealing.** Stolen voices keep their old grains alive to decay through their own windows instead of being cut — the usual source of clicks when polyphony runs out.
+
+### Making Noise Playable
+
+* **P-SYNC (pitch-synchronous granular).** Grain firing intervals lock to the played note's frequency. The periodicity itself is perceived as pitch, so white noise or field recordings become playable across the keyboard.
+* **TONE.** A note-tuned comb resonator (Karplus-Strong family) adds string-like harmonic structure. Feedback is soft-clipped so high settings resonate rather than explode.
+* **Window shapes:** Hanning, Triangle, Square, Asymmetric.
+
+### Sample Handling & Analysis
+
+* **High-accuracy pitch analysis** — normalised autocorrelation with an octave-error guard and a 3-window median. Filename key hints (`Pad-C4`, `Bass(D)`, `Am_pluck`, `Ebmaj`) lock the key so the analyser only has to find the octave.
+* **Root note tracking.** Only the cent deviation is corrected, so audio quality is essentially untouched. The detected note is stored as the root; play it and you hear the sample at its original pitch. Display follows Ableton convention (C3 = MIDI 60).
+* **Material modes:** Auto (Detect) / Percussive / Melodic / Vocal.
+* **Start / End** by knob or by dragging the markers on the waveform, with ~3 ms fades at the region edges so the End→Start wrap never clicks.
+* **MOTION:** Forward / Backward / Ping-Pong / Random playhead movement. With S-SYNC on, the Start–End region is scanned over a musical length (1 beat – 8 bars) locked to host tempo.
+
+---
+
+##
+<img src="Source/Assets/Granular_Arp.jpg" width="700">
+
+### Arpeggiator & Texture
+
+* **13 patterns:** Up, Down, Up-Down, Down-Up, Up-Down (Incl), Converge, Diverge, Pedal Low, Pedal High, As Played, Random, Random Walk, Chord.
+* **Tempo-synced** (1/1 – 1/32 including dotted and triplet) **or free** (0.5–30 Hz), with Octaves (1–4), Duration (Gate % or a fixed note value) and LATCH.
+* **Safe retrigger.** If a step would fire a note that is still sounding, a note-off is emitted first — this is what stops stacked voices (and sudden bursts) when you turn the Rate or Gate knob mid-pattern.
+* Arpeggiator output passes through the same Key/Scale quantizer as the grains.
+
+---
+
+##
+<img src="Source/Assets/Granular_Mod.jpg" width="700">
+
+### Modulation Matrix
+
+* **11 sources:** LFO × 4 (Sine / Triangle / Saw / Square / S&H / Chaos, free 0.02–20 Hz or tempo-synced 1/1–1/32), ENV × 3 (loopable ADSR), Velocity, Note, Mod Wheel, Random (per-note S&H).
+* **16 slots** across two pages, each with Source → Destination, bipolar Amount (double-click to zero) and a **UNI/BI** polarity toggle.
+* **23 destinations** — Position, Grain Size, Density, Spray, Pitch Jitter, Pan Spread, Speed, Pitch, Fine, Tone, HPF, LPF, Sample Start/End, Arp Octaves/Rate/Gate, FX Dry/Wet and all five FX Amounts.
+* **Live range display.** Modulated knobs draw a white arc showing the reachable range plus a dot for the current value, computed through the same function the DSP uses. Position, Spray, Start and End are mirrored on the waveform in real time.
+* **Loopable envelopes.** Turn LOOP on and an ENV becomes an A-D cycling generator — a second class of LFO with an arbitrary shape.
+
+---
+
+##
+<img src="Source/Assets/Granular_FX.jpg" width="700">
+
+### FX Rack
+
+Five slots in series, inserted before the master limiter. Drag any card header to reorder the chain; click a card to edit it in the Details area below.
+
+* **Saturation (ADAA)** — antiderivative anti-aliased, with **10 algorithms**: Soft Tanh, Hard Clip, Triode, Tape, Transformer, JFET, BJT, Wavefold, Exciter, Cubic. Includes a pre-highpass and output trim.
+* **Ensemble Chorus** — Rate, Depth, Width.
+* **Tape Delay** — tempo-synced time, Feedback, Damp, and Duck (input-triggered ducking).
+* **Freeze** — Size (20–1000 ms), Feedback up to 0.99, Damp.
+* **Shimmer Reverb** — 16-channel FDN with an octave shifter. Decay, Shimmer, Damp, Mod.
+
+A master **DRY/WET** knob on the MAIN tab blends the whole rack, and is itself a modulation destination.
+
+---
+
+##
+<img src="Source/Assets/Granular_Config.jpg" width="700">
+
+### Config
+
+* **Analysis** — Material Mode, plus third-party attribution.
+* **Limiter** — Release time (Ceiling lives on the MAIN tab).
+* **System** — Polyphony (1–24 voices), master filter slope, and **ten colour themes**: Midnight, Sakura, Ocean, Forest, Sunset, Mono, Neon, Vaporwave, Amber, Arctic.
+
+### Dot Waveform Display
+
+The waveform is drawn as stacked dots, **coloured by the sample's own frequency content** — warm for low-frequency regions, cool for high, with brightness contrast that survives even the monochrome theme. Grain firings appear as dots in real time, positioned and coloured by pitch and fading over time. Click or drag the waveform to move Position; drop a file anywhere to load it.
+
+### Preset Browser
+
+80 factory presets across 8 categories (Pads & Ambient, Textures, Rhythmic, Bass, Leads & Keys, Cinematic, Glitch & IDM, Experimental) plus user saves. Category filter, search, ★ favourites, right-click delete with confirmation, and ▲▼ / keyboard ↑↓ stepping. **RANDOM** in the header randomises knobs, 3–10 matrix rows and the FX rack while protecting output gain, polyphony and theme.
+
+User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are saved as a path reference, not embedded.
+
+
+## Parameter Reference
+
+### Grain
+
+| Parameter | Range | Default | Description |
+|---|---|---|---|
+| Size | 0.02 – 0.5 s | 0.15 s | Grain length |
+| Density | 0.0 – 1.0 | 0.5 | Exponential overlap curve (0.25–64×) |
+| Spray | 0.0 – 1.0 | 0.0 | Randomises grain start position |
+| Jitter | 0 – 2400 cents | 0 | Random pitch offset, applied **before** quantization |
+| Pan | 0.0 – 1.0 | 1.0 | Stereo spread |
+| Speed | 0.0 – 2.0 | 1.0 | Playhead rate |
+| Window | Hanning / Triangle / Square / Asymmetric | Hanning | Grain envelope shape |
+| REV | Off / On | Off | Reverse grain playback |
+
+### Pitch & Quantize
+
+| Parameter | Range | Default | Description |
+|---|---|---|---|
+| Octave | -3 – +3 | 0 | |
+| Semi | -24 – +24 st | 0 | |
+| Fine | -100 – +100 ct | 0 | |
+| Key | Auto / C – B | Auto | Auto uses the analysed key |
+| Scale | 17 types | Free | Applied after all modulation |
+| P-SYNC | Off / On | Off | Locks grain firing to note frequency |
+| TONE | 0.0 – 1.0 | 0.0 | Note-tuned comb resonator |
+
+### Envelope & Sample
+
+| Parameter | Range | Default | Description |
+|---|---|---|---|
+| Attack | 0.0005 – 10.0 s | 0.02 s | Power curve — 0.5 ms snap to 10 s pad swell |
+| Decay | 0.001 – 10.0 s | 0.1 s | Exponential |
+| Sustain | 0.0 – 1.0 | 1.0 | |
+| Release | 0.001 – 10.0 s | 0.5 s | Exponential |
+| Position | 0.0 – 1.0 | 0.0 | Grain origin, ~20 ms glide when moved |
+| Start / End | 0.0 – 1.0 | 0.0 / 1.0 | Playback region, ~3 ms edge fades |
+| Motion | Forward / Backward / Ping-Pong / Random | Forward | Playhead behaviour |
+| S-SYNC | Off / On | Off | Scan Start–End over a musical length |
+| Scan | 1 Beat – 8 Bars | 1 Bar | Scan length when S-SYNC is on |
+
+### Master
+
+| Parameter | Range | Default | Description |
+|---|---|---|---|
+| HPF | 20 – 2000 Hz | 20 Hz | TPT SVF, per-sample smoothed |
+| LPF | 200 – 20000 Hz | 20000 Hz | TPT SVF, per-sample smoothed |
+| Gain | -36 – +12 dB | 0 dB | Output level, ramped |
+| Dry/Wet | 0.0 – 1.0 | 1.0 | FX rack blend (modulatable) |
+| Ceiling | -6 – 0 dB | -0.1 dB | Brick-wall limiter ceiling |
+
+### Arpeggiator
+
+| Parameter | Range | Default | Description |
+|---|---|---|---|
+| Pattern | 13 types | Up | Note order |
+| Rate | 1/1 – 1/32 (sync) or 0.5–30 Hz | 1/8 | SYNC toggles between them |
+| Octaves | 1 – 4 | 1 | |
+| Duration | Gate % / 1/32 / 1/16 / 1/8 / 1/4 | Gate % | Note length mode |
+| Gate | 0.05 – 1.0 | 0.8 | Used in Gate % mode |
+| Latch | Off / On | Off | Holds the chord after release |
+
+### Modulation
+
+| Parameter | Range | Default | Description |
+|---|---|---|---|
+| Source | 11 sources | None | LFO 1–4, ENV 1–3, Velocity, Note, Mod Wheel, Random |
+| Destination | 23 destinations | None | |
+| Amount | -1.0 – +1.0 | 0.0 | Double-click to reset |
+| UNI | Off (bipolar) / On (unipolar) | Off | Output polarity |
+| LFO Rate | 0.02 – 20 Hz, or 1/1 – 1/32 | 1.0 Hz | SYNC toggles between them |
+| ENV A / D / S / R | 0.001–10 s / 0–1 | 0.05 / 0.5 / 1.0 / 0.3 | LOOP cycles A-D as a complex LFO |
+
+### FX
+
+| FX | Parameters |
+|---|---|
+| **Saturation (ADAA)** | ALGO (10 types), DRIVE (1–12×), PRE-HPF (20–2000 Hz), TRIM (±12 dB) |
+| **Ensemble Chorus** | RATE (0.05–4 Hz), DEPTH, WIDTH |
+| **Tape Delay** | TIME (1/2 – 1/16T), FEEDBACK (0–0.95), DUCK, DAMP |
+| **Freeze** | SIZE (20–1000 ms), FEEDBACK (0–0.99), DAMP |
+| **Shimmer Reverb** | DECAY, SHIMMER, DAMP, MOD |
+
+### Config
+
+| Parameter | Range | Default | Description |
+|---|---|---|---|
+| Material | Auto (Detect) / Percussive / Melodic / Vocal | Auto | Analysis profile — press ANALYZE after changing |
+| Lim Release | 1 – 500 ms | 50 ms | Limiter recovery |
+| Poly | 1 – 24 voices | 24 | Max simultaneous voices |
+| Filter Slope | 12 / 24 dB/oct | 12 dB/oct | Master HPF/LPF steepness |
+| Color Theme | 10 themes | Midnight | Fully applied when the UI is reopened |
+
+
+## Signal Flow
 
 ```
-Granular/
-├─ CMakeLists.txt
-├─ CMakeSettings.json
-└─ Source/
-   ├─ PluginProcessor.h/.cpp     … APVTS / サンプル下処理スレッド / FX Dry-Wet / Dryプレビュー
-   ├─ PluginEditor.h/.cpp        … レイアウト / HUD / タブ / テーマ適用
-   ├─ DSP/
-   │  ├─ GranularEngine.h/.cpp   … 24ボイス・グレインエンジン / TPT SVF / BrickLimiter
-   │  ├─ ModMatrix.h             … LFO/ADSR/Macro → 16スロットマトリクス
-   │  ├─ Arpeggiator.h/.cpp      … アルペジエイター（13パターン）
-   │  ├─ FxChain.h               … 5スロットFX（Sat/Chorus/Delay/Freeze/Reverb）
-   │  ├─ ScaleQuantizer.h        … Key/Scale量子化（変調後適用）
-   │  ├─ PitchAnalyzer.h/.cpp    … Omni-Analyzer（Tessellator移植）
-   │  └─ GrainVisualizerData.h   … 音声→GUI ロックフリーイベント
-   ├─ GUI/
-   │  ├─ ColorPalette.h          … 10カラーテーマ / スペクトルカラー
-   │  ├─ ArcDial.h/.cpp          … アークダイアル LookAndFeel（変調範囲アーク）
-   │  ├─ MainPanel / ModPanel / FxPanel / ArpPanel / ConfigPanel … 各タブUI
-   │  ├─ PresetBrowser.h        … プリセットブラウザ（Factory/User/Favorites）
-   │  ├─ ValueKnob.h / GlowToggle.h … 数値入力ノブ / LEDトグル
-   │  └─ DotWaveformDisplay.h/.cpp … ドット波形＋グレイン可視化＋周波数カラー
-   ├─ Presets/
-   │  └─ PresetData.h           … ファクトリープリセット80種（パラメータ上書き方式）
-   └─ third_party/
-      └─ signalsmith-stretch/    … MITライセンス（下記参照）
+MIDI In
+   │
+   ▼
+[Arpeggiator] ──► [Scale Quantizer]
+   │
+   ▼
+┌──────────────────────────────────────────────┐
+│  Voice 1..24   (up to 100 grains each)       │
+│    Position + Spray · Start/End · Edge Fade  │
+│    Grain scheduler (density = overlap)       │
+│    4-point Hermite interpolation             │
+│                                              │
+│    note + oct + semi + fine + jitter + MOD   │
+│                     │                        │
+│                     ▼                        │
+│           [Scale Quantizer]  ← key/scale     │
+│                     │                        │
+│    Window · P-SYNC firing · TONE comb        │
+│    ADSR · Pan Spread                         │
+└──────────────────────────────────────────────┘
+   │
+   ▼
+[Safety soft-clip]
+   │
+   ▼
+[FX Rack]  5 slots in series, drag to reorder
+   Saturation / Chorus / Delay / Freeze / Reverb
+   │
+   ▼
+[Dry/Wet blend]
+   │
+   ▼
+[Master HPF] ─► [Master LPF] ─► [Gain]     (TPT SVF, 12 or 24 dB/oct)
+   │
+   ▼
+[Brick-wall Limiter  (Ceiling / Release)]
+   │
+   ▼
+Output (Stereo)
 ```
 
-## ライセンスについて
+The quantizer sitting **inside** the voice, after modulation is summed, is what makes extreme pitch movement stay musical. Reported latency is 0 — the limiter has no lookahead.
 
-- **Signalsmith Stretch / Signalsmith Linear** (MIT License, Signalsmith Audio Ltd.)
-  無料配布・ソース非公開・将来の有料化すべて可。
-  配布時はドキュメント等に著作権表示を含めてください
-  （`Source/third_party/signalsmith-stretch/LICENSE-*.txt` を同梱すれば十分）。
-- RubberBand は使用していないため、GPL/商用ライセンスの制約はありません。
 
-## ロードマップ（Quanta 2超えに向けて / 優先順）
+## Real-Time Safety
 
-1. [x] **ARP**: アルペジエイター13種（Up/Down/Up-Down/Down-Up/Up-Down Incl/
-       Converge/Diverge/Pedal Low/Pedal High/As Played/Random/Random Walk/Chord）、
-       TempoSync（付点・三連対応）/Free(Hz)、Duration（Gate%/音符）、Latch、
-       Octaveレンジ1-4、出力ノートはQuantize Key/Scaleへスナップ
-2. [x] **MODタブ**: ソース段は LFO / Env / MACRO のサブタブ構成。
-       LFO×4（テンポ同期1/1〜1/32、Sine/Tri/Saw/Sqr/S&H/Chaos）、
-       **ADSRエンベロープ×3**（Loopトグルで A-D 循環の複雑LFOにもなる）、Macro×4、
-       MIDIソース（Velocity/Note/ModWheel/ノート毎Random）。
-       → **16スロットマトリクス（Page1/Page2）** → 行き先は主要パラメータ＋
-       Sample Start/End＋Arp Octaves/Rate/Gate＋Tone＋FX Dry/Wet＋FX Amount×5。
-       各行 Amountは±バイポーラ（ダブルクリックで0）、**Uni/Bipolarトグル**で極性選択。
-       宛先ノブには**変調範囲を白アークで表示**、波形にも Position/Spray/Start/End の
-       変調をリアルタイム反映。
-       **Pitchへの変調は量子化前に加算されるため、暴れてもKey/Scaleに乗る**。
-       Macroは「1ノブ→複数行き先」のハブ（DAWオートメーション/MIDIマッピング可）
-3. [x] **FXタブ**: **5スロット式**（FX数と一致）— **ADAA Saturation（アルゴリズム10種・NextGenKick2移植）**/
-       Ensemble Chorus / Tape Delay（テンポ同期＋ダッキング）/ Freeze /
-       Shimmer Reverb（16ch FDN＋オクターブシフター）。
-       **適用順はスロットヘッダーのD&Dで並べ替え可能**。チェーンはLimiter前段に挿入。
-       **スロット選択で下部に詳細パラメータが出現**:
-       Sat=ALGO/DRIVE/PRE-HPF/TRIM、Chorus=RATE/DEPTH/WIDTH、
-       Delay=TIME(1/2〜1/16T)/FEEDBACK/DUCK/DAMP、Freeze=SIZE/FEEDBACK/DAMP、
-       Reverb=DECAY/SHIMMER/DAMP/MOD
-4. [x] **Configタブ**: カラーテーマ（10種）、同時発音数（POLY 1-24）、Filter Slope、
-       Limiter Release、MATERIAL解析モード（Ceilingは Main へ移設）
-5. [x] **プリセットブラウザ**: ファクトリー80（8カテゴリ×サブ）＋ユーザー保存（ドキュメント）、
-       お気に入り・検索・削除・▲▼/キーボード切替、RANDOMマクロ
-6. [ ] グレインループのSIMD化（グレイン主導ブロック処理への再設計、2〜3倍高速化見込み）
-7. [ ] リサイズGUI、MPE/ピッチベンド
-8. [ ] スペクトルカラーのFFTベース高精度化、Limiterルックアヘッド
+Granular synthesis generates clicks for a living, and a click is broadband — it excites the reverb and comes back as a burst. The defences are layered:
+
+* **Grain edge fades.** Reads fade to zero ~3 ms before the Start/End boundary, so the wrap never produces a discontinuity.
+* **Non-destructive voice stealing.** A stolen voice keeps its existing grains so they decay through their own windows; only genuinely free voices clear their grain list and comb buffer.
+* **Position glide.** Position moves are smoothed per-sample (~20 ms), so dragging the knob can't teleport the playhead into a loud region. Note-on seeds the value immediately, so attacks stay tight.
+* **Bounded feedback.** The TONE comb write is soft-clipped (±1.5), delay feedback tops out at 0.95, Freeze at 0.99, and the reverb FDN injects as `in*(1-fb) + loop*fb` so its steady-state gain converges to 1.0 instead of 1/(1-fb).
+* **DC blockers** on the reverb and delay feedback paths (~19 Hz) prevent the slow sub-sonic build-up that otherwise shows up as periodic swells.
+* **Safety soft-clip** between the synth and the FX rack, then a brick-wall limiter at the output.
+* **Smoothed parameters.** Filter cutoff is smoothed per sample in the TPT SVF; output gain is ramped; FX wet amounts are smoothed so a modulated 0↔1 transition can't step.
+* **Background loading.** File decoding and pitch analysis run on a dedicated worker thread, with the ingest state set before the thread starts so re-analysis can't race the audio thread for the shared buffer.
+
+
+## 📚 Manual
+
+Quick manuals covering every tab and parameter, plus starting-point settings and troubleshooting:
+
+[ ![Manual (EN)](https://img.shields.io/badge/Manual-English-blue?style=for-the-badge) ](Source/Assets/Granular_Manual_EN.md)
+[ ![Manual (JP)](https://img.shields.io/badge/Manual-日本語-red?style=for-the-badge) ](Source/Assets/Granular_Manual_JP.md)
+
+
+## Installation
+
+1. Download `Granular.vst3` from the Releases page.
+2. Copy it to your VST3 directory:
+   ```
+   C:\Program Files\Common Files\VST3\
+   ```
+3. Rescan plugins in your DAW.
+
+### Build Requirements
+
+* **JUCE** 8.0.x — place at `C:/JUCE` or update `JUCE_PATH` in `CMakeLists.txt`
+* **CMake** 3.22 or higher
+* **Visual Studio** 2022 (MSVC, C++20)
+
+```bash
+cmake -B build -DJUCE_PATH=C:/JUCE
+cmake --build build --config Release
+```
+
+`COPY_PLUGIN_AFTER_BUILD` is enabled, so the VST3 is copied to the system VST3 folder automatically after a successful build.
+
+
+## System Requirements
+
+* **OS:** Windows 10 / 11 (64-bit)
+* **Format:** VST3 / Standalone
+* **Tested Host:** Ableton Live 11 / 12
+
+> ⚠️ **Compatibility Notice:** Verified operation is confirmed in **Ableton Live**. Other DAWs may work but are currently unverified.
+
+
+## Tips
+
+* **Turn noise into a pad:** load a field recording, turn P-SYNC on, Size to about 0.2 s, Density to 0.7, and pick a Scale. The firing rate becomes the pitch and the scale keeps chords consonant.
+* **Chaos that stays in key:** set Pitch Jitter to 1200–2400 cents and choose Minor Pentatonic. Every grain lands on a scale tone, so the result is a shimmering cloud rather than noise.
+* **String-like tone:** raise TONE to about 0.6 with a short Grain Size. The comb resonator tunes to the played note and adds a plucked-string body.
+* **Tempo-locked scanning:** turn S-SYNC on with Scan = 2 Bars and Motion = Ping-Pong for a texture that breathes with the track.
+* **Evolving movement:** assign ENV 1 with LOOP on to Position, and a slow LFO to Grain Size. The white arcs on both knobs show exactly how far each will travel.
+* **Modulate the pitch hard:** route an LFO to `Pitch (st)` at full Amount. Because the quantizer runs after the matrix, even ±24 semitones of movement stays in the selected key.
+* **Precision knob work:** right-click any knob to type an exact value. Double-click a matrix Amount slider to zero it.
+
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0 (AGPLv3) — see [LICENSE](LICENSE) for details.
+
+This software is built with the **JUCE 8** framework. In accordance with JUCE 8's open-source licensing terms, this entire project is distributed under the AGPLv3.
+
+### Third-Party
+
+Time-stretching is powered by **Signalsmith Stretch**, used under the MIT License.
+
+* Signalsmith Stretch — Copyright © 2022 Geraint Luff / Signalsmith Audio Ltd. — [LICENSE](Source/third_party/signalsmith-stretch/LICENSE-stretch.txt)
+* Signalsmith Linear — Copyright © 2025 Signalsmith Audio — [LICENSE](Source/third_party/signalsmith-stretch/signalsmith-linear/LICENSE-linear.txt)
+
+> When distributing binaries, include both MIT licence files alongside the plugin — the MIT terms require the copyright and permission notices to accompany every copy, not just the source repository.
+
+The same attribution is shown in-plugin on the **CONFIG** tab, below the ANALYSIS section.
+
+RubberBand is **not** used, so no GPL / commercial licensing restrictions apply from that direction.
+
+
+## Credits
+
+**Developer:** @kijyoumusic (OTODESK)
+
+**Framework:** JUCE 8.0.x
+
+**Target DAW:** Ableton Live 11 / 12
+
+**DSP References:**
+- Signalsmith Audio — *Signalsmith Stretch* (phase-vocoder time-stretching)
+- McLeod & Wyvill — *"A Smarter Way to Find Pitch"* (MPM, 2005)
+- Zavalishin — *"The Art of VA Filter Design"* (TPT/SVF topology)
+- Parker, Zavalishin & Le Bivic — *"Reducing the Aliasing of Nonlinear Waveshaping Using Continuous-Time Convolution"* (ADAA, 2016)
+- Karplus & Strong — *"Digital Synthesis of Plucked-String and Drum Timbres"* (1983)
+
+
+## Support
+
+* **Social / Demo:** [@kijyoumusic](https://x.com/kijyoumusic)
+* [![Website](https://img.shields.io/badge/Official%20Website-OTODESK-blue?style=for-the-badge)](https://otodesk4193.github.io/OTODESK_SITE/)

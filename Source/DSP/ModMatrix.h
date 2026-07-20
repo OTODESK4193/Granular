@@ -4,7 +4,7 @@
 //
 //  Sources : LFO×4 (テンポ同期/フリー, Sine/Tri/Saw/Sqr/S&H/Chaos)
 //            ENV×2 (ループ可能AD), Velocity, Note, ModWheel,
-//            Random(ノート毎S&H), Macro×4
+//            Random(ノート毎S&H)
 //  Slots   : 16 ( Source × Amount(-1..+1) → Destination )
 //  Dests   : 主要パラメータ + FX Amount×5
 //
@@ -22,7 +22,6 @@ class ModMatrix
 public:
     static constexpr int kNumLfos = 4;
     static constexpr int kNumEnvs = 3;
-    static constexpr int kNumMacros = 4;
     static constexpr int kNumSlots = 16;
 
     enum Src
@@ -31,7 +30,6 @@ public:
         SrcLfo1, SrcLfo2, SrcLfo3, SrcLfo4,
         SrcEnv1, SrcEnv2, SrcEnv3,
         SrcVelocity, SrcNote, SrcModWheel, SrcRandom,
-        SrcMacro1, SrcMacro2, SrcMacro3, SrcMacro4,
         NumSrcs
     };
 
@@ -51,8 +49,7 @@ public:
     static juce::StringArray getSourceNames()
     {
         return { "None", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "ENV 1", "ENV 2", "ENV 3",
-                 "Velocity", "Note", "Mod Wheel", "Random",
-                 "Macro 1", "Macro 2", "Macro 3", "Macro 4" };
+                 "Velocity", "Note", "Mod Wheel", "Random" };
     }
     static juce::StringArray getDestNames()
     {
@@ -82,7 +79,6 @@ public:
 
         std::array<Lfo, kNumLfos> lfo;
         std::array<Env, kNumEnvs> env;
-        std::array<float, kNumMacros> macro { 0.5f, 0.5f, 0.5f, 0.5f };
         std::array<Slot, kNumSlots> slot;
         double bpm = 120.0;
     };
@@ -226,13 +222,11 @@ public:
             }
         }
 
-        // --- MIDI / Macro ---
+        // --- MIDI ---
         src[SrcVelocity] = velocity;
         src[SrcNote] = noteNorm;
         src[SrcModWheel] = modWheel;
         src[SrcRandom] = randomSH;
-        for (int i = 0; i < kNumMacros; ++i)
-            src[SrcMacro1 + i] = p.macro[(size_t)i];
 
         // --- スロット合成 (Uni/Bipolar極性変換 + レンジ算出) ---
         destAccum.fill(0.0f);
@@ -270,7 +264,7 @@ public:
     float getRangeMin(int dst) const noexcept { return rangeMin[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)]; }
     float getRangeMax(int dst) const noexcept { return rangeMax[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)]; }
 
-    // ソースが本来バイポーラ(±1)か: LFOのみ。ENV/Vel/Note/Wheel/Random/Macroはユニポーラ(0..1)
+    // ソースが本来バイポーラ(±1)か: LFOのみ。ENV/Vel/Note/Wheel/Randomはユニポーラ(0..1)
     static bool isBipolarSource(int s) noexcept { return s >= SrcLfo1 && s <= SrcLfo4; }
 
 private:

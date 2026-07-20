@@ -1,6 +1,6 @@
 // ==========================================
 // File: ModPanel.h
-// MODタブ: ソース段 (LFO/Env/MACRO サブタブ) + 16スロットマトリクス (Page1/Page2)
+// MODタブ: ソース段 (LFO/Env サブタブ) + 16スロットマトリクス (Page1/Page2)
 // ==========================================
 #pragma once
 
@@ -25,7 +25,7 @@ public:
 private:
     void setupKnob(ValueKnob& s, const juce::String& paramID, juce::Colour accent);
     void setupCombo(juce::ComboBox& c, const juce::String& paramID, juce::Component& parent);
-    void setSourceTab(int t);          // 0=LFO, 1=Env, 2=Macro
+    void setSourceTab(int t);          // 0=LFO, 1=Env
     void setMatrixPage(int p);         // 0=slot1-8, 1=slot9-16
     void styleTab(juce::TextButton& b, bool active);
 
@@ -34,7 +34,6 @@ private:
     // --- ソース・サブタブ ---
     juce::TextButton lfoTabBtn   { "LFO" };
     juce::TextButton envTabBtn   { "Env" };
-    juce::TextButton macroTabBtn { "MACRO" };
     int activeSrcTab = 0;
 
     // --- LFO ×4 ---
@@ -46,9 +45,6 @@ private:
     // --- ENV ×3 (ADSR) ---
     std::array<ValueKnob, ModMatrix::kNumEnvs> envAttackKnob, envDecayKnob, envSustainKnob, envReleaseKnob;
     std::array<std::unique_ptr<GlowToggle>, ModMatrix::kNumEnvs> envLoopButton;
-
-    // --- MACRO ×4 ---
-    std::array<ValueKnob, ModMatrix::kNumMacros> macroKnob;
 
     // --- マトリクス16行 (2ページ) ---
     juce::TextButton page1Btn { "PAGE 1" };

@@ -1,12 +1,38 @@
-# GRANULAR — 簡易マニュアル（日本語）
+# GRANULAR 簡易マニュアル（日本語）
+
+[English](Granular_Manual_EN.md) | **日本語**
+
+---
+
+## 目次
+
+1. [まずは音を出す](#1-まずは音を出す)
+2. [画面の構成](#2-画面の構成)
+3. [MAIN タブ](#3-main-タブ)
+4. [ARP タブ](#4-arp-タブ)
+5. [MOD タブ](#5-mod-タブモジュレーション)
+6. [FX タブ](#6-fx-タブ)
+7. [CONFIG タブ](#7-config-タブ)
+8. [プリセット](#8-プリセット)
+9. [使いこなしのヒント](#9-使いこなしのヒント)
+
+---
+
+## 1. まずは音を出す
 
 **OTODESK / 24ボイス スケール量子化グラニュラーシンセ（VST3 / Standalone）**
 
 読み込んだ音を「粒（グレイン）」に分解して再構築するグラニュラーシンセです。ノイズや環境音でも音程を持った楽器として演奏でき、変調・アルペジオ・FX・80種のプリセットを備えています。
 
----
+### インストール
 
-## 1. まずは音を出す
+1. `Granular.vst3` を以下にコピーします。
+   ```
+   C:\Program Files\Common Files\VST3\
+   ```
+2. DAW でプラグインを再スキャンします。
+
+### 最初の一歩
 
 1. 音源（WAV / AIFF / MP3 / FLAC / OGG）を**波形エリアにドラッグ＆ドロップ**、またはヘッダーの **LOAD** ボタンから読み込みます。
 2. 読み込むと自動でピッチ解析・正規化が行われ、**元の音程を保ったまま鍵盤で演奏**できます（C3＝原音の高さ）。
@@ -25,7 +51,7 @@
 |------|------|
 | **MAIN** | グレイン・ピッチ・エンベロープ（ADSR）・POSITION/START/END・MOTION・マスター |
 | **ARP** | アルペジエイター＋量子化（Key/Scale）＋テクスチャ |
-| **MOD** | モジュレーション（LFO / Env / MACRO → 16スロットマトリクス） |
+| **MOD** | モジュレーション（LFO / Env → 16スロットマトリクス） |
 | **FX** | 5スロットのエフェクトチェーン |
 | **CONFIG** | 解析モード・リミッター・同時発音数・フィルタ・カラーテーマ |
 
@@ -57,7 +83,7 @@
 
 - **LFO ×4**：波形6種（Sine / Tri / Saw / Sqr / S&H / Chaos）。SYNC でテンポ同期
 - **Env ×3**：ADSR。LOOP をオンにすると A-D を繰り返す複雑なLFOにもなります
-- **MACRO ×4**：1つのノブで複数の行き先を同時に動かすハブ
+- **MIDIソース**：Velocity / Note / Mod Wheel / Random（ノート毎のS&H）
 
 右が **16スロットのマトリクス**（Page 1 / Page 2）:
 
@@ -65,7 +91,7 @@
 - **Amount** はダブルクリックで0。**UNI/BI** トグルで片方向／両方向を選択
 - 変調される宛先ノブには**白いアーク**で変調範囲が表示され、波形上の Position / Spray / Start / End にも反映されます
 
-**マクロの使い方**：例えば「Source=Macro 1, Dest=Position, Amt=+0.5」と「Source=Macro 1, Dest=Spray, Amt=-0.5」の2行を作ると、Macro 1 のノブ1つで Position を右・Spray を左に同時に動かせます。1つのマクロで最大16行まで割り当て可能です。
+**1ソース→複数行き先**：例えば「Source=LFO 1, Dest=Position, Amt=+0.5」と「Source=LFO 1, Dest=Spray, Amt=-0.5」の2行を作ると、1つのLFOで Position を右・Spray を左に同時に動かせます。同じソースは最大16行まで割り当て可能です。
 
 ---
 
@@ -114,4 +140,30 @@ Saturation / Chorus / Tape Delay / Freeze / Shimmer Reverb。スロットを選�
 - **広がりを出す**：PAN を上げ、Shimmer Reverb を薄く
 - 大きな音量になりがちな設定でも、内部の多層セーフティ（ソフトクリップ／リミッター）で保護されます
 
-楽しい音作りを！
+### 音が途切れる・重い
+
+- CONFIG → **POLY** を下げる（24 → 12 など）
+- **DENSITY** を下げる（グレイン数が減ります）
+- 使っていない FX スロットを `None` にする
+
+### カラーテーマを変えても色が変わりきらない
+
+- ノブのアクセント色は起動時にキャッシュされるためです。プラグイン画面を閉じて開き直すと完全に反映されます
+
+---
+
+## ライセンス
+
+本ソフトウェアは **AGPLv3** で配布されています。
+
+タイムストレッチには **Signalsmith Stretch**（MIT ライセンス）を使用しています。
+
+- Signalsmith Stretch — Copyright © 2022 Geraint Luff / Signalsmith Audio Ltd.
+- Signalsmith Linear — Copyright © 2025 Signalsmith Audio
+
+同じ表記はプラグイン内の **CONFIG** タブ（ANALYSIS セクションの下）にも表示されます。
+
+---
+
+**開発:** @kijyoumusic (OTODESK)
+[X (Twitter)](https://x.com/kijyoumusic) | [公式サイト](https://otodesk4193.github.io/OTODESK_SITE/)

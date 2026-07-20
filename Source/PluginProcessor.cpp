@@ -402,11 +402,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
         params.push_back(std::make_unique<juce::AudioParameterBool>("env" + idx + "Loop", "ENV " + idx + " Loop", false));
     }
 
-    // --- MODマトリクス: Macro×4 ---
-    for (int i = 1; i <= ModMatrix::kNumMacros; ++i)
-        params.push_back(std::make_unique<juce::AudioParameterFloat>("macro" + juce::String(i),
-            "Macro " + juce::String(i), 0.0f, 1.0f, 0.5f));
-
     // --- MODマトリクス: 16スロット ---
     for (int i = 1; i <= ModMatrix::kNumSlots; ++i)
     {
@@ -575,8 +570,6 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         mp.env[(size_t)i].release = apvts.getRawParameterValue("env" + idx + "Release")->load();
         mp.env[(size_t)i].loop    = apvts.getRawParameterValue("env" + idx + "Loop")->load() > 0.5f;
     }
-    for (int i = 0; i < ModMatrix::kNumMacros; ++i)
-        mp.macro[(size_t)i] = apvts.getRawParameterValue("macro" + juce::String(i + 1))->load();
     for (int i = 0; i < ModMatrix::kNumSlots; ++i)
     {
         const juce::String idx(i + 1);
@@ -1208,7 +1201,7 @@ void GranularAudioProcessor::randomizePreset()
     setV("outGain", 0.0f);                    // 安全のため0dB固定
     if (r.nextFloat() < 0.5f) setV("scale", (float)ri(1, 4));
 
-    // --- LFO/ENV/Macro に動きを仕込む ---
+    // --- LFO/ENV に動きを仕込む ---
     for (int i = 1; i <= 4; ++i)
     {
         const juce::String x(i);
@@ -1216,7 +1209,6 @@ void GranularAudioProcessor::randomizePreset()
         setV("lfo" + x + "Wave", (float)ri(0, 5));
         setV("lfo" + x + "Sync", r.nextBool() ? 1.0f : 0.0f);
         setV("lfo" + x + "SyncRate", (float)ri(0, 12));
-        setV("macro" + x, rf(0.0f, 1.0f));
     }
     for (int i = 1; i <= 3; ++i)
     {

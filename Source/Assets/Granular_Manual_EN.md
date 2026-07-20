@@ -1,12 +1,38 @@
-# GRANULAR — Quick Manual (English)
+# GRANULAR Quick Manual (English)
+
+**English** | [日本語](Granular_Manual_JP.md)
+
+---
+
+## Contents
+
+1. [Make a sound](#1-make-a-sound)
+2. [Layout](#2-layout)
+3. [MAIN tab](#3-main-tab)
+4. [ARP tab](#4-arp-tab)
+5. [MOD tab](#5-mod-tab-modulation)
+6. [FX tab](#6-fx-tab)
+7. [CONFIG tab](#7-config-tab)
+8. [Presets](#8-presets)
+9. [Tips](#9-tips)
+
+---
+
+## 1. Make a sound
 
 **OTODESK / 24-voice Scale-Quantized Granular Synth (VST3 / Standalone)**
 
 Granular is a synth that breaks a loaded sound into tiny "grains" and rebuilds it. Even noise or field recordings can be played as a pitched instrument, with modulation, arpeggiator, effects, and 80 factory presets.
 
----
+### Installation
 
-## 1. Make a sound
+1. Copy `Granular.vst3` to:
+   ```
+   C:\Program Files\Common Files\VST3\
+   ```
+2. Rescan plugins in your DAW.
+
+### First steps
 
 1. **Drag & drop** an audio file (WAV / AIFF / MP3 / FLAC / OGG) onto the waveform area, or use the **LOAD** button in the header.
 2. On load, the sample is automatically pitch-analyzed and normalized, so you can **play it in tune from your keyboard** (C3 = the sample's original pitch).
@@ -25,7 +51,7 @@ Below are **5 tabs** that switch the lower section.
 |-----|----------|
 | **MAIN** | Grain, Pitch, ADSR envelope, POSITION/START/END, MOTION, Master |
 | **ARP** | Arpeggiator + Quantize (Key/Scale) + Texture |
-| **MOD** | Modulation (LFO / Env / MACRO → 16-slot matrix) |
+| **MOD** | Modulation (LFO / Env → 16-slot matrix) |
 | **FX** | 5-slot effects chain |
 | **CONFIG** | Analysis mode, Limiter, Polyphony, Filter, Color Theme |
 
@@ -57,7 +83,7 @@ The left side is the **sources** (sub-tabs):
 
 - **LFO ×4**: 6 shapes (Sine / Tri / Saw / Sqr / S&H / Chaos). SYNC locks to tempo
 - **Env ×3**: ADSR. Turn on LOOP to make it cycle A-D as a complex LFO
-- **MACRO ×4**: one knob that drives several destinations at once
+- **MIDI sources**: Velocity / Note / Mod Wheel / Random (per-note S&H)
 
 The right side is the **16-slot matrix** (Page 1 / Page 2):
 
@@ -65,7 +91,7 @@ The right side is the **16-slot matrix** (Page 1 / Page 2):
 - **Amount** resets to 0 on double-click. The **UNI/BI** toggle chooses unipolar or bipolar
 - Modulated destination knobs show the modulation range as a **white arc**, and Position / Spray / Start / End are reflected on the waveform
 
-**Using macros**: e.g., add two rows — "Source=Macro 1, Dest=Position, Amt=+0.5" and "Source=Macro 1, Dest=Spray, Amt=-0.5". Now one Macro 1 knob moves Position up and Spray down together. A single macro can be assigned to up to all 16 rows.
+**One source, many destinations**: e.g., add two rows — "Source=LFO 1, Dest=Position, Amt=+0.5" and "Source=LFO 1, Dest=Spray, Amt=-0.5". Now a single LFO moves Position up and Spray down together. One source can be assigned to up to all 16 rows.
 
 ---
 
@@ -114,4 +140,30 @@ Click **BROWSE** in the header to open the browser in the lower area.
 - **Want width?** Raise PAN and add a little Shimmer Reverb
 - Even with extreme settings, internal multi-stage safety (soft-clip / limiter) protects the output
 
-Have fun sculpting sound!
+### Audio drops out / high CPU
+
+- Lower **POLY** in CONFIG (24 → 12, for example)
+- Lower **DENSITY** — fewer grains per voice
+- Set unused FX slots to `None`
+
+### Colour theme doesn't fully change
+
+- Knob accent colours are cached when the UI is built. Close and reopen the plugin window to apply a theme completely.
+
+---
+
+## License
+
+This software is distributed under the **AGPLv3**.
+
+Time-stretching is powered by **Signalsmith Stretch** (MIT License).
+
+- Signalsmith Stretch — Copyright © 2022 Geraint Luff / Signalsmith Audio Ltd.
+- Signalsmith Linear — Copyright © 2025 Signalsmith Audio
+
+The same attribution is shown in-plugin on the **CONFIG** tab, below the ANALYSIS section.
+
+---
+
+**Developer:** @kijyoumusic (OTODESK)
+[X (Twitter)](https://x.com/kijyoumusic) | [Official Website](https://otodesk4193.github.io/OTODESK_SITE/)
