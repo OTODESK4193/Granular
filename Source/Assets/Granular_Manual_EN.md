@@ -66,6 +66,11 @@ Below are **5 tabs** that switch the lower section.
 - **ENVELOPE**: A / D / S / R (amplitude over time)
 - **SAMPLE**: POSITION (playback point) / START / END (used region). You can also drag the markers on the waveform
 - **MOTION**: how the playhead moves (Forward / Backward / Ping-Pong / Random). **S-SYNC** scans the region in sync with host tempo
+
+> **How SPEED / SCAN / S-SYNC relate**
+> In Forward / Backward / Ping-Pong, SPEED sets how fast the marker travels from Start to End. Turn S-SYNC on and SPEED is ignored — instead the marker takes exactly one SCAN length to cross the region once (at 120 BPM, 8 Bars = 16 seconds for one pass, regardless of how long the sample is).
+> Random is different: the marker doesn't travel, it **jumps to a random point at a fixed interval**. SPEED sets that interval — about 30 jumps per second at SPEED = 1, slower as you turn it down, and **frozen on a single point at 0**. With S-SYNC on, it jumps once per SCAN length, giving a stutter locked to the beat.
+> Every grain fired between two jumps comes from the same point, so raising DENSITY while lowering SPEED gives dense clusters that lurch from place to place.
 - **MASTER**: HPF / LPF / GAIN / DRY-WET (overall FX mix)
 - **LIMITER**: CEILING (output ceiling)
 

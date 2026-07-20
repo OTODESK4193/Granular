@@ -48,6 +48,7 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 * **Material modes:** Auto (Detect) / Percussive / Melodic / Vocal.
 * **Start / End** by knob or by dragging the markers on the waveform, with ~3 ms fades at the region edges so the End→Start wrap never clicks.
 * **MOTION:** Forward / Backward / Ping-Pong / Random playhead movement. With S-SYNC on, the Start–End region is scanned over a musical length (1 beat – 8 bars) locked to host tempo.
+* **Random jump rate.** In Random mode the playhead doesn't travel — it jumps to a new point at a fixed interval set by SPEED (≈30 jumps/sec at SPEED 1, frozen at 0) or by SCAN when S-SYNC is on. Jump timing is independent of DENSITY, so dense grain clusters can lurch slowly from place to place.
 
 ---
 
@@ -124,7 +125,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | Spray | 0.0 – 1.0 | 0.0 | Randomises grain start position |
 | Jitter | 0 – 2400 cents | 0 | Random pitch offset, applied **before** quantization |
 | Pan | 0.0 – 1.0 | 1.0 | Stereo spread |
-| Speed | 0.0 – 2.0 | 1.0 | Playhead rate |
+| Speed | 0.0 – 2.0 | 1.0 | Playhead rate. In Random mode, the jump rate (0 = frozen) |
 | Window | Hanning / Triangle / Square / Asymmetric | Hanning | Grain envelope shape |
 | REV | Off / On | Off | Reverse grain playback |
 
@@ -151,7 +152,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | Position | 0.0 – 1.0 | 0.0 | Grain origin, ~20 ms glide when moved |
 | Start / End | 0.0 – 1.0 | 0.0 / 1.0 | Playback region, ~3 ms edge fades |
 | Motion | Forward / Backward / Ping-Pong / Random | Forward | Playhead behaviour |
-| S-SYNC | Off / On | Off | Scan Start–End over a musical length |
+| S-SYNC | Off / On | Off | Scan Start–End over a musical length. In Random mode, jump once per SCAN |
 | Scan | 1 Beat – 8 Bars | 1 Bar | Scan length when S-SYNC is on |
 
 ### Master

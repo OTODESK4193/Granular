@@ -196,8 +196,10 @@ void MainPanel::paint(juce::Graphics& g)
     // MOTION 補足説明（Mode/SCANの下に配置）
     g.setColour(GranularColors::textDim.withAlpha(0.6f));
     g.setFont(juce::Font(juce::FontOptions(10.5f)));
-    g.drawText("S-SYNC: scan Start-End over SCAN length (DAW tempo)",
-               256, 236, 250, 26, juce::Justification::topLeft);
+    g.drawText("S-SYNC: scan Start-End over SCAN length (DAW tempo).",
+               256, 236, 250, 13, juce::Justification::topLeft);
+    g.drawText("Random: SPEED / SCAN set the jump rate.",
+               256, 249, 250, 13, juce::Justification::topLeft);
 }
 
 void MainPanel::resized()

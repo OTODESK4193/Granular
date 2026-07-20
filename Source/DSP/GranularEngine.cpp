@@ -63,6 +63,7 @@ void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, cons
     playheadOffset = 0.0;
     smoothedPos01 = (double)p.position; // ノート開始位置は即時（グライドは保持中のノブ移動のみ）
     samplesToNextSpawn = 0; // 即時に最初のグレインを発火
+    randomJumpCountdown = 0.0; // Random: ノート頭で必ず1回抽選する
 
     if (!wasPlaying)
     {
@@ -242,20 +243,52 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     const size_t shapeIdx = (size_t)juce::jlimit(0, 3, p.windowShape);
     const auto& window = windowTables[shapeIdx];
 
+    // S-SYNC の音価テーブル (拍数): 1Beat/2Beats/1Bar/2Bars/4Bars/8Bars (4/4想定)
+    static const double beatsTable[6] = { 1.0, 2.0, 4.0, 8.0, 16.0, 32.0 };
+    const double bpmSafe = p.bpm > 1.0 ? p.bpm : 120.0;
+    const double syncSecs = (60.0 / bpmSafe) * beatsTable[juce::jlimit(0, 5, p.speedSyncDiv)];
+
     // 実効プレイヘッド速度（S-SYNC時: 領域を指定音価でスキャンする速度）
     double speedMag;
     if (p.speedSync)
     {
-        static const double beatsTable[6] = { 1.0, 2.0, 4.0, 8.0, 16.0, 32.0 };
-        const double bpmSafe = p.bpm > 1.0 ? p.bpm : 120.0;
-        const double scanSecs = (60.0 / bpmSafe) * beatsTable[juce::jlimit(0, 5, p.speedSyncDiv)];
-        speedMag = (double)validLength / juce::jmax(1.0, scanSecs * currentSampleRate);
+        speedMag = (double)validLength / juce::jmax(1.0, syncSecs * currentSampleRate);
     }
     else
     {
         // srComp: SPEED=1で「原音の1倍速スキャン」をSRに依らず維持
         // (S-SYNC時は領域長/時間から算出するため補正不要)
         speedMag = std::abs((double)p.speed) * (double)p.srComp;
+    }
+
+    // --------------------------------------
+    // Randomモード: ジャンプ間隔（サンプル）
+    //
+    // 他モードと違い Random はマーカーが「移動」しないため speedMag は使えない。
+    // 代わりに SPEED を「1秒あたり何回飛ぶか」として解釈し、ジャンプ間隔を決める。
+    // これにより DENSITY(粒の密度) と 飛ぶ速さ が完全に独立する:
+    //   ・次のジャンプまでに発火した粒は全て同じ場所から出る → スタッター/グリッチ感
+    //   ・SPEED=0 でフリーズ(1点に貼り付き)
+    //   ・S-SYNC オン時は Scan の音価ごとにジャンプ(拍に同期したグリッチ)
+    // 0以下 = フリーズ(再抽選しない)
+    // --------------------------------------
+    constexpr double kRandomJumpsPerSecAtUnitSpeed = 30.0; // SPEED=1 で毎秒30回
+    double randomJumpInterval = 0.0;
+    if (p.playMode == 3)
+    {
+        if (p.speedSync)
+            randomJumpInterval = syncSecs * currentSampleRate;
+        else if (std::abs(p.speed) > 0.001f)
+            randomJumpInterval = currentSampleRate
+                               / (kRandomJumpsPerSecAtUnitSpeed * std::abs((double)p.speed));
+
+        if (randomJumpInterval > 0.0)
+        {
+            randomJumpInterval = juce::jmax(32.0, randomJumpInterval);
+            // ノブを速く/フリーズ解除方向へ動かしたとき即座に追従させる
+            if (randomJumpCountdown > randomJumpInterval)
+                randomJumpCountdown = randomJumpInterval;
+        }
     }
 
     // TONE: コムレゾネーター係数
@@ -302,7 +335,14 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             break;
         }
 
-        case 3: // Random (発火毎にジャンプ)
+        case 3: // Random (SPEED / S-SYNC で決まる一定間隔でジャンプ)
+            if (randomJumpCountdown <= 0.0)
+            {
+                randomTargetRel = (double)random.nextFloat() * (L - 1.0);
+                // interval が 0 = フリーズ: 以後は再抽選しない
+                randomJumpCountdown = (randomJumpInterval > 0.0) ? randomJumpInterval : 1.0e18;
+            }
+            randomJumpCountdown -= 1.0;
             rel = randomTargetRel;
             break;
 
@@ -321,12 +361,9 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         // グレイン発火スケジューリング
         if (--samplesToNextSpawn <= 0)
         {
-            double spawnPos = wrappedPlayhead;
-            if (p.playMode == 3)
-            {
-                randomTargetRel = (double)random.nextFloat() * (L - 1.0); // ジャンプ実行
-                spawnPos = (double)trimStart + randomTargetRel;
-            }
+            // Random も含め、発火位置は常に現在のプレイヘッド位置
+            // (Random のジャンプはプレイヘッド移動側で処理済み)
+            const double spawnPos = wrappedPlayhead;
 
             spawnGrain(trimStart, trimEnd, spawnPos, p, overlap, baseLife, visualizer, spawnBudget);
 

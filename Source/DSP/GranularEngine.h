@@ -328,6 +328,7 @@ private:
     float  velocityGain = 1.0f;
     double playheadOffset = 0.0;
     double randomTargetRel = 0.0;   // Randomモード: 現在のジャンプ先（領域内相対）
+    double randomJumpCountdown = 0.0; // Randomモード: 次のジャンプまでの残りサンプル (0以下=即抽選)
     float  panSide = 1.0f;          // Pan交互配置用（グレイン毎にL/R反転）
     float  lastRelNorm = -1.0f;     // GUI表示用の実プレイヘッド位置
     int    samplesToNextSpawn = 0;

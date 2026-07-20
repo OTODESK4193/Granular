@@ -66,6 +66,11 @@
 - **ENVELOPE**：A / D / S / R（音量の時間変化）
 - **SAMPLE**：POSITION（再生位置）/ START / END（使用範囲）。波形上のマーカーをドラッグしても調整できます
 - **MOTION**：再生位置の動き方（Forward / Backward / Ping-Pong / Random）。**S-SYNC** で領域をテンポ同期スキャン
+
+> **SPEED / SCAN / S-SYNC の関係**
+> Forward / Backward / Ping-Pong では、マーカーが Start から End へ移動する**速さ**を SPEED が決めます。S-SYNC をオンにすると SPEED は無視され、代わりに「Start から End まで渡りきるのに SCAN の音価ぶんかける」動きになります（例: 120BPM で 8 Bars なら16秒かけて1往き）。素材の長さに関係なく所要時間が決まるので、テンポに貼り付いたゆっくりした変化が作れます。
+> Random だけはマーカーが移動せず、**一定間隔でランダムな位置へ飛びます**。この飛ぶ間隔を SPEED が決めます（SPEED=1 で毎秒約30回、下げるほどゆっくり、**0 でフリーズ**して1点に貼り付き）。S-SYNC をオンにすれば SCAN の音価ごとにジャンプするので、拍にピタッと合ったスタッターになります。
+> 次のジャンプまでに発火した粒はすべて同じ場所から出るため、DENSITY を上げたまま SPEED を下げると「密な粒の塊がガコッと場所を変える」グリッチ感が出ます。
 - **MASTER**：HPF / LPF / GAIN / DRY-WET（FX全体の混ぜ具合）
 - **LIMITER**：CEILING（出力の天井）
 
