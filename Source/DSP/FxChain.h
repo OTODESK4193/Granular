@@ -272,8 +272,8 @@ namespace gfx
 
             for (int i = 0; i < NUM_CHANNELS; ++i)
             {
-                const float mod = lfos[(size_t)i].process() * lfoDepth;
-                float readPos = (float)writePos[(size_t)i] - ((float)delayLengths[(size_t)i] + mod);
+                const float modVal = lfos[(size_t)i].process() * lfoDepth;
+                float readPos = (float)writePos[(size_t)i] - ((float)delayLengths[(size_t)i] + modVal);
                 const int bufSize = (int)delayBuffers[(size_t)i].size();
                 if (bufSize == 0) continue;
 

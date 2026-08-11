@@ -117,12 +117,12 @@ juce::PopupMenu ModPanel::buildDestMenu(int currentDst)
 
     {
         juce::PopupMenu sub;
-        for (int d = (int)ModMatrix::DstPosition; d <= (int)ModMatrix::DstSpeed; ++d) addItem(sub, d);
-        menu.addSubMenu("Grain", sub);
+        for (int d = (int)ModMatrix::DstPosition; d <= (int)ModMatrix::DstTone; ++d) addItem(sub, d);
+        menu.addSubMenu("Grain / Texture", sub);
     }
     {
         juce::PopupMenu sub;
-        for (int d = (int)ModMatrix::DstPitch; d <= (int)ModMatrix::DstTone; ++d) addItem(sub, d);
+        for (int d = (int)ModMatrix::DstOctave; d <= (int)ModMatrix::DstFine; ++d) addItem(sub, d);
         menu.addSubMenu("Pitch", sub);
     }
     {

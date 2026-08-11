@@ -130,7 +130,8 @@ void MainPanel::timerCallback()
     applyModRing(jitterKnob,   D::DstJitter,    LinearAdd, 2400.0f);
     applyModRing(panKnob,      D::DstPanSpread, LinearAdd, 1.0f);
     applyModRing(speedKnob,    D::DstSpeed,     LinearAdd, 2.0f);
-    applyModRing(semiKnob,     D::DstPitch,      LinearAdd, 24.0f);
+    applyModRing(octaveKnob,   D::DstOctave,     LinearAdd, 2.0f);
+    applyModRing(semiKnob,     D::DstSemi,       LinearAdd, 12.0f);
     applyModRing(fineKnob,     D::DstFine,       LinearAdd, 100.0f);
     applyModRing(hpfKnob,      D::DstMasterHpf,  ExpOct,    5.0f);
     applyModRing(lpfKnob,      D::DstMasterLpf,  ExpOct,    6.0f);

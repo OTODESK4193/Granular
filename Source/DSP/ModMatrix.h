@@ -37,9 +37,9 @@ public:
     {
         DstNone = 0,
         // Grain
-        DstPosition, DstSize, DstDensity, DstSpray, DstSpraySpeed, DstJitter, DstPanSpread, DstSpeed,
+        DstPosition, DstSize, DstDensity, DstSpray, DstSpraySpeed, DstJitter, DstPanSpread, DstSpeed, DstTone,
         // Pitch
-        DstPitch, DstFine, DstTone,
+        DstOctave, DstSemi, DstFine,
         // Filter
         DstMasterHpf, DstMasterLpf,
         // Sample
@@ -78,8 +78,8 @@ public:
     {
         return {
             "None",
-            "Position", "Grain Size", "Density", "Spray", "Spray Speed", "Pitch Jitter", "Pan Spread", "Speed",
-            "Pitch (st)", "Fine", "Tone",
+            "Position", "Grain Size", "Density", "Spray", "Spray Speed", "Pitch Jitter", "Pan Spread", "Speed", "Tone",
+            "Octave", "Semi", "Fine",
             "Master HPF", "Master LPF",
             "Sample Start", "Sample End",
             "Arp Octaves", "Arp Rate (Hz)", "Arp Gate",

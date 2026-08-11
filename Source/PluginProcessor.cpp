@@ -635,7 +635,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         p.pitchJitter   = juce::jlimit(0.0f, 2400.0f,   p.pitchJitter   + mod(D::DstJitter) * 2400.0f);
         p.panSpread     = juce::jlimit(0.0f, 1.0f,      p.panSpread     + mod(D::DstPanSpread));
         p.speed         = juce::jlimit(0.0f, 2.0f,      p.speed         + mod(D::DstSpeed) * 2.0f);
-        p.pitchMod      = juce::jlimit(-24.0f, 24.0f,   mod(D::DstPitch) * 24.0f);
+        p.pitchMod      = juce::jlimit(-48.0f, 48.0f,   mod(D::DstOctave) * 24.0f + mod(D::DstSemi) * 12.0f);
         p.fineTune      = juce::jlimit(-100.0f, 100.0f, p.fineTune      + mod(D::DstFine) * 100.0f);
         p.tone          = juce::jlimit(0.0f, 1.0f,      p.tone          + mod(D::DstTone));
 
