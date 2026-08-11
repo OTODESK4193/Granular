@@ -83,6 +83,7 @@ struct GranularParams
     int   scale = 0;              // ScaleQuantizer のインデックス (0=Free)
 
     bool  pitchSync = false;      // グレイン発火をノート周波数に同期（音程感強調）
+    float syncSpeed = 1.0f;       // 0.01..1 P-SYNC時のプレイヘッド移動速度スケール
     float tone = 0.0f;            // 0..1 ノート同調コムレゾネーター量（音程感強調）
 
     float masterHPF = 20.0f;

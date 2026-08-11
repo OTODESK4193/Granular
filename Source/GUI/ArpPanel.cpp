@@ -44,6 +44,7 @@ ArpPanel::ArpPanel(GranularAudioProcessor& p) : proc(p)
     // --- TEXTURE ---
     setupCombo(windowBox, windowLabel, "WINDOW", "windowShape");
     setupKnob(toneKnob, toneLabel, "TONE", "tone", grain);
+    setupKnob(syncSpeedKnob, syncSpeedLabel, "SYNC SPD", "syncSpeed", grain);
 
     addAndMakeVisible(pitchSyncButton);
     buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
@@ -103,17 +104,19 @@ void ArpPanel::paint(juce::Graphics& g)
 
     drawSection("ARPEGGIATOR", 20,  6,   860, GranularColors::accentEnv);
     drawSection("QUANTIZE",    20,  150, 240, GranularColors::accentPitch);
-    drawSection("TEXTURE",     300, 150, 280, GranularColors::accentGrain);
+    drawSection("TEXTURE",     300, 150, 360, GranularColors::accentGrain);
 
-    // 補足説明
+    // 補足説明（TEXTURE / SyncSpeedノブに被らないよう右寄せ・4行）
     g.setColour(GranularColors::textDim.withAlpha(0.7f));
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawText("KEY / SCALE snaps both ARP notes and grain pitches.",
-               620, 172, 440, 14, juce::Justification::centredLeft);
-    g.drawText("P-SYNC: grain firing locked to note pitch.  TONE: comb resonator.",
-               620, 190, 440, 14, juce::Justification::centredLeft);
-    g.drawText("LATCH holds notes after release. SYNC off = RATE (Hz) knob.",
-               620, 208, 440, 14, juce::Justification::centredLeft);
+               700, 166, 370, 14, juce::Justification::centredLeft);
+    g.drawText("P-SYNC: grain firing locked to note pitch.",
+               700, 182, 370, 14, juce::Justification::centredLeft);
+    g.drawText("SYNC SPD: playhead speed while P-SYNC is on.",
+               700, 198, 370, 14, juce::Justification::centredLeft);
+    g.drawText("TONE: comb resonator.  LATCH holds notes after release.",
+               700, 214, 370, 14, juce::Justification::centredLeft);
 }
 
 void ArpPanel::resized()
@@ -157,6 +160,7 @@ void ArpPanel::resized()
     windowLabel.setBounds(300, subLabelY, 80, 14);
     windowBox.setBounds(300, comboY, 110, 26);
     placeKnob(toneKnob, toneLabel, 424, subLabelY);
-    pitchSyncButton.setBounds(504, subLabelY + 8, 72, 24);
-    revButton.setBounds(504, subLabelY + 38, 72, 24);
+    placeKnob(syncSpeedKnob, syncSpeedLabel, 510, subLabelY);
+    pitchSyncButton.setBounds(596, subLabelY + 8, 72, 24);
+    revButton.setBounds(596, subLabelY + 38, 72, 24);
 }

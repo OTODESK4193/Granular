@@ -303,6 +303,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
 
     // --- 音程感強調 ---
     params.push_back(std::make_unique<juce::AudioParameterBool>("pitchSync", "Pitch Sync", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("syncSpeed", "Sync Speed",
+        juce::NormalisableRange<float>(0.01f, 1.0f, 0.0f, 0.5f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("tone", "Tone", 0.0f, 1.0f, 0.0f));
 
     // --- 素材解析モード ---
@@ -604,6 +606,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     p.key           = (int)apvts.getRawParameterValue("key")->load();
     p.scale         = (int)apvts.getRawParameterValue("scale")->load();
     p.pitchSync     = apvts.getRawParameterValue("pitchSync")->load() > 0.5f;
+    p.syncSpeed     = apvts.getRawParameterValue("syncSpeed")->load();
     p.tone          = apvts.getRawParameterValue("tone")->load();
     p.masterHPF     = apvts.getRawParameterValue("masterHPF")->load();
     p.masterLPF     = apvts.getRawParameterValue("masterLPF")->load();

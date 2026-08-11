@@ -261,6 +261,11 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         speedMag = std::abs((double)p.speed) * (double)p.srComp;
     }
 
+    // P-SYNC時: SyncSpeedノブでプレイヘッド移動速度をスケーリング
+    // 発火間隔(=ピッチ知覚)には影響せず、テクスチャの移動速度だけを変える
+    if (p.pitchSync)
+        speedMag *= (double)p.syncSpeed;
+
     // --------------------------------------
     // Randomモード: ジャンプ間隔（サンプル）
     //
