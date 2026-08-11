@@ -29,7 +29,10 @@ double Arpeggiator::getStepSamples(const ArpParams& p) const
         return sampleRate / (double)juce::jlimit(0.5f, 30.0f, p.rateFree);
 
     // 1拍 = 1/4音符。付点=×1.5、三連=×2/3
-    static const double beatsPerStep[13] = {
+    static const double beatsPerStep[16] = {
+        32.0,       // 8/1
+        16.0,       // 4/1
+        8.0,        // 2/1
         4.0,        // 1/1
         2.0,        // 1/2
         4.0 / 3.0,  // 1/2T
@@ -44,7 +47,7 @@ double Arpeggiator::getStepSamples(const ArpParams& p) const
         1.0 / 6.0,  // 1/16T
         0.125       // 1/32
     };
-    const int idx = juce::jlimit(0, 12, p.rateSync);
+    const int idx = juce::jlimit(0, 15, p.rateSync);
     const double bpm = p.bpm > 1.0 ? p.bpm : 120.0;
     return (60.0 / bpm) * beatsPerStep[idx] * sampleRate;
 }

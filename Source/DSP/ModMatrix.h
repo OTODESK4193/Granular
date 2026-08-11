@@ -102,7 +102,7 @@ public:
     }
     static juce::StringArray getSyncRateNames()
     {
-        return { "1/1", "1/2", "1/2T", "1/4", "1/4.", "1/4T",
+        return { "8/1", "4/1", "2/1", "1/1", "1/2", "1/2T", "1/4", "1/4.", "1/4T",
                  "1/8", "1/8.", "1/8T", "1/16", "1/16.", "1/16T", "1/32" };
     }
 
@@ -168,8 +168,8 @@ public:
     // ブロック毎: ソース値を確定し、スロットを合成して destAccum に集計
     void processBlock(int numSamples, const Params& p)
     {
-        static const double beatsTable[13] = {
-            4.0, 2.0, 4.0 / 3.0, 1.0, 1.5, 2.0 / 3.0,
+        static const double beatsTable[16] = {
+            32.0, 16.0, 8.0, 4.0, 2.0, 4.0 / 3.0, 1.0, 1.5, 2.0 / 3.0,
             0.5, 0.75, 1.0 / 3.0, 0.25, 0.375, 1.0 / 6.0, 0.125 };
 
         float src[NumSrcs] = {};
