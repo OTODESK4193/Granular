@@ -146,7 +146,18 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
     //  グレインは再生中に End→Start へラップするため、発火位置は
     //  領域全体 [trimStart, trimEnd) が使える（Positionが常に尊重される）
     // --------------------------------------
-    const double sprayOffset = ((double)random.nextFloat() * 2.0 - 1.0) * (double)validLength * (double)p.positionSpray;
+    const double maxDelta = juce::jmax(0.001, (double)p.spraySpeed);
+    if (std::abs(currentSprayTarget - currentSprayValue) <= maxDelta)
+    {
+        currentSprayValue = currentSprayTarget;
+        currentSprayTarget = ((double)random.nextFloat() * 2.0 - 1.0);
+    }
+    else
+    {
+        currentSprayValue += (currentSprayTarget > currentSprayValue ? maxDelta : -maxDelta);
+    }
+
+    const double sprayOffset = currentSprayValue * (double)validLength * (double)p.positionSpray;
     const double rawPos = currentPlayhead + sprayOffset;
 
     const double minPos = (double)trimStart;
@@ -260,11 +271,6 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         // (S-SYNC時は領域長/時間から算出するため補正不要)
         speedMag = std::abs((double)p.speed) * (double)p.srComp;
     }
-
-    // P-SYNC時: SyncSpeedノブでプレイヘッド移動速度をスケーリング
-    // 発火間隔(=ピッチ知覚)には影響せず、テクスチャの移動速度だけを変える
-    if (p.pitchSync)
-        speedMag *= (double)p.syncSpeed;
 
     // --------------------------------------
     // Randomモード: ジャンプ間隔（サンプル）

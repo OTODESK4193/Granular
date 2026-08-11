@@ -44,7 +44,7 @@ ArpPanel::ArpPanel(GranularAudioProcessor& p) : proc(p)
     // --- TEXTURE ---
     setupCombo(windowBox, windowLabel, "WINDOW", "windowShape");
     setupKnob(toneKnob, toneLabel, "TONE", "tone", grain);
-    setupKnob(syncSpeedKnob, syncSpeedLabel, "SYNC SPD", "syncSpeed", grain);
+    setupKnob(spraySpeedKnob, spraySpeedLabel, "SPRY SPD", "spraySpeed", grain);
 
     addAndMakeVisible(pitchSyncButton);
     buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
@@ -113,7 +113,7 @@ void ArpPanel::paint(juce::Graphics& g)
                700, 166, 370, 14, juce::Justification::centredLeft);
     g.drawText("P-SYNC: grain firing locked to note pitch.",
                700, 182, 370, 14, juce::Justification::centredLeft);
-    g.drawText("SYNC SPD: playhead speed while P-SYNC is on.",
+    g.drawText("SPRY SPD: smoothness of grain scatter.",
                700, 198, 370, 14, juce::Justification::centredLeft);
     g.drawText("TONE: comb resonator.  LATCH holds notes after release.",
                700, 214, 370, 14, juce::Justification::centredLeft);
@@ -160,7 +160,7 @@ void ArpPanel::resized()
     windowLabel.setBounds(300, subLabelY, 80, 14);
     windowBox.setBounds(300, comboY, 110, 26);
     placeKnob(toneKnob, toneLabel, 424, subLabelY);
-    placeKnob(syncSpeedKnob, syncSpeedLabel, 510, subLabelY);
+    placeKnob(spraySpeedKnob, spraySpeedLabel, 510, subLabelY);
     pitchSyncButton.setBounds(596, subLabelY + 8, 72, 24);
     revButton.setBounds(596, subLabelY + 38, 72, 24);
 }

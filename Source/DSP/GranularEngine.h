@@ -83,7 +83,7 @@ struct GranularParams
     int   scale = 0;              // ScaleQuantizer のインデックス (0=Free)
 
     bool  pitchSync = false;      // グレイン発火をノート周波数に同期（音程感強調）
-    float syncSpeed = 1.0f;       // 0.01..1 P-SYNC時のプレイヘッド移動速度スケール
+    float spraySpeed = 1.0f;      // 0.01..1 スプレー値の移動速度
     float tone = 0.0f;            // 0..1 ノート同調コムレゾネーター量（音程感強調）
 
     float masterHPF = 20.0f;
@@ -334,6 +334,8 @@ private:
     float  lastRelNorm = -1.0f;     // GUI表示用の実プレイヘッド位置
     int    samplesToNextSpawn = 0;
     double smoothedPos01 = 0.0;     // Position のサンプル単位グライド（急ジャンプ→バースト防止）
+    double currentSprayTarget = 0.0;
+    double currentSprayValue = 0.0;
 
     PadEnvelope env;
 

@@ -48,8 +48,8 @@ private:
     // --- TEXTURE (MAINタブから移動 / SYNCはARPと区別するためP-SYNC表記) ---
     juce::ComboBox windowBox;
     juce::Label    windowLabel;
-    ValueKnob toneKnob, syncSpeedKnob;
-    juce::Label toneLabel, syncSpeedLabel;
+    ValueKnob toneKnob, spraySpeedKnob;
+    juce::Label toneLabel, spraySpeedLabel;
     GlowToggle pitchSyncButton { "P-SYNC", GranularColors::mint };
     GlowToggle revButton       { "REV",    GranularColors::rose };
 
