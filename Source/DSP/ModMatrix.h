@@ -36,13 +36,36 @@ public:
     enum Dst
     {
         DstNone = 0,
-        DstPosition, DstSize, DstDensity, DstSpray, DstJitter,
-        DstPanSpread, DstSpeed, DstPitch, DstFine, DstTone,
-        DstHpf, DstLpf,
+        // Grain
+        DstPosition, DstSize, DstDensity, DstSpray, DstSpraySpeed, DstJitter, DstPanSpread, DstSpeed,
+        // Pitch
+        DstPitch, DstFine, DstTone,
+        // Filter
+        DstMasterHpf, DstMasterLpf,
+        // Sample
         DstSampleStart, DstSampleEnd,
-        DstArpOct, DstArpRate, DstArpGate,
-        DstDryWet,
-        DstFx1, DstFx2, DstFx3, DstFx4, DstFx5,
+        // Arp
+        DstArpOct, DstArpRateFree, DstArpGate,
+        // Master
+        DstOutGain, DstFxMix, DstLimCeiling, DstLimRelease,
+        // FX General
+        DstFx1Amount, DstFx2Amount, DstFx3Amount, DstFx4Amount, DstFx5Amount,
+        // Saturation
+        DstSatDrive, DstSatPreHpf, DstSatTrim,
+        // Chorus
+        DstChoRate, DstChoDepth, DstChoWidth,
+        // Delay
+        DstDlyFeedback, DstDlyDuck, DstDlyDamp,
+        // Freeze
+        DstFrzSize, DstFrzFeedback, DstFrzDamp,
+        // Reverb
+        DstRevDecay, DstRevShimmer, DstRevDamp, DstRevMod,
+        // LFO
+        DstLfo1Rate, DstLfo2Rate, DstLfo3Rate, DstLfo4Rate,
+        // ENV
+        DstEnv1Attack, DstEnv1Decay, DstEnv1Sustain, DstEnv1Release,
+        DstEnv2Attack, DstEnv2Decay, DstEnv2Sustain, DstEnv2Release,
+        DstEnv3Attack, DstEnv3Decay, DstEnv3Sustain, DstEnv3Release,
         NumDsts
     };
 
@@ -53,13 +76,25 @@ public:
     }
     static juce::StringArray getDestNames()
     {
-        return { "None", "Position", "Grain Size", "Density", "Spray", "Pitch Jitter",
-                 "Pan Spread", "Speed", "Pitch (st)", "Fine", "Tone",
-                 "HPF", "LPF",
-                 "Sample Start", "Sample End",
-                 "Arp Octaves", "Arp Rate", "Arp Gate",
-                 "FX Dry/Wet",
-                 "FX1 Amount", "FX2 Amount", "FX3 Amount", "FX4 Amount", "FX5 Amount" };
+        return {
+            "None",
+            "Position", "Grain Size", "Density", "Spray", "Spray Speed", "Pitch Jitter", "Pan Spread", "Speed",
+            "Pitch (st)", "Fine", "Tone",
+            "Master HPF", "Master LPF",
+            "Sample Start", "Sample End",
+            "Arp Octaves", "Arp Rate (Hz)", "Arp Gate",
+            "Out Gain", "FX Mix", "Limiter Ceiling", "Limiter Release",
+            "FX1 Amount", "FX2 Amount", "FX3 Amount", "FX4 Amount", "FX5 Amount",
+            "Sat Drive", "Sat Pre-HPF", "Sat Trim",
+            "Chorus Rate", "Chorus Depth", "Chorus Width",
+            "Delay Feedback", "Delay Duck", "Delay Damp",
+            "Freeze Size", "Freeze Feedback", "Freeze Damp",
+            "Reverb Decay", "Reverb Shimmer", "Reverb Damp", "Reverb Mod",
+            "LFO 1 Rate", "LFO 2 Rate", "LFO 3 Rate", "LFO 4 Rate",
+            "ENV 1 Attack", "ENV 1 Decay", "ENV 1 Sustain", "ENV 1 Release",
+            "ENV 2 Attack", "ENV 2 Decay", "ENV 2 Sustain", "ENV 2 Release",
+            "ENV 3 Attack", "ENV 3 Decay", "ENV 3 Sustain", "ENV 3 Release"
+        };
     }
     static juce::StringArray getWaveNames()
     {

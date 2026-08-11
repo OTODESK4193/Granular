@@ -544,7 +544,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             arpP.octaves + (int)std::round(modMatrix.get(ModMatrix::DstArpOct) * 3.0f));
         arpP.gate = juce::jlimit(0.05f, 1.0f,
             arpP.gate + modMatrix.get(ModMatrix::DstArpGate));
-        const float rateMod = modMatrix.get(ModMatrix::DstArpRate);
+        const float rateMod = modMatrix.get(ModMatrix::DstArpRateFree);
         if (arpP.sync)
             arpP.rateSync = juce::jlimit(0, 12, arpP.rateSync + (int)std::round(rateMod * 6.0f));
         else
@@ -558,7 +558,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     for (int i = 0; i < ModMatrix::kNumLfos; ++i)
     {
         const juce::String idx(i + 1);
-        mp.lfo[(size_t)i].rateHz   = apvts.getRawParameterValue("lfo" + idx + "Rate")->load();
+        mp.lfo[(size_t)i].rateHz   = juce::jlimit(0.02f, 20.0f, apvts.getRawParameterValue("lfo" + idx + "Rate")->load() + modMatrix.get(ModMatrix::DstLfo1Rate + i) * 10.0f);
         mp.lfo[(size_t)i].sync     = apvts.getRawParameterValue("lfo" + idx + "Sync")->load() > 0.5f;
         mp.lfo[(size_t)i].rateSync = (int)apvts.getRawParameterValue("lfo" + idx + "SyncRate")->load();
         mp.lfo[(size_t)i].wave     = (int)apvts.getRawParameterValue("lfo" + idx + "Wave")->load();
@@ -566,10 +566,10 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     for (int i = 0; i < ModMatrix::kNumEnvs; ++i)
     {
         const juce::String idx(i + 1);
-        mp.env[(size_t)i].attack  = apvts.getRawParameterValue("env" + idx + "Attack")->load();
-        mp.env[(size_t)i].decay   = apvts.getRawParameterValue("env" + idx + "Decay")->load();
-        mp.env[(size_t)i].sustain = apvts.getRawParameterValue("env" + idx + "Sustain")->load();
-        mp.env[(size_t)i].release = apvts.getRawParameterValue("env" + idx + "Release")->load();
+        mp.env[(size_t)i].attack  = juce::jlimit(0.001f, 10.0f, apvts.getRawParameterValue("env" + idx + "Attack")->load() + modMatrix.get(ModMatrix::DstEnv1Attack + i * 4) * 2.5f);
+        mp.env[(size_t)i].decay   = juce::jlimit(0.001f, 10.0f, apvts.getRawParameterValue("env" + idx + "Decay")->load() + modMatrix.get(ModMatrix::DstEnv1Decay + i * 4) * 2.5f);
+        mp.env[(size_t)i].sustain = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("env" + idx + "Sustain")->load() + modMatrix.get(ModMatrix::DstEnv1Sustain + i * 4));
+        mp.env[(size_t)i].release = juce::jlimit(0.001f, 10.0f, apvts.getRawParameterValue("env" + idx + "Release")->load() + modMatrix.get(ModMatrix::DstEnv1Release + i * 4) * 2.5f);
         mp.env[(size_t)i].loop    = apvts.getRawParameterValue("env" + idx + "Loop")->load() > 0.5f;
     }
     for (int i = 0; i < ModMatrix::kNumSlots; ++i)
@@ -631,6 +631,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         p.grainSize     = juce::jlimit(0.02f, 0.5f,     p.grainSize     + mod(D::DstSize) * 0.48f);
         p.density       = juce::jlimit(0.0f, 1.0f,      p.density       + mod(D::DstDensity));
         p.positionSpray = juce::jlimit(0.0f, 1.0f,      p.positionSpray + mod(D::DstSpray));
+        p.spraySpeed    = juce::jlimit(0.01f, 1.0f,     p.spraySpeed    + mod(D::DstSpraySpeed) * 0.99f);
         p.pitchJitter   = juce::jlimit(0.0f, 2400.0f,   p.pitchJitter   + mod(D::DstJitter) * 2400.0f);
         p.panSpread     = juce::jlimit(0.0f, 1.0f,      p.panSpread     + mod(D::DstPanSpread));
         p.speed         = juce::jlimit(0.0f, 2.0f,      p.speed         + mod(D::DstSpeed) * 2.0f);
@@ -639,8 +640,13 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         p.tone          = juce::jlimit(0.0f, 1.0f,      p.tone          + mod(D::DstTone));
 
         // フィルターは指数(オクターブ)スケールで音楽的に
-        p.masterHPF = juce::jlimit(20.0f, 2000.0f,   p.masterHPF * std::pow(2.0f, mod(D::DstHpf) * 5.0f));
-        p.masterLPF = juce::jlimit(200.0f, 20000.0f, p.masterLPF * std::pow(2.0f, mod(D::DstLpf) * 6.0f));
+        p.masterHPF = juce::jlimit(20.0f, 2000.0f,   p.masterHPF * std::pow(2.0f, mod(D::DstMasterHpf) * 5.0f));
+        p.masterLPF = juce::jlimit(200.0f, 20000.0f, p.masterLPF * std::pow(2.0f, mod(D::DstMasterLpf) * 6.0f));
+        
+        // マスター
+        p.outGainDb  = juce::jlimit(-36.0f, 12.0f, p.outGainDb  + mod(D::DstOutGain) * 24.0f);
+        p.ceiling    = juce::jlimit(-6.0f, 0.0f,   p.ceiling    + mod(D::DstLimCeiling) * 6.0f);
+        p.limRelease = juce::jlimit(1.0f, 500.0f,  p.limRelease + mod(D::DstLimRelease) * 250.0f);
     }
 
     // ユーザーStart/End: 自動トリム領域内の相対指定 → 実効トリムを算出
@@ -691,33 +697,37 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         fxP.type[(size_t)i]   = (int)apvts.getRawParameterValue("fx" + idx + "Type")->load();
         fxP.amount[(size_t)i] = juce::jlimit(0.0f, 1.0f,
             apvts.getRawParameterValue("fx" + idx + "Amount")->load() / 100.0f
-            + modMatrix.get(ModMatrix::DstFx1 + i)); // MOD変調
+            + modMatrix.get(ModMatrix::DstFx1Amount + i)); // MOD変調
     }
     fxP.bpm = bpm;
     fxP.satAlgo     = (int)apvts.getRawParameterValue("satAlgo")->load();
-    fxP.satDrive    = apvts.getRawParameterValue("satDrive")->load();
-    fxP.satPreHz    = apvts.getRawParameterValue("satPreHz")->load();
-    fxP.satTrimDb   = apvts.getRawParameterValue("satTrim")->load();
-    fxP.choRate     = apvts.getRawParameterValue("choRate")->load();
-    fxP.choDepth    = apvts.getRawParameterValue("choDepth")->load();
-    fxP.choWidth    = apvts.getRawParameterValue("choWidth")->load();
+    fxP.satDrive    = juce::jlimit(1.0f, 12.0f, apvts.getRawParameterValue("satDrive")->load() + modMatrix.get(ModMatrix::DstSatDrive) * 5.5f);
+    fxP.satPreHz    = juce::jlimit(20.0f, 2000.0f, apvts.getRawParameterValue("satPreHz")->load() * std::pow(2.0f, modMatrix.get(ModMatrix::DstSatPreHpf) * 5.0f));
+    fxP.satTrimDb   = juce::jlimit(-12.0f, 12.0f, apvts.getRawParameterValue("satTrim")->load() + modMatrix.get(ModMatrix::DstSatTrim) * 12.0f);
+    
+    fxP.choRate     = juce::jlimit(0.05f, 4.0f, apvts.getRawParameterValue("choRate")->load() + modMatrix.get(ModMatrix::DstChoRate) * 2.0f);
+    fxP.choDepth    = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("choDepth")->load() + modMatrix.get(ModMatrix::DstChoDepth));
+    fxP.choWidth    = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("choWidth")->load() + modMatrix.get(ModMatrix::DstChoWidth));
+    
     fxP.dlyTime     = (int)apvts.getRawParameterValue("dlyTime")->load();
-    fxP.dlyFeedback = apvts.getRawParameterValue("dlyFeedback")->load();
-    fxP.dlyDuck     = apvts.getRawParameterValue("dlyDuck")->load();
-    fxP.dlyDamp     = apvts.getRawParameterValue("dlyDamp")->load();
-    fxP.frzSize     = apvts.getRawParameterValue("frzSize")->load();
-    fxP.frzFeedback = apvts.getRawParameterValue("frzFeedback")->load();
-    fxP.frzDamp     = apvts.getRawParameterValue("frzDamp")->load();
-    fxP.revDecay    = apvts.getRawParameterValue("revDecay")->load();
-    fxP.revShimmer  = apvts.getRawParameterValue("revShimmer")->load();
-    fxP.revDamp     = apvts.getRawParameterValue("revDamp")->load();
-    fxP.revMod      = apvts.getRawParameterValue("revMod")->load();
+    fxP.dlyFeedback = juce::jlimit(0.0f, 0.95f, apvts.getRawParameterValue("dlyFeedback")->load() + modMatrix.get(ModMatrix::DstDlyFeedback));
+    fxP.dlyDuck     = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("dlyDuck")->load() + modMatrix.get(ModMatrix::DstDlyDuck));
+    fxP.dlyDamp     = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("dlyDamp")->load() + modMatrix.get(ModMatrix::DstDlyDamp));
+    
+    fxP.frzSize     = juce::jlimit(20.0f, 1000.0f, apvts.getRawParameterValue("frzSize")->load() + modMatrix.get(ModMatrix::DstFrzSize) * 500.0f);
+    fxP.frzFeedback = juce::jlimit(0.0f, 0.99f, apvts.getRawParameterValue("frzFeedback")->load() + modMatrix.get(ModMatrix::DstFrzFeedback));
+    fxP.frzDamp     = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("frzDamp")->load() + modMatrix.get(ModMatrix::DstFrzDamp));
+    
+    fxP.revDecay    = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revDecay")->load() + modMatrix.get(ModMatrix::DstRevDecay));
+    fxP.revShimmer  = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revShimmer")->load() + modMatrix.get(ModMatrix::DstRevShimmer));
+    fxP.revDamp     = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revDamp")->load() + modMatrix.get(ModMatrix::DstRevDamp));
+    fxP.revMod      = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revMod")->load() + modMatrix.get(ModMatrix::DstRevMod));
 
     // --- FX Dry/Wet (MOD対象): プリFXを退避 → FX後にブレンド ---
     const int numCh = buffer.getNumChannels();
     const int numSm = buffer.getNumSamples();
     const float fxMix = juce::jlimit(0.0f, 1.0f,
-        apvts.getRawParameterValue("fxMix")->load() + modMatrix.get(ModMatrix::DstDryWet));
+        apvts.getRawParameterValue("fxMix")->load() + modMatrix.get(ModMatrix::DstFxMix));
 
     if (fxMix < 0.999f)
     {

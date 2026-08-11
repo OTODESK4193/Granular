@@ -50,7 +50,11 @@ FxSlotCard::FxSlotCard(GranularAudioProcessor& processor, int slotIndex,
     amountLabel.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     amountLabel.setColour(juce::Label::textColourId, GranularColors::textDim);
     addAndMakeVisible(amountLabel);
+
+    startTimerHz(30);
 }
+
+FxSlotCard::~FxSlotCard() { stopTimer(); }
 
 void FxSlotCard::paint(juce::Graphics& g)
 {
@@ -110,8 +114,64 @@ void FxSlotCard::itemDropped(const SourceDetails& details)
 {
     dragOver = false;
     repaint();
-    if (onSwap != nullptr)
+    if (onSwap != nullptr && details.description.isInt())
         onSwap((int)details.description, slot);
+}
+
+void FxSlotCard::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
+{
+    const float rMin = proc.modMatrix.getRangeMin(dst);
+    const float rMax = proc.modMatrix.getRangeMax(dst);
+    const float live = proc.modMatrix.get(dst);
+
+    auto& props = s.getProperties();
+    const bool active = std::abs(rMax - rMin) > 1.0e-4f;
+
+    if (!active)
+    {
+        if ((bool)props.getWithDefault("mod_active", false))
+        {
+            props.set("mod_active", false);
+            s.repaint();
+        }
+        return;
+    }
+
+    const auto range = s.getNormalisableRange();
+    const float base = (float)s.getValue();
+
+    auto toNorm = [&](float modUnit)
+    {
+        float real = (kind == ExpOct) ? base * std::pow(2.0f, modUnit * scale)
+                                      : base + modUnit * scale;
+        real = juce::jlimit((float)range.start, (float)range.end, real);
+        return (float)range.convertTo0to1(real);
+    };
+
+    const float nMin  = toNorm(rMin);
+    const float nMax  = toNorm(rMax);
+    const float nLive = toNorm(live);
+
+    const float oldMin  = (float)props.getWithDefault("mod_min", -1.0f);
+    const float oldMax  = (float)props.getWithDefault("mod_max", -1.0f);
+    const float oldLive = (float)props.getWithDefault("mod_live", -1.0f);
+
+    if (!(bool)props.getWithDefault("mod_active", false)
+        || std::abs(nMin - oldMin) > 0.002f
+        || std::abs(nMax - oldMax) > 0.002f
+        || std::abs(nLive - oldLive) > 0.004f)
+    {
+        props.set("mod_active", true);
+        props.set("mod_min", nMin);
+        props.set("mod_max", nMax);
+        props.set("mod_live", nLive);
+        s.repaint();
+    }
+}
+
+void FxSlotCard::timerCallback()
+{
+    applyModRing(amountKnob, ModMatrix::DstFx1Amount + slot, LinearAdd, 100.0f);
 }
 
 // ------------------------------------------
@@ -129,7 +189,10 @@ FxPanel::FxPanel(GranularAudioProcessor& p) : proc(p)
     }
 
     selectSlot(0);
+    startTimerHz(30);
 }
+
+FxPanel::~FxPanel() { stopTimer(); }
 
 int FxPanel::getSlotType(int slot) const
 {
@@ -254,6 +317,111 @@ void FxPanel::rebuildDetails()
 
     layoutDetails();
     repaint();
+}
+
+void FxPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
+{
+    const float rMin = proc.modMatrix.getRangeMin(dst);
+    const float rMax = proc.modMatrix.getRangeMax(dst);
+    const float live = proc.modMatrix.get(dst);
+
+    auto& props = s.getProperties();
+    const bool active = std::abs(rMax - rMin) > 1.0e-4f;
+
+    if (!active)
+    {
+        if ((bool)props.getWithDefault("mod_active", false))
+        {
+            props.set("mod_active", false);
+            s.repaint();
+        }
+        return;
+    }
+
+    const auto range = s.getNormalisableRange();
+    const float base = (float)s.getValue();
+
+    auto toNorm = [&](float modUnit)
+    {
+        float real = (kind == ExpOct) ? base * std::pow(2.0f, modUnit * scale)
+                                      : base + modUnit * scale;
+        real = juce::jlimit((float)range.start, (float)range.end, real);
+        return (float)range.convertTo0to1(real);
+    };
+
+    const float nMin  = toNorm(rMin);
+    const float nMax  = toNorm(rMax);
+    const float nLive = toNorm(live);
+
+    const float oldMin  = (float)props.getWithDefault("mod_min", -1.0f);
+    const float oldMax  = (float)props.getWithDefault("mod_max", -1.0f);
+    const float oldLive = (float)props.getWithDefault("mod_live", -1.0f);
+
+    if (!(bool)props.getWithDefault("mod_active", false)
+        || std::abs(nMin - oldMin) > 0.002f
+        || std::abs(nMax - oldMax) > 0.002f
+        || std::abs(nLive - oldLive) > 0.004f)
+    {
+        props.set("mod_active", true);
+        props.set("mod_min", nMin);
+        props.set("mod_max", nMax);
+        props.set("mod_live", nLive);
+        s.repaint();
+    }
+}
+
+void FxPanel::timerCallback()
+{
+    int type = getSlotType(selectedSlot);
+    using D = ModMatrix;
+    
+    // Typeに応じて、対応するknobにModRingを適用する
+    if (type == FxChain::Saturation)
+    {
+        if (detailKnobs.size() >= 3)
+        {
+            applyModRing(*detailKnobs[0], D::DstSatDrive, LinearAdd, 5.5f);
+            applyModRing(*detailKnobs[1], D::DstSatPreHpf, ExpOct, 5.0f);
+            applyModRing(*detailKnobs[2], D::DstSatTrim, LinearAdd, 12.0f);
+        }
+    }
+    else if (type == FxChain::Chorus)
+    {
+        if (detailKnobs.size() >= 3)
+        {
+            applyModRing(*detailKnobs[0], D::DstChoRate, LinearAdd, 2.0f);
+            applyModRing(*detailKnobs[1], D::DstChoDepth, LinearAdd, 1.0f);
+            applyModRing(*detailKnobs[2], D::DstChoWidth, LinearAdd, 1.0f);
+        }
+    }
+    else if (type == FxChain::Delay)
+    {
+        if (detailKnobs.size() >= 3)
+        {
+            applyModRing(*detailKnobs[0], D::DstDlyFeedback, LinearAdd, 1.0f);
+            applyModRing(*detailKnobs[1], D::DstDlyDuck, LinearAdd, 1.0f);
+            applyModRing(*detailKnobs[2], D::DstDlyDamp, LinearAdd, 1.0f);
+        }
+    }
+    else if (type == FxChain::Freeze)
+    {
+        if (detailKnobs.size() >= 3)
+        {
+            applyModRing(*detailKnobs[0], D::DstFrzSize, LinearAdd, 500.0f);
+            applyModRing(*detailKnobs[1], D::DstFrzFeedback, LinearAdd, 1.0f);
+            applyModRing(*detailKnobs[2], D::DstFrzDamp, LinearAdd, 1.0f);
+        }
+    }
+    else if (type == FxChain::Reverb)
+    {
+        if (detailKnobs.size() >= 4)
+        {
+            applyModRing(*detailKnobs[0], D::DstRevDecay, LinearAdd, 1.0f);
+            applyModRing(*detailKnobs[1], D::DstRevShimmer, LinearAdd, 1.0f);
+            applyModRing(*detailKnobs[2], D::DstRevDamp, LinearAdd, 1.0f);
+            applyModRing(*detailKnobs[3], D::DstRevMod, LinearAdd, 1.0f);
+        }
+    }
 }
 
 void FxPanel::layoutDetails()

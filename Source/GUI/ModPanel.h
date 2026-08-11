@@ -12,6 +12,7 @@
 #include "../PluginProcessor.h"
 #include "ValueKnob.h"
 #include "GlowToggle.h"
+#include "ModDestSelector.h"
 #include "ColorPalette.h"
 
 class ModPanel : public juce::Component
@@ -28,6 +29,7 @@ private:
     void setSourceTab(int t);          // 0=LFO, 1=Env
     void setMatrixPage(int p);         // 0=slot1-8, 1=slot9-16
     void styleTab(juce::TextButton& b, bool active);
+    juce::PopupMenu buildDestMenu(int currentDst);
 
     GranularAudioProcessor& proc;
 
@@ -51,7 +53,8 @@ private:
     juce::TextButton page2Btn { "PAGE 2" };
     int matrixPage = 0;
     std::array<juce::Label, ModMatrix::kNumSlots> rowLabel;
-    std::array<juce::ComboBox, ModMatrix::kNumSlots> srcBox, dstBox;
+    std::array<juce::ComboBox, ModMatrix::kNumSlots> srcBox;
+    std::array<ModDestSelector, ModMatrix::kNumSlots> dstBox;
     std::array<ValueKnob, ModMatrix::kNumSlots> amtSlider;
     std::array<std::unique_ptr<GlowToggle>, ModMatrix::kNumSlots> uniButton;
 

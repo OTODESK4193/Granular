@@ -75,7 +75,10 @@ ModPanel::ModPanel(GranularAudioProcessor& p) : proc(p)
         addAndMakeVisible(rowLabel[(size_t)i]);
 
         setupCombo(srcBox[(size_t)i], "mod" + idx + "Src", *this);
-        setupCombo(dstBox[(size_t)i], "mod" + idx + "Dst", *this);
+
+        addAndMakeVisible(dstBox[(size_t)i]);
+        dstBox[(size_t)i].bindTo(proc.apvts, "mod" + idx + "Dst");
+        dstBox[(size_t)i].buildMenu = [this](int currentDst) { return buildDestMenu(currentDst); };
 
         // Uni/Bipolar トグル (点灯=Unipolar / 消灯=Bipolar)
         uniButton[(size_t)i] = std::make_unique<GlowToggle>("UNI", GranularColors::babyBlue);
@@ -98,6 +101,92 @@ ModPanel::ModPanel(GranularAudioProcessor& p) : proc(p)
 
     setSourceTab(0);
     setMatrixPage(0);
+}
+
+juce::PopupMenu ModPanel::buildDestMenu(int currentDst)
+{
+    juce::PopupMenu menu;
+    auto addItem = [&menu, currentDst](juce::PopupMenu& targetMenu, int id)
+    {
+        const juce::String name = ModMatrix::getDestNames()[id];
+        targetMenu.addItem(id + 1, name, true, currentDst == id);
+    };
+
+    addItem(menu, (int)ModMatrix::DstNone);
+    menu.addSeparator();
+
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstPosition; d <= (int)ModMatrix::DstSpeed; ++d) addItem(sub, d);
+        menu.addSubMenu("Grain", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstPitch; d <= (int)ModMatrix::DstTone; ++d) addItem(sub, d);
+        menu.addSubMenu("Pitch", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstMasterHpf; d <= (int)ModMatrix::DstMasterLpf; ++d) addItem(sub, d);
+        menu.addSubMenu("Filter", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstSampleStart; d <= (int)ModMatrix::DstSampleEnd; ++d) addItem(sub, d);
+        menu.addSubMenu("Sample", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstArpOct; d <= (int)ModMatrix::DstArpGate; ++d) addItem(sub, d);
+        menu.addSubMenu("ARP", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstOutGain; d <= (int)ModMatrix::DstLimRelease; ++d) addItem(sub, d);
+        menu.addSubMenu("Master", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstFx1Amount; d <= (int)ModMatrix::DstFx5Amount; ++d) addItem(sub, d);
+        menu.addSubMenu("FX General", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstSatDrive; d <= (int)ModMatrix::DstSatTrim; ++d) addItem(sub, d);
+        menu.addSubMenu("Saturation", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstChoRate; d <= (int)ModMatrix::DstChoWidth; ++d) addItem(sub, d);
+        menu.addSubMenu("Chorus", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstDlyFeedback; d <= (int)ModMatrix::DstDlyDamp; ++d) addItem(sub, d);
+        menu.addSubMenu("Delay", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstFrzSize; d <= (int)ModMatrix::DstFrzDamp; ++d) addItem(sub, d);
+        menu.addSubMenu("Freeze", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstRevDecay; d <= (int)ModMatrix::DstRevMod; ++d) addItem(sub, d);
+        menu.addSubMenu("Reverb", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstLfo1Rate; d <= (int)ModMatrix::DstLfo4Rate; ++d) addItem(sub, d);
+        menu.addSubMenu("LFO", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstEnv1Attack; d <= (int)ModMatrix::DstEnv3Release; ++d) addItem(sub, d);
+        menu.addSubMenu("Envelope", sub);
+    }
+
+    return menu;
 }
 
 void ModPanel::setupKnob(ValueKnob& s, const juce::String& paramID, juce::Colour accent)

@@ -31,7 +31,7 @@ ConfigPanel::ConfigPanel(GranularAudioProcessor& p) : proc(p)
     auto setupCombo = [this](juce::ComboBox& c, juce::Label& l, const juce::String& text, const juce::String& id)
     {
         if (auto* choiceParam = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter(id)))
-            c.addItemList(choiceParam->choices, 1);
+            c.addItemList(choiceParam->getAllValueStrings(), 1);
         addAndMakeVisible(c);
         comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
             proc.apvts, id, c));
@@ -53,7 +53,11 @@ ConfigPanel::ConfigPanel(GranularAudioProcessor& p) : proc(p)
     setupKnob(polyKnob, polyLabel, "POLY", "poly");
     setupCombo(slopeBox, slopeLabel, "FILTER SLOPE", "filterSlope");
     setupCombo(themeBox, themeLabel, "COLOR THEME", "colorTheme");
+
+    startTimerHz(30);
 }
+
+ConfigPanel::~ConfigPanel() { stopTimer(); }
 
 void ConfigPanel::paint(juce::Graphics& g)
 {
@@ -138,4 +142,61 @@ void ConfigPanel::resized()
 
     themeLabel.setBounds(700, 40, 110, 14);
     themeBox.setBounds(700, 56, 150, 26);
+}
+
+void ConfigPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
+{
+    const float rMin = proc.modMatrix.getRangeMin(dst);
+    const float rMax = proc.modMatrix.getRangeMax(dst);
+    const float live = proc.modMatrix.get(dst);
+
+    auto& props = s.getProperties();
+    const bool active = std::abs(rMax - rMin) > 1.0e-4f;
+
+    if (!active)
+    {
+        if ((bool)props.getWithDefault("mod_active", false))
+        {
+            props.set("mod_active", false);
+            s.repaint();
+        }
+        return;
+    }
+
+    const auto range = s.getNormalisableRange();
+    const float base = (float)s.getValue();
+
+    auto toNorm = [&](float modUnit)
+    {
+        float real = (kind == ExpOct) ? base * std::pow(2.0f, modUnit * scale)
+                                      : base + modUnit * scale;
+        real = juce::jlimit((float)range.start, (float)range.end, real);
+        return (float)range.convertTo0to1(real);
+    };
+
+    const float nMin  = toNorm(rMin);
+    const float nMax  = toNorm(rMax);
+    const float nLive = toNorm(live);
+
+    const float oldMin  = (float)props.getWithDefault("mod_min", -1.0f);
+    const float oldMax  = (float)props.getWithDefault("mod_max", -1.0f);
+    const float oldLive = (float)props.getWithDefault("mod_live", -1.0f);
+
+    if (!(bool)props.getWithDefault("mod_active", false)
+        || std::abs(nMin - oldMin) > 0.002f
+        || std::abs(nMax - oldMax) > 0.002f
+        || std::abs(nLive - oldLive) > 0.004f)
+    {
+        props.set("mod_active", true);
+        props.set("mod_min", nMin);
+        props.set("mod_max", nMax);
+        props.set("mod_live", nLive);
+        s.repaint();
+    }
+}
+
+void ConfigPanel::timerCallback()
+{
+    using D = ModMatrix;
+    applyModRing(limReleaseKnob, D::DstLimRelease, LinearAdd, 250.0f);
 }

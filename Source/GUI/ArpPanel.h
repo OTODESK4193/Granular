@@ -14,10 +14,12 @@
 #include "GlowToggle.h"
 #include "ColorPalette.h"
 
-class ArpPanel : public juce::Component
+class ArpPanel : public juce::Component,
+                 private juce::Timer
 {
 public:
     explicit ArpPanel(GranularAudioProcessor& processor);
+    ~ArpPanel() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -27,6 +29,11 @@ private:
                    const juce::String& paramID, juce::Colour accent);
     void setupCombo(juce::ComboBox& c, juce::Label& l, const juce::String& text,
                     const juce::String& paramID);
+
+    // --- MOD Arc ---
+    enum ModKind { LinearAdd, ExpOct };
+    void timerCallback() override;
+    void applyModRing(juce::Slider& s, int dst, ModKind kind, float scale);
 
     GranularAudioProcessor& proc;
 

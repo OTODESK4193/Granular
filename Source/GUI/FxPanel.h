@@ -19,13 +19,15 @@
 // 1スロット分のカード
 // ------------------------------------------
 class FxSlotCard : public juce::Component,
-                   public juce::DragAndDropTarget
+                   public juce::DragAndDropTarget,
+                   private juce::Timer
 {
 public:
     FxSlotCard(GranularAudioProcessor& processor, int slotIndex,
                std::function<void(int, int)> onSwapCallback,
                std::function<void(int)> onSelectCallback,
                std::function<void()> onTypeChangedCallback);
+    ~FxSlotCard() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -43,6 +45,10 @@ public:
     void itemDragEnter(const SourceDetails&) override { dragOver = true; repaint(); }
     void itemDragExit(const SourceDetails&) override { dragOver = false; repaint(); }
     void itemDropped(const SourceDetails& details) override;
+
+    enum ModKind { LinearAdd, ExpOct };
+    void timerCallback() override;
+    void applyModRing(juce::Slider& s, int dst, ModKind kind, float scale);
 
 private:
     GranularAudioProcessor& proc;
@@ -68,10 +74,12 @@ private:
 // FXタブ本体
 // ------------------------------------------
 class FxPanel : public juce::Component,
-                public juce::DragAndDropContainer
+                public juce::DragAndDropContainer,
+                private juce::Timer
 {
 public:
     explicit FxPanel(GranularAudioProcessor& processor);
+    ~FxPanel() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -82,6 +90,10 @@ private:
     void rebuildDetails();      // 選択スロットのFX種に応じて詳細コントロールを再構築
     void layoutDetails();
     int  getSlotType(int slot) const;
+
+    enum ModKind { LinearAdd, ExpOct };
+    void timerCallback() override;
+    void applyModRing(juce::Slider& s, int dst, ModKind kind, float scale);
 
     GranularAudioProcessor& proc;
 

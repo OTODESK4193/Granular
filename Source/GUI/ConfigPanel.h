@@ -12,13 +12,19 @@
 #include "ValueKnob.h"
 #include "ColorPalette.h"
 
-class ConfigPanel : public juce::Component
+class ConfigPanel : public juce::Component,
+                    private juce::Timer
 {
 public:
     explicit ConfigPanel(GranularAudioProcessor& processor);
+    ~ConfigPanel() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+
+    enum ModKind { LinearAdd, ExpOct };
+    void timerCallback() override;
+    void applyModRing(juce::Slider& s, int dst, ModKind kind, float scale);
 
 private:
     GranularAudioProcessor& proc;
