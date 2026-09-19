@@ -95,6 +95,7 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     presetBrowser.onLoadFactory = [this](int i)          { proc.applyFactoryPreset(i); };
     presetBrowser.onLoadUser    = [this](const juce::File& f) { proc.loadUserPresetFile(f); };
     presetBrowser.onSave        = [this](const juce::String& n) { proc.saveUserPreset(n); };
+    presetBrowser.onSaveWithMeta = [this](const juce::String& n, const juce::String& c, const juce::String& s) { proc.saveUserPreset(n, c, s); };
     presetBrowser.onInit        = [this] { proc.resetAllParametersToDefault(); };
     presetBrowser.onRandom      = [this] { proc.randomizePreset(); };
     presetBrowser.onClose       = [this] { presetBrowser.setVisible(false);
@@ -293,7 +294,7 @@ void GranularAudioProcessorEditor::paintContent(juce::Graphics& g)
 
     g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     g.setColour(GranularColors::mint.withAlpha(0.8f));
-    g.drawText("v1.0.1 B010", 250, 15, 90, 16, juce::Justification::centredLeft);
+    g.drawText("v1.0.1 B011", 250, 15, 90, 16, juce::Justification::centredLeft);
 
     g.setColour(GranularColors::textDim);
     g.setFont(juce::Font(juce::FontOptions(11.0f)));

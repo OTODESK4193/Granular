@@ -81,7 +81,7 @@ public:
     void resetAllParametersToDefault();
     void randomizePreset();                             // ノブ+MOD+FXをランダマイズ
     juce::File getUserPresetDir() const;                // Documents/OTODESK/Granular/Presets
-    bool saveUserPreset(const juce::String& name);      // ユーザープリセット保存
+    bool saveUserPreset(const juce::String& name, const juce::String& category = "User", const juce::String& sub = ""); // ユーザープリセット保存
     void loadUserPresetFile(const juce::File& file);    // ユーザープリセット読込
     juce::String currentPresetName = "Init";
 

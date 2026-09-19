@@ -1415,7 +1415,7 @@ juce::File GranularAudioProcessor::getUserPresetDir() const
     return dir;
 }
 
-bool GranularAudioProcessor::saveUserPreset(const juce::String& name)
+bool GranularAudioProcessor::saveUserPreset(const juce::String& name, const juce::String& category, const juce::String& sub)
 {
     auto safe = juce::File::createLegalFileName(name.trim());
     if (safe.isEmpty()) return false;
@@ -1429,6 +1429,8 @@ bool GranularAudioProcessor::saveUserPreset(const juce::String& name)
         juce::ScopedLock sl(stateLock);
         xml->setAttribute("AudioFilePath", fileToIngest.getFullPathName());
         xml->setAttribute("PresetName", name);
+        xml->setAttribute("Category", category.isNotEmpty() ? category : "User");
+        xml->setAttribute("Subcategory", sub);
     }
     auto file = getUserPresetDir().getChildFile(safe + ".xml");
     const bool ok = xml->writeTo(file, {});
