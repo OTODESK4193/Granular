@@ -93,75 +93,10 @@ void DotWaveformDisplay::pullGrainEvents()
         liveDots.erase(liveDots.begin(), liveDots.begin() + (long)(liveDots.size() - 512));
 }
 
-void DotWaveformDisplay::resized()
-{
-    needsWaveformRebuild = true;
-}
-
 void DotWaveformDisplay::timerCallback()
 {
     pullGrainEvents();
-    const int themeIdx = (int)proc.apvts.getRawParameterValue("colorTheme")->load();
-    const int validCount = proc.validSampleCount.load();
-    if (themeIdx != lastThemeIndex || validCount != lastValidSampleCount)
-    {
-        lastThemeIndex = themeIdx;
-        lastValidSampleCount = validCount;
-        needsWaveformRebuild = true;
-    }
     repaint();
-}
-
-void DotWaveformDisplay::renderWaveformCache()
-{
-    const auto wave = getWaveArea();
-    const int w = (int)wave.getWidth();
-    const int h = (int)wave.getHeight();
-    if (w <= 0 || h <= 0) return;
-
-    cachedWaveformImage = juce::Image(juce::Image::ARGB, w, h, true);
-    juce::Graphics imgG(cachedWaveformImage);
-
-    const float cyRel = (float)h * 0.5f;
-    const int numCols = juce::jmax(1, (int)((float)w / kDotSpacingX));
-    const float maxHalfH = (float)h * 0.5f - 4.0f;
-
-    for (int col = 0; col < numCols; ++col)
-    {
-        const float colNorm = (float)col / (float)juce::jmax(1, numCols - 1);
-        const float xRel = kDotSpacingX * 0.5f + (float)col * kDotSpacingX;
-
-        const int binStart = (int)(colNorm * 999.0f);
-        const int binEnd = juce::jmin(999, (int)(((float)(col + 1) / (float)numCols) * 999.0f));
-        float peak = 0.0f;
-        float brightSum = 0.0f; int brightN = 0;
-        for (int b = binStart; b <= binEnd; ++b)
-        {
-            peak = juce::jmax(peak, proc.waveformPeaks[(size_t)b]);
-            brightSum += proc.waveformBright[(size_t)b]; ++brightN;
-        }
-
-        const float ampH = juce::jlimit(0.0f, maxHalfH, peak * 2.0f * maxHalfH);
-        const int dotCount = juce::jmax(1, (int)(ampH / kDotSpacingY));
-
-        // 横方向の鮮やかなパステル・レインボー（mint → babyBlue → lavender → pink）
-        auto baseColour = GranularColors::waveformGradient(colNorm);
-        const float bright = brightN > 0 ? brightSum / (float)brightN : 0.5f;
-        const float brightBoost = 0.88f + 0.12f * bright;
-        baseColour = baseColour.withAlpha(brightBoost);
-
-        for (int k = 0; k < dotCount; ++k)
-        {
-            const float fade = 1.0f - 0.38f * ((float)k / (float)juce::jmax(1, dotCount - 1));
-            imgG.setColour(baseColour.withMultipliedAlpha(fade));
-
-            const float dy = (float)k * kDotSpacingY;
-            imgG.fillEllipse(xRel - kDotRadius, cyRel - dy - kDotRadius, kDotRadius * 2.0f, kDotRadius * 2.0f);
-            if (k > 0)
-                imgG.fillEllipse(xRel - kDotRadius, cyRel + dy - kDotRadius, kDotRadius * 2.0f, kDotRadius * 2.0f);
-        }
-    }
-    needsWaveformRebuild = false;
 }
 
 // ------------------------------------------
@@ -217,32 +152,38 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
 
     const auto geo = getRegionGeometry();
 
-    // --- 高速波形キャッシュ描画 (Image Blit) ---
-    if (needsWaveformRebuild || cachedWaveformImage.isNull()
-        || cachedWaveformImage.getWidth() != (int)wave.getWidth()
-        || cachedWaveformImage.getHeight() != (int)wave.getHeight())
-    {
-        renderWaveformCache();
-    }
+    // --- 波形ドット描画 ---
+    const int numCols = juce::jmax(1, (int)(wave.getWidth() / kDotSpacingX));
+    const float maxHalfH = wave.getHeight() * 0.5f - 4.0f;
 
-    g.drawImageAt(cachedWaveformImage, (int)wave.getX(), (int)wave.getY());
-
-    // --- Start/End マーカー位置計算 ---
-    const float startX = geo.waveX + geo.effSNmod * geo.waveW;
-    const float endX = geo.waveX + geo.effENmod * geo.waveW;
-
-    // 実効領域外の暗転マスク（Start前 / End後）
-    if (startX > wave.getX())
+    for (int col = 0; col < numCols; ++col)
     {
-        auto leftMask = juce::Rectangle<float>(wave.getX(), wave.getY(), startX - wave.getX(), wave.getHeight());
-        g.setColour(GranularColors::bg.withAlpha(0.72f));
-        g.fillRect(leftMask);
-    }
-    if (endX < wave.getRight())
-    {
-        auto rightMask = juce::Rectangle<float>(endX, wave.getY(), wave.getRight() - endX, wave.getHeight());
-        g.setColour(GranularColors::bg.withAlpha(0.72f));
-        g.fillRect(rightMask);
+        const float colNorm = (float)col / (float)juce::jmax(1, numCols - 1);
+        const float x = wave.getX() + kDotSpacingX * 0.5f + (float)col * kDotSpacingX;
+
+        const int binStart = (int)(colNorm * 999.0f);
+        const int binEnd = juce::jmin(999, (int)(((float)(col + 1) / (float)numCols) * 999.0f));
+        float peak = 0.0f;
+        for (int b = binStart; b <= binEnd; ++b)
+            peak = juce::jmax(peak, proc.waveformPeaks[(size_t)b]);
+
+        const float ampH = juce::jlimit(0.0f, maxHalfH, peak * 2.0f * maxHalfH);
+        const int dotCount = juce::jmax(1, (int)(ampH / kDotSpacingY));
+
+        const bool insideRegion = (colNorm >= geo.effSN && colNorm <= geo.effEN);
+        auto baseColour = GranularColors::waveformGradient(colNorm);
+        if (!insideRegion) baseColour = baseColour.withMultipliedAlpha(0.18f);
+
+        for (int k = 0; k < dotCount; ++k)
+        {
+            const float fade = 1.0f - 0.55f * ((float)k / (float)juce::jmax(1, dotCount - 1));
+            g.setColour(baseColour.withMultipliedAlpha(0.9f * fade));
+
+            const float dy = (float)k * kDotSpacingY;
+            g.fillEllipse(x - kDotRadius, cy - dy - kDotRadius, kDotRadius * 2.0f, kDotRadius * 2.0f);
+            if (k > 0)
+                g.fillEllipse(x - kDotRadius, cy + dy - kDotRadius, kDotRadius * 2.0f, kDotRadius * 2.0f);
+        }
     }
 
     // --- Start/End マーカー ---
@@ -261,6 +202,8 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
     };
 
     // Start/End マーカーは MOD変調を反映した位置に描画（マーカー自体が動く）
+    const float startX = geo.waveX + geo.effSNmod * geo.waveW;
+    const float endX = geo.waveX + geo.effENmod * geo.waveW;
     drawMarker(startX, true, GranularColors::peach);
     drawMarker(endX, false, GranularColors::peach);
 
