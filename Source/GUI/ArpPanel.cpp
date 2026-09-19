@@ -66,6 +66,11 @@ ArpPanel::ArpPanel(GranularAudioProcessor& p) : proc(p)
     buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         proc.apvts, "reverseGrain", revButton));
 
+    lastScaleKey  = juce::jlimit(0, 11, (int)proc.apvts.getRawParameterValue("key")->load());
+    lastScaleType = juce::jlimit(0, ScaleQuantizer::numScales() - 1,
+                                 (int)proc.apvts.getRawParameterValue("scale")->load());
+    scaleNotesText = ScaleQuantizer::getNoteNames(lastScaleKey, lastScaleType);
+
     startTimerHz(30);
 }
 
@@ -166,6 +171,18 @@ void ArpPanel::timerCallback()
     applyModRing(gateKnob,       D::DstArpGate,     LinearAdd, 1.0f);
     applyModRing(toneKnob,       D::DstTone,        LinearAdd, 1.0f);
     applyModRing(spraySpeedKnob, D::DstSpraySpeed,  LinearAdd, 0.99f);
+
+    // 選択中 Key/Scale の構成音表示更新
+    const int key  = juce::jlimit(0, 11, (int)proc.apvts.getRawParameterValue("key")->load());
+    const int type = juce::jlimit(0, ScaleQuantizer::numScales() - 1,
+                                  (int)proc.apvts.getRawParameterValue("scale")->load());
+    if (key != lastScaleKey || type != lastScaleType)
+    {
+        lastScaleKey = key;
+        lastScaleType = type;
+        scaleNotesText = ScaleQuantizer::getNoteNames(key, type);
+        repaint(20, 248, 240, 30);
+    }
 }
 
 void ArpPanel::paint(juce::Graphics& g)
@@ -182,6 +199,25 @@ void ArpPanel::paint(juce::Graphics& g)
     drawSection("ARPEGGIATOR", 20,  6,   860, GranularColors::accentEnv);
     drawSection("QUANTIZE",    20,  150, 240, GranularColors::accentPitch);
     drawSection("TEXTURE",     300, 150, 360, GranularColors::accentGrain);
+
+    // --- QUANTIZE 3段目: 選択中スケールの構成音 (Scale Notes) ---
+    const int notesX = 20;
+    const int notesY = 250;
+    const int notesW = 240;
+    const int notesH = 24;
+
+    g.setColour(GranularColors::panel.withAlpha(0.65f));
+    g.fillRoundedRectangle((float)notesX, (float)notesY, (float)notesW, (float)notesH, 3.0f);
+    g.setColour(GranularColors::panelLine.withAlpha(0.5f));
+    g.drawRoundedRectangle((float)notesX, (float)notesY, (float)notesW, (float)notesH, 3.0f, 1.0f);
+
+    g.setColour(GranularColors::textDim.withAlpha(0.85f));
+    g.setFont(juce::Font(juce::FontOptions(9.5f, juce::Font::bold)));
+    g.drawText("NOTES", notesX + 7, notesY, 40, notesH, juce::Justification::centredLeft);
+
+    g.setColour(GranularColors::accentPitch);
+    g.setFont(juce::Font(juce::FontOptions(11.5f, juce::Font::bold)));
+    g.drawText(scaleNotesText, notesX + 50, notesY, notesW - 55, notesH, juce::Justification::centredLeft);
 
     // 補足説明（TEXTURE / SyncSpeedノブに被らないよう右寄せ・4行）
     g.setColour(GranularColors::textDim.withAlpha(0.7f));
@@ -225,15 +261,17 @@ void ArpPanel::resized()
     durBox.setBounds(686, ctrlY, 100, 26);
     placeKnob(gateKnob, gateLabel, 806, labelY);
 
-    // --- Row 2: QUANTIZE (2段構成) + TEXTURE ---
-    // 1段目: ON (幅64) + KEY (X=96, 幅164)
-    scaleOnButton.setBounds(20, 184, 64, 26);
-    keyLabel.setBounds(96, 168, 50, 14);
-    keyBox.setBounds(96, 184, 164, 26);
+    // --- Row 2: QUANTIZE (3段構成: 1段目=ON/KEY, 2段目=SCALE, 3段目=NOTES) + TEXTURE ---
+    // 1段目: ON (幅64) + KEY (X=92, 幅168)
+    scaleOnButton.setBounds(20, 178, 64, 24);
+    keyLabel.setBounds(92, 164, 50, 14);
+    keyBox.setBounds(92, 178, 168, 24);
 
     // 2段目: SCALE ツリーセレクター (幅240)
-    scaleLabel.setBounds(20, 218, 50, 14);
-    scaleSelector.setBounds(20, 234, 240, 26);
+    scaleLabel.setBounds(20, 206, 50, 14);
+    scaleSelector.setBounds(20, 220, 240, 24);
+
+    // 3段目: NOTES (paint 内で X=20, Y=250, W=240, H=24 に描画)
 
     const int subLabelY = 172;
     const int comboY    = 188;

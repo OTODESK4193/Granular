@@ -49,11 +49,14 @@ private:
     ValueKnob octavesKnob, rateFreeKnob, gateKnob;
     juce::Label octavesLabel, rateFreeLabel, gateLabel;
 
-    // --- QUANTIZE (2段構成) ---
+    // --- QUANTIZE (3段構成: 1段目=ON/KEY, 2段目=SCALE, 3段目=NOTES) ---
     GlowToggle    scaleOnButton { "ON", GranularColors::accentPitch };
     juce::ComboBox keyBox;
     juce::Label    keyLabel, scaleLabel;
     ScaleSelector scaleSelector;
+    juce::String  scaleNotesText;
+    int           lastScaleKey = -1;
+    int           lastScaleType = -1;
 
     // --- TEXTURE (MAINタブから移動 / SYNCはARPと区別するためP-SYNC表記) ---
     juce::ComboBox windowBox;
