@@ -62,12 +62,20 @@ private:
         double durationMs = 100.0;
     };
 
+    void resized() override;
+    void renderWaveformCache();
+
     GranularAudioProcessor& proc;
     std::vector<LiveDot> liveDots;
     uint32_t lastEventCount = 0;
     bool dragHover = false;
     DragMode dragMode = DragMode::None;
     juce::RangedAudioParameter* draggedParam = nullptr;
+
+    juce::Image cachedWaveformImage;
+    bool needsWaveformRebuild = true;
+    int lastThemeIndex = -1;
+    int lastValidSampleCount = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DotWaveformDisplay)
 };
