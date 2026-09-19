@@ -14,6 +14,7 @@
 #include "../PluginProcessor.h"
 #include "ValueKnob.h"
 #include "ColorPalette.h"
+#include "PredicateComboBox.h"
 
 // ------------------------------------------
 // 1スロット分のカード
@@ -57,7 +58,7 @@ private:
     std::function<void(int)> onSelect;
     std::function<void()> onTypeChanged;
 
-    juce::ComboBox typeBox;
+    PredicateComboBox typeBox;
     ValueKnob amountKnob;
     juce::Label amountLabel;
 

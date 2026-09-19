@@ -123,6 +123,8 @@ private:
     juce::AudioBuffer<float> fxDryBuffer;   // FX Dry/Wet 用のプリFXコピー
     double dryPreviewPos = -1.0;            // Dryプレビューの再生位置 (-1=未初期化)
 
+    std::array<int, 128> physicalToSnapped; // スケールクオンタイズのNoteOn/NoteOff整合性維持
+
     int savedEditorWidth { 1080 };
     int savedEditorHeight { 640 };
 

@@ -112,14 +112,22 @@ struct GranularParams
 class PadEnvelope
 {
 public:
-    void setSampleRate(double sr) noexcept { sampleRate = sr; }
+    void setSampleRate(double sr) noexcept
+    {
+        sampleRate = juce::jmax(1.0, sr);
+        setParameters(atkTime, decTime, sus, relTime);
+    }
 
     void setParameters(float a, float d, float s, float r) noexcept
     {
         atkTime = juce::jmax(0.0005f, a);
         decTime = juce::jmax(0.001f, d);
-        sus = juce::jlimit(0.0f, 1.0f, s);
+        sus     = juce::jlimit(0.0f, 1.0f, s);
         relTime = juce::jmax(0.001f, r);
+
+        attackInc   = (float)(1.0 / ((double)atkTime * sampleRate));
+        decayCoef   = 1.0f - std::exp((float)(-4.6 / ((double)decTime * sampleRate)));
+        releaseCoef = 1.0f - std::exp((float)(-6.9 / ((double)relTime * sampleRate)));
     }
 
     void noteOn() noexcept
@@ -127,8 +135,8 @@ public:
         // 現在値からアタックを再開（位相を逆算、極小値は0でクランプ）
         const float safeVal = juce::jlimit(0.0f, 1.0f, value);
         attackPhase = (safeVal > 1.0e-5f) ? std::pow(safeVal, 1.0f / kAttackCurve) : 0.0f;
-        attackInc = (float)(1.0 / ((double)atkTime * sampleRate));
-        decayCoef = 1.0f - std::exp((float)(-4.6 / ((double)decTime * sampleRate)));
+        attackInc   = (float)(1.0 / ((double)atkTime * sampleRate));
+        decayCoef   = 1.0f - std::exp((float)(-4.6 / ((double)decTime * sampleRate)));
         releaseCoef = 1.0f - std::exp((float)(-6.9 / ((double)relTime * sampleRate)));
         stage = Stage::Attack;
     }
@@ -155,7 +163,15 @@ public:
             if (std::abs(value - sus) < 1.0e-4f) { value = sus; stage = Stage::Sustain; }
             break;
         case Stage::Sustain:
-            value = sus;
+            if (value > sus)
+            {
+                value += decayCoef * (sus - value);
+                if (value - sus < 1.0e-4f) value = sus;
+            }
+            else
+            {
+                value = sus;
+            }
             break;
         case Stage::Release:
             value += releaseCoef * (0.0f - value);

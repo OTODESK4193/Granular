@@ -28,6 +28,29 @@ FxSlotCard::FxSlotCard(GranularAudioProcessor& processor, int slotIndex,
 
     if (auto* choiceParam = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter("fx" + idx + "Type")))
         typeBox.addItemList(choiceParam->choices, 1);
+
+    // 他のスロットですでに使用されているFXタイプは非活性化 (Spectra8準拠・重複禁止)
+    typeBox.setItemEnabledPredicate([this](int itemId) -> bool
+    {
+        const int fxType = itemId - 1; // 1-based (addItemList starts at 1) to 0-based FxType
+        if (fxType <= 0) return true;  // None (0) は常にどのスロットでも選択可能
+
+        // 自分のスロットで現在選択中のタイプなら選択可能
+        auto* myParam = proc.apvts.getRawParameterValue("fx" + juce::String(slot + 1) + "Type");
+        const int myType = (myParam != nullptr) ? (int)myParam->load() : 0;
+        if (fxType == myType) return true;
+
+        // 他のスロットで既に選択されているFXタイプは非活性化 (重複禁止)
+        for (int s = 0; s < FxChain::kNumSlots; ++s)
+        {
+            if (s == slot) continue;
+            auto* p = proc.apvts.getRawParameterValue("fx" + juce::String(s + 1) + "Type");
+            if (p != nullptr && (int)p->load() == fxType)
+                return false; // 他のスロットで使用中のため非活性化
+        }
+        return true;
+    });
+
     addAndMakeVisible(typeBox);
     typeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         proc.apvts, "fx" + idx + "Type", typeBox);

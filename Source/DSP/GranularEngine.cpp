@@ -240,6 +240,9 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         return;
     }
 
+    // 演奏中・リリース中のADSRノブ操作をリアルタイム反映
+    env.setParameters(p.attack, p.decay, p.sustain, p.release);
+
     const int numSamples = outputBuffer.getNumSamples();
     const int validLength = trimEnd - trimStart;
     if (validLength <= 512 || numSamples <= 0) return;

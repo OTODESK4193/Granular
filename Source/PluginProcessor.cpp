@@ -477,6 +477,7 @@ GranularAudioProcessor::GranularAudioProcessor()
 {
     formatManager.registerBasicFormats();
     waveformPeaks.fill(0.0f);
+    physicalToSnapped.fill(-1);
 
     // 保存済みカラーテーマをUI構築前に適用（ノブ等のアクセント色を正しくキャッシュ）
     GranularColors::setTheme((int)apvts.getRawParameterValue("colorTheme")->load());
@@ -587,24 +588,37 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
     if (arpP.enable)
     {
+        physicalToSnapped.fill(-1);
         arp.process(midiMessages, buffer.getNumSamples(), arpP);
     }
     else if (scaleOn)
     {
         // ARP Off の通常演奏時でも、入力NoteOn/NoteOffをScaleにスナップ
+        // physicalToSnapped で NoteOn 時のスナップ先を記憶し、NoteOff 時に確実に同一ノートへ送る
         juce::MidiBuffer quantizedMidi;
         for (const auto metadata : midiMessages)
         {
             auto msg = metadata.getMessage();
             if (msg.isNoteOn())
             {
-                const int snapped = juce::roundToInt(ScaleQuantizer::quantize((float)msg.getNoteNumber(), rootNote, scaleIdx));
-                quantizedMidi.addEvent(juce::MidiMessage::noteOn(msg.getChannel(), juce::jlimit(0, 127, snapped), msg.getVelocity()), metadata.samplePosition);
+                const int origNote = msg.getNoteNumber();
+                const int snapped  = juce::jlimit(0, 127, juce::roundToInt(ScaleQuantizer::quantize((float)origNote, rootNote, scaleIdx)));
+                physicalToSnapped[(size_t)origNote] = snapped;
+                quantizedMidi.addEvent(juce::MidiMessage::noteOn(msg.getChannel(), snapped, msg.getVelocity()), metadata.samplePosition);
             }
             else if (msg.isNoteOff())
             {
-                const int snapped = juce::roundToInt(ScaleQuantizer::quantize((float)msg.getNoteNumber(), rootNote, scaleIdx));
-                quantizedMidi.addEvent(juce::MidiMessage::noteOff(msg.getChannel(), juce::jlimit(0, 127, snapped), msg.getVelocity()), metadata.samplePosition);
+                const int origNote = msg.getNoteNumber();
+                int snapped = physicalToSnapped[(size_t)origNote];
+                if (snapped < 0)
+                    snapped = juce::jlimit(0, 127, juce::roundToInt(ScaleQuantizer::quantize((float)origNote, rootNote, scaleIdx)));
+                physicalToSnapped[(size_t)origNote] = -1;
+                quantizedMidi.addEvent(juce::MidiMessage::noteOff(msg.getChannel(), snapped, msg.getVelocity()), metadata.samplePosition);
+            }
+            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+            {
+                physicalToSnapped.fill(-1);
+                quantizedMidi.addEvent(msg, metadata.samplePosition);
             }
             else
             {
@@ -1232,6 +1246,7 @@ void GranularAudioProcessor::run()
 // ==========================================
 void GranularAudioProcessor::panic()
 {
+    physicalToSnapped.fill(-1);
     synth.reset();
     dryPreviewActive.store(false);
     fxChain.reset();
@@ -1253,6 +1268,7 @@ void GranularAudioProcessor::resetAllParametersToDefault()
 
 void GranularAudioProcessor::applyFactoryPreset(int index)
 {
+    panic(); // プリセット切替時に古い発音や残響を確実に消音
     const auto& list = GranularPresets::all();
     if (index < 0 || index >= (int)list.size()) return;
 
@@ -1346,15 +1362,39 @@ void GranularAudioProcessor::randomizePreset()
         setV("mod" + x + "Uni", r.nextBool() ? 1.0f : 0.0f);
     }
 
-    // --- FX: 1〜4スロットをランダムに有効化 (Gate含む) ---
-    for (int i = 1; i <= 5; ++i) setV("fx" + juce::String(i) + "Type", 0.0f);
+    // --- FX: 1〜4スロットを重複なしでランダムに有効化 (Gate含む) ---
+    for (int i = 1; i <= 5; ++i)
+    {
+        setV("fx" + juce::String(i) + "Type", 0.0f);
+        setV("fx" + juce::String(i) + "Amount", 0.0f);
+    }
+
+    // 利用可能なFXタイプ [1..6] をシャッフル (重複なし)
+    std::vector<int> availableTypes = { 1, 2, 3, 4, 5, 6 };
+    for (int i = (int)availableTypes.size() - 1; i > 0; --i)
+    {
+        int swapIdx = r.nextInt(i + 1);
+        std::swap(availableTypes[(size_t)i], availableTypes[(size_t)swapIdx]);
+    }
+
+    // スロット [1..5] をシャッフル (重複なし)
+    std::vector<int> availableSlots = { 1, 2, 3, 4, 5 };
+    for (int i = (int)availableSlots.size() - 1; i > 0; --i)
+    {
+        int swapIdx = r.nextInt(i + 1);
+        std::swap(availableSlots[(size_t)i], availableSlots[(size_t)swapIdx]);
+    }
+
     const int nfx = ri(1, 4);
     for (int j = 0; j < nfx; ++j)
     {
-        const juce::String x(1 + r.nextInt(5));
-        const int fxt = ri(1, 6); // 1: Sat, 2: Cho, 3: Dly, 4: Frz, 5: Rev, 6: Gate
+        const int slotIdx = availableSlots[(size_t)j];
+        const int fxt     = availableTypes[(size_t)j];
+        const juce::String x(slotIdx);
+
         setV("fx" + x + "Type", (float)fxt);
         setV("fx" + x + "Amount", rf(25.0f, 65.0f));
+
         if (fxt == 6)
         {
             setV("gateDepth", rf(0.3f, 1.0f));
@@ -1399,6 +1439,7 @@ bool GranularAudioProcessor::saveUserPreset(const juce::String& name)
 void GranularAudioProcessor::loadUserPresetFile(const juce::File& file)
 {
     if (!file.existsAsFile()) return;
+    panic(); // プリセット切替時に古い発音や残響を確実に消音
     std::unique_ptr<juce::XmlElement> xml(juce::XmlDocument::parse(file));
     if (xml == nullptr) return;
 
