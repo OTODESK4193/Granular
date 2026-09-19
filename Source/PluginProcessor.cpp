@@ -119,13 +119,17 @@ static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& des
     char compType[4] = {0};
     fs.read(compType, 4);
 
-    // デコード対応判定: 'able', 'fl32', 'FL32', 'NONE', 'none'
-    bool isAble = (std::memcmp(compType, "able", 4) == 0);
+    // 'able' は Ableton Pack 独自のプロプライエタリ暗号化/圧縮コンテナのためデコード不可。即座に拒否
+    if (std::memcmp(compType, "able", 4) == 0)
+        return false;
+
+    // デコード対応判定: 'fl32', 'FL32', 'NONE', 'none', 'sowt'
     bool isFloat32 = (std::memcmp(compType, "fl32", 4) == 0 || std::memcmp(compType, "FL32", 4) == 0);
-    bool isPcmStandard = (std::memcmp(compType, "NONE", 4) == 0 || std::memcmp(compType, "none", 4) == 0);
+    bool isPcmStandard = (std::memcmp(compType, "NONE", 4) == 0 || std::memcmp(compType, "none", 4) == 0
+                          || std::memcmp(compType, "sowt", 4) == 0);
 
     // いずれの対応タイプでもない場合は、JUCEの標準デコーダーにフォールバックさせるため処理を中断
-    if (!isAble && !isFloat32 && !isPcmStandard)
+    if (!isFloat32 && !isPcmStandard)
         return false;
 
     // SSND チャンク解析
@@ -252,6 +256,19 @@ static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& des
         }
     }
 
+    // サニティチェック (NaN/Inf または異常過大振幅の検出)
+    for (int ch = 0; ch < destBuffer.getNumChannels(); ++ch)
+    {
+        auto range = destBuffer.findMinMax(ch, 0, destBuffer.getNumSamples());
+        if (std::isnan(range.getStart()) || std::isnan(range.getEnd())
+            || std::isinf(range.getStart()) || std::isinf(range.getEnd())
+            || range.getStart() < -4.0f || range.getEnd() > 4.0f)
+        {
+            destBuffer.clear();
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -375,6 +392,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("revShimmer", "Reverb Shimmer", 0.0f, 1.0f, 0.4f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("revDamp",    "Reverb Damp",    0.0f, 1.0f, 0.3f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("revMod",     "Reverb Mod",     0.0f, 1.0f, 0.4f));
+
+    // Gate (SPECTRA8 完全一致)
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("gateRate", "Gate Rate",
+        gfx::FormantGate::getRateNames(), 4)); // 1/16
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("gatePattern", "Gate Pattern",
+        gfx::FormantGate::getPatternNames(), 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("gateDepth", "Gate Depth",
+        0.0f, 100.0f, 80.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("gateDecay", "Gate Decay",
+        10.0f, 100.0f, 50.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("gateVowel", "Gate Vowel",
+        0.0f, 100.0f, 50.0f));
 
     // --- MODマトリクス: LFO×4 ---
     for (int i = 1; i <= ModMatrix::kNumLfos; ++i)
@@ -516,11 +545,19 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         return;
     }
 
-    // --- ホストBPM取得 ---
+    // --- ホストBPM / 再生情報取得 ---
     double bpm = 120.0;
+    double ppqPos = 0.0;
+    bool isPlaying = false;
     if (auto* ph = getPlayHead())
+    {
         if (auto pos = ph->getPosition())
+        {
             if (pos->getBpm()) bpm = *pos->getBpm();
+            if (pos->getPpqPosition()) ppqPos = *pos->getPpqPosition();
+            isPlaying = pos->getIsPlaying();
+        }
+    }
 
     // --- アルペジエイター (MIDIを置き換え) ---
     ArpParams arpP;
@@ -722,6 +759,14 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     fxP.revShimmer  = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revShimmer")->load() + modMatrix.get(ModMatrix::DstRevShimmer));
     fxP.revDamp     = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revDamp")->load() + modMatrix.get(ModMatrix::DstRevDamp));
     fxP.revMod      = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revMod")->load() + modMatrix.get(ModMatrix::DstRevMod));
+
+    fxP.ppqPosition = ppqPos;
+    fxP.isPlaying   = isPlaying;
+    fxP.gateRate    = (int)apvts.getRawParameterValue("gateRate")->load();
+    fxP.gatePattern = (int)apvts.getRawParameterValue("gatePattern")->load();
+    fxP.gateDepth   = juce::jlimit(0.0f, 100.0f, apvts.getRawParameterValue("gateDepth")->load() + modMatrix.get(ModMatrix::DstGateDepth) * 100.0f);
+    fxP.gateDecay   = juce::jlimit(10.0f, 100.0f, apvts.getRawParameterValue("gateDecay")->load() + modMatrix.get(ModMatrix::DstGateDecay) * 100.0f);
+    fxP.gateVowel   = juce::jlimit(0.0f, 100.0f, apvts.getRawParameterValue("gateVowel")->load() + modMatrix.get(ModMatrix::DstGateVowel) * 100.0f);
 
     // --- FX Dry/Wet (MOD対象): プリFXを退避 → FX後にブレンド ---
     const int numCh = buffer.getNumChannels();

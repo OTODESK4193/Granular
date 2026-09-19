@@ -242,56 +242,98 @@ void FxPanel::swapSlots(int a, int b)
 void FxPanel::rebuildDetails()
 {
     // 破棄 (Attachment → Component の順)
-    detailComboAttachment.reset();
+    detailComboAttachments.clear();
     detailKnobAttachments.clear();
-    detailCombo.reset();
-    detailComboLabel.reset();
+    detailCombos.clear();
+    detailComboLabels.clear();
     detailKnobs.clear();
     detailKnobLabels.clear();
 
+    struct ComboDef { const char* id; const char* label; bool isSubTree = false; };
+    std::vector<ComboDef> comboDefs;
     struct KnobDef { const char* id; const char* label; };
     std::vector<KnobDef> knobDefs;
-    const char* comboId = nullptr;
-    const char* comboLabelText = nullptr;
 
     switch (getSlotType(selectedSlot))
     {
     case FxChain::Saturation:
-        comboId = "satAlgo"; comboLabelText = "ALGO";
-        knobDefs = { { "satDrive", "DRIVE" }, { "satPreHz", "PRE-HPF" }, { "satTrim", "TRIM" } };
+        comboDefs = { { "satAlgo", "ALGO", false } };
+        knobDefs  = { { "satDrive", "DRIVE" }, { "satPreHz", "PRE-HPF" }, { "satTrim", "TRIM" } };
         break;
     case FxChain::Chorus:
-        knobDefs = { { "choRate", "RATE" }, { "choDepth", "DEPTH" }, { "choWidth", "WIDTH" } };
+        knobDefs  = { { "choRate", "RATE" }, { "choDepth", "DEPTH" }, { "choWidth", "WIDTH" } };
         break;
     case FxChain::Delay:
-        comboId = "dlyTime"; comboLabelText = "TIME";
-        knobDefs = { { "dlyFeedback", "FEEDBACK" }, { "dlyDuck", "DUCK" }, { "dlyDamp", "DAMP" } };
+        comboDefs = { { "dlyTime", "TIME", false } };
+        knobDefs  = { { "dlyFeedback", "FEEDBACK" }, { "dlyDuck", "DUCK" }, { "dlyDamp", "DAMP" } };
         break;
     case FxChain::Freeze:
-        knobDefs = { { "frzSize", "SIZE" }, { "frzFeedback", "FEEDBACK" }, { "frzDamp", "DAMP" } };
+        knobDefs  = { { "frzSize", "SIZE" }, { "frzFeedback", "FEEDBACK" }, { "frzDamp", "DAMP" } };
         break;
     case FxChain::Reverb:
-        knobDefs = { { "revDecay", "DECAY" }, { "revShimmer", "SHIMMER" }, { "revDamp", "DAMP" }, { "revMod", "MOD" } };
+        knobDefs  = { { "revDecay", "DECAY" }, { "revShimmer", "SHIMMER" }, { "revDamp", "DAMP" }, { "revMod", "MOD" } };
+        break;
+    case FxChain::Gate:
+        comboDefs = { { "gateRate", "RATE", false },
+                      { "gatePattern", "PATTERN", true } };
+        knobDefs  = { { "gateDepth", "DEPTH" }, { "gateDecay", "DECAY" }, { "gateVowel", "VOWEL" } };
         break;
     default:
         break; // None: 詳細なし
     }
 
-    if (comboId != nullptr)
+    for (const auto& d : comboDefs)
     {
-        detailCombo = std::make_unique<juce::ComboBox>();
-        if (auto* choiceParam = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter(comboId)))
-            detailCombo->addItemList(choiceParam->choices, 1);
-        addAndMakeVisible(*detailCombo);
-        detailComboAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-            proc.apvts, comboId, *detailCombo);
+        auto combo = std::make_unique<juce::ComboBox>();
+        if (d.isSubTree)
+        {
+            // SPECTRA8 完全移植: 5カテゴリ階層ツリーメニュー
+            const auto patternNames = gfx::FormantGate::getPatternNames();
+            auto* root = combo->getRootMenu();
+            root->clear();
 
-        detailComboLabel = std::make_unique<juce::Label>();
-        detailComboLabel->setText(comboLabelText, juce::dontSendNotification);
-        detailComboLabel->setJustificationType(juce::Justification::centredLeft);
-        detailComboLabel->setFont(juce::Font(juce::FontOptions(10.5f, juce::Font::bold)));
-        detailComboLabel->setColour(juce::Label::textColourId, GranularColors::textDim);
-        addAndMakeVisible(*detailComboLabel);
+            juce::PopupMenu subStraight;
+            for (int i = 0; i < 10; ++i) subStraight.addItem(i + 1, patternNames[i]);
+            root->addSubMenu("Straight (10)", subStraight);
+
+            juce::PopupMenu subTriplet;
+            for (int i = 10; i < 18; ++i) subTriplet.addItem(i + 1, patternNames[i]);
+            root->addSubMenu("Triplet & Swing (8)", subTriplet);
+
+            juce::PopupMenu subDotted;
+            for (int i = 18; i < 26; ++i) subDotted.addItem(i + 1, patternNames[i]);
+            root->addSubMenu("Dotted & Polyrhythm (8)", subDotted);
+
+            juce::PopupMenu subEdm;
+            for (int i = 26; i < 38; ++i) subEdm.addItem(i + 1, patternNames[i]);
+            root->addSubMenu("ColorBass & EDM (12)", subEdm);
+
+            juce::PopupMenu subGlitch;
+            for (int i = 38; i < 50; ++i) subGlitch.addItem(i + 1, patternNames[i]);
+            root->addSubMenu("Glitch & Complex (12)", subGlitch);
+        }
+        else
+        {
+            if (auto* choiceParam = dynamic_cast<juce::AudioParameterChoice*>(proc.apvts.getParameter(d.id)))
+                combo->addItemList(choiceParam->choices, 1);
+        }
+
+        combo->setColour(juce::ComboBox::backgroundColourId, GranularColors::panel);
+        combo->setColour(juce::ComboBox::textColourId, GranularColors::text);
+        combo->setColour(juce::ComboBox::outlineColourId, GranularColors::panelLine);
+        addAndMakeVisible(*combo);
+        detailComboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+            proc.apvts, d.id, *combo));
+
+        auto label = std::make_unique<juce::Label>();
+        label->setText(d.label, juce::dontSendNotification);
+        label->setJustificationType(juce::Justification::centredLeft);
+        label->setFont(juce::Font(juce::FontOptions(10.5f, juce::Font::bold)));
+        label->setColour(juce::Label::textColourId, GranularColors::textDim);
+        addAndMakeVisible(*label);
+
+        detailCombos.push_back(std::move(combo));
+        detailComboLabels.push_back(std::move(label));
     }
 
     for (const auto& def : knobDefs)
@@ -422,17 +464,27 @@ void FxPanel::timerCallback()
             applyModRing(*detailKnobs[3], D::DstRevMod, LinearAdd, 1.0f);
         }
     }
+    else if (type == FxChain::Gate)
+    {
+        if (detailKnobs.size() >= 3)
+        {
+            applyModRing(*detailKnobs[0], D::DstGateDepth, LinearAdd, 100.0f);
+            applyModRing(*detailKnobs[1], D::DstGateDecay, LinearAdd, 100.0f);
+            applyModRing(*detailKnobs[2], D::DstGateVowel, LinearAdd, 100.0f);
+        }
+    }
 }
 
 void FxPanel::layoutDetails()
 {
     int x = 20;
 
-    if (detailCombo != nullptr)
+    for (size_t i = 0; i < detailCombos.size(); ++i)
     {
-        detailComboLabel->setBounds(x, kDetailY + 24, 100, 14);
-        detailCombo->setBounds(x, kDetailY + 40, 130, 26);
-        x += 150;
+        const int w = (i == 1 && getSlotType(selectedSlot) == FxChain::Gate) ? 170 : 120;
+        detailComboLabels[i]->setBounds(x, kDetailY + 24, w, 14);
+        detailCombos[i]->setBounds(x, kDetailY + 40, w, 26);
+        x += w + 20;
     }
 
     for (size_t i = 0; i < detailKnobs.size(); ++i)
@@ -458,11 +510,19 @@ void FxPanel::paint(juce::Graphics& g)
                 GranularColors::accentMaster);
 
     // 詳細エリアのヘッダー (選択FX名)
-    const auto typeNames = FxChain::getTypeNames();
     const int t = getSlotType(selectedSlot);
-    drawSection("DETAILS  -  SLOT " + juce::String(selectedSlot + 1) + "  ["
-                + typeNames[juce::jlimit(0, typeNames.size() - 1, t)] + "]",
-                20, kDetailY, 1040, GranularColors::accentGrain);
+    juce::String sectionTitle;
+    if (t == FxChain::Gate)
+    {
+        sectionTitle = "DETAILS  -  SLOT " + juce::String(selectedSlot + 1) + "  [FORMANT RHYTHM GATE (50 PATTERNS)]";
+    }
+    else
+    {
+        const auto typeNames = FxChain::getTypeNames();
+        sectionTitle = "DETAILS  -  SLOT " + juce::String(selectedSlot + 1) + "  ["
+                     + typeNames[juce::jlimit(0, typeNames.size() - 1, t)] + "]";
+    }
+    drawSection(sectionTitle, 20, kDetailY, 1040, GranularColors::accentGrain);
 
     if (t == FxChain::None)
     {

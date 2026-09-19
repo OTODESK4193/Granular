@@ -66,6 +66,8 @@ public:
         DstEnv1Attack, DstEnv1Decay, DstEnv1Sustain, DstEnv1Release,
         DstEnv2Attack, DstEnv2Decay, DstEnv2Sustain, DstEnv2Release,
         DstEnv3Attack, DstEnv3Decay, DstEnv3Sustain, DstEnv3Release,
+        // Gate (末尾に追加)
+        DstGateDepth, DstGateDecay, DstGateVowel,
         NumDsts
     };
 
@@ -93,7 +95,8 @@ public:
             "LFO 1 Rate", "LFO 2 Rate", "LFO 3 Rate", "LFO 4 Rate",
             "ENV 1 Attack", "ENV 1 Decay", "ENV 1 Sustain", "ENV 1 Release",
             "ENV 2 Attack", "ENV 2 Decay", "ENV 2 Sustain", "ENV 2 Release",
-            "ENV 3 Attack", "ENV 3 Decay", "ENV 3 Sustain", "ENV 3 Release"
+            "ENV 3 Attack", "ENV 3 Decay", "ENV 3 Sustain", "ENV 3 Release",
+            "Gate Depth", "Gate Decay", "Gate Vowel"
         };
     }
     static juce::StringArray getWaveNames()

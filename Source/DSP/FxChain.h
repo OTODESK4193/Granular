@@ -726,6 +726,279 @@ namespace gfx
         state.lastF = Fx;
         return output;
     }
+
+    // ------------------------------------------
+    // SPECTRA8 移植: Formant Gate 用 SVF & softClip
+    // ------------------------------------------
+    struct Svf
+    {
+        float ic1 = 0.0f, ic2 = 0.0f;
+        void reset() noexcept { ic1 = ic2 = 0.0f; }
+
+        void process(float in, float fcNorm, float Q, float& lp, float& bp, float& hp) noexcept
+        {
+            const float g = std::tan(juce::MathConstants<float>::pi
+                                   * juce::jlimit(0.0005f, 0.49f, fcNorm));
+            const float k = 1.0f / juce::jmax(0.3f, Q);
+            const float a1 = 1.0f / (1.0f + g * (g + k));
+            const float a2 = g * a1;
+            const float a3 = g * a2;
+
+            const float v3 = in - ic2;
+            const float v1 = a1 * ic1 + a2 * v3;
+            const float v2 = ic2 + a2 * ic1 + a3 * v3;
+            ic1 = 2.0f * v1 - ic1;
+            ic2 = 2.0f * v2 - ic2;
+
+            lp = v2;
+            bp = v1;
+            hp = in - k * v1 - v2;
+        }
+    };
+
+    inline float softClip(float x) noexcept
+    {
+        if (x < -3.0f) return -1.0f;
+        if (x >  3.0f) return  1.0f;
+        const float x2 = x * x;
+        return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+    }
+
+    // ==========================================
+    // SPECTRA8 移植: Formant Rhythm Gate (50 Patterns)
+    // ==========================================
+    class FormantGate
+    {
+    public:
+        static constexpr int kNumSteps = 16;
+        static constexpr int kTotalPatterns = 50;
+
+        static juce::StringArray getRateNames()
+        {
+            return { "1/2", "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" };
+        }
+
+        static juce::StringArray getPatternNames()
+        {
+            return {
+                // Category 1: Straight (10)
+                "1/2 Beat", "1/4 Beat", "1/8 Beat", "1/16 Beat", "1/32 Beat",
+                "Off-Beat 8th", "Off-Beat 16th", "Pulse 25%", "Pulse 75%", "March 4-on-floor",
+                // Category 2: Triplet & Swing (8)
+                "1/4 Triplet", "1/8 Triplet", "1/16 Triplet", "Shuffle Light", "Shuffle Heavy",
+                "Triplet Burst", "Gallop", "Waltz",
+                // Category 3: Dotted & Polyrhythm (8)
+                "1/4 Dotted", "1/8 Dotted", "1/16 Dotted", "Syncopated Dotted",
+                "Polyrhythm 3:4", "Polyrhythm 3:2", "Hemiola", "Tresillo 3-3-2",
+                // Category 4: ColorBass & EDM (12)
+                "Dubstep Wobble", "Riddim Chug", "Future Bass Pump", "Trance Gate Classic",
+                "Sidechain Pump", "Psytrance 16th", "Trap Hihat Roll", "Half-Time Chop",
+                "Drum'n'Bass Chop", "UK Garage Bounce", "Bounce Groove", "Stutter Drop",
+                // Category 5: Glitch & Complex (12)
+                "Euclid 3/8", "Euclid 5/8", "Euclid 5/16", "Euclid 7/16", "Euclid 9/16",
+                "Binary Counter", "Fibonacci", "Accelerated Burst", "Decelerated Drop",
+                "Micro Stutter", "Chaos Squelch", "Morse Code"
+            };
+        }
+
+        void prepare(double sr)
+        {
+            sampleRate = sr;
+            slewCoeff = (float)(1.0 - std::exp(-1.0 / (sampleRate * 0.0008)));
+            reset();
+        }
+
+        void reset()
+        {
+            phase = 0.0;
+            stepIdx = 0;
+            prevStepIdx = 0;
+            curEnv = 0.0f;
+            for (auto& f : fmtL) f.reset();
+            for (auto& f : fmtR) f.reset();
+            curF1 = 700.0f; curF2 = 1100.0f; curF3 = 2400.0f;
+        }
+
+        void setParams(int rateIdx, int patternIdx, float depth01, float decay01, float vowel01) noexcept
+        {
+            mRate = juce::jlimit(0, 6, rateIdx);
+            mPattern = juce::jlimit(0, kTotalPatterns - 1, patternIdx);
+            mDepth = juce::jlimit(0.0f, 1.0f, depth01);
+            mDecay = juce::jlimit(0.05f, 1.0f, decay01);
+            mVowel = juce::jlimit(0.0f, 1.0f, vowel01);
+        }
+
+        void process(float& l, float& r, double bpm = 120.0, double ppqPosition = 0.0, bool isPlaying = false) noexcept
+        {
+            static const double kStepBeats[7] = {
+                2.0,            // 1/2
+                1.0,            // 1/4
+                0.5,            // 1/8
+                1.0 / 3.0,      // 1/8T
+                0.25,           // 1/16
+                1.0 / 6.0,      // 1/16T
+                0.125           // 1/32
+            };
+            const double stepBeats = kStepBeats[juce::jlimit(0, 6, mRate)];
+            const double safeBpm = (bpm > 20.0 && bpm < 400.0) ? bpm : 120.0;
+
+            int curStep = 0;
+            int nextStep = 0;
+            float p = 0.0f;
+
+            if (isPlaying && ppqPosition >= 0.0)
+            {
+                double stepPos = ppqPosition / stepBeats;
+                double intPart = std::floor(stepPos);
+                p = (float)(stepPos - intPart);
+                curStep = ((int)intPart % kNumSteps + kNumSteps) % kNumSteps;
+                nextStep = (curStep + 1) % kNumSteps;
+                stepIdx = curStep;
+            }
+            else
+            {
+                double stepHz = (safeBpm / 60.0) / stepBeats;
+                phase += stepHz / sampleRate;
+                while (phase >= 1.0)
+                {
+                    phase -= 1.0;
+                    stepIdx = (stepIdx + 1) % kNumSteps;
+                }
+                curStep = stepIdx;
+                nextStep = (stepIdx + 1) % kNumSteps;
+                p = (float)phase;
+            }
+
+            const int prevStep = (curStep - 1 + kNumSteps) % kNumSteps;
+            const bool prevOn = getPatternStep(mPattern, prevStep);
+            const bool curOn = getPatternStep(mPattern, curStep);
+            const bool nextOn = getPatternStep(mPattern, nextStep);
+
+            const double stepSec = (60.0 / safeBpm) * stepBeats;
+            const float fadeRatio = (float)juce::jlimit(0.015, 0.35, 0.0035 / stepSec);
+
+            const bool isLegato = (mDecay >= 0.95f);
+            const float openRatio = isLegato ? 1.0f : juce::jmap(mDecay, 0.05f, 0.95f, 0.15f, 0.90f);
+            const float gateLen = juce::jmax(fadeRatio * 2.0f, openRatio);
+            const float releaseStart = gateLen - fadeRatio;
+
+            float stepEnv = 0.0f;
+
+            if (curOn)
+            {
+                const bool tiedFromPrev = prevOn && isLegato;
+                const bool tiedToNext = nextOn && isLegato;
+
+                if (p < fadeRatio)
+                {
+                    if (tiedFromPrev)
+                        stepEnv = 1.0f;
+                    else
+                        stepEnv = 0.5f * (1.0f - std::cos(juce::MathConstants<float>::pi * (p / fadeRatio)));
+                }
+                else if (p >= releaseStart)
+                {
+                    if (tiedToNext)
+                        stepEnv = 1.0f;
+                    else if (p < gateLen)
+                    {
+                        const float fallP = (p - releaseStart) / fadeRatio;
+                        stepEnv = 0.5f * (1.0f + std::cos(juce::MathConstants<float>::pi * juce::jlimit(0.0f, 1.0f, fallP)));
+                    }
+                    else
+                    {
+                        stepEnv = 0.0f;
+                    }
+                }
+                else
+                {
+                    stepEnv = 1.0f;
+                }
+            }
+            else
+            {
+                stepEnv = 0.0f;
+            }
+
+            curEnv += slewCoeff * (stepEnv - curEnv);
+            const float gain = 1.0f - mDepth * (1.0f - curEnv);
+
+            if (mVowel > 0.001f)
+            {
+                static const float kVowels[5][3] = {
+                    {  730.0f, 1090.0f, 2440.0f }, // /a/
+                    {  270.0f, 2290.0f, 3010.0f }, // /i/
+                    {  300.0f,  870.0f, 2240.0f }, // /u/
+                    {  530.0f, 1840.0f, 2480.0f }, // /e/
+                    {  570.0f,  840.0f, 2410.0f }, // /o/
+                };
+                const int v = stepIdx % 5;
+                const float targetF1 = kVowels[v][0];
+                const float targetF2 = kVowels[v][1];
+                const float targetF3 = kVowels[v][2];
+
+                curF1 += (targetF1 - curF1) * 0.01f;
+                curF2 += (targetF2 - curF2) * 0.01f;
+                curF3 += (targetF3 - curF3) * 0.01f;
+
+                float freqs[3] = { curF1, curF2, curF3 };
+                float wetL = 0.0f, wetR = 0.0f;
+
+                for (int j = 0; j < 3; ++j)
+                {
+                    const float fc = juce::jlimit(20.0f, (float)sampleRate * 0.45f, freqs[j]) / (float)sampleRate;
+                    float lp, bp, hp;
+                    fmtL[(size_t)j].process(l, fc, 6.0f, lp, bp, hp);
+                    wetL += bp;
+                    fmtR[(size_t)j].process(r, fc, 6.0f, lp, bp, hp);
+                    wetR += bp;
+                }
+
+                l = l * (1.0f - mVowel) + wetL * 2.0f * mVowel;
+                r = r * (1.0f - mVowel) + wetR * 2.0f * mVowel;
+            }
+
+            l = softClip(l * gain);
+            r = softClip(r * gain);
+        }
+
+        static bool getPatternStep(int pattern, int step) noexcept
+        {
+            static const uint16_t kPatternMasks[kTotalPatterns] = {
+                // Category 1: Straight (10)
+                0xAAAA, 0x8888, 0xCCCC, 0xFFFF, 0xEEEE,
+                0x5555, 0x2222, 0x1111, 0x7777, 0x9999,
+                // Category 2: Triplet & Swing (8)
+                0x9249, 0xB6DB, 0xEDDB, 0x8A8A, 0x8282,
+                0xEA20, 0x9292, 0x4924,
+                // Category 3: Dotted & Polyrhythm (8)
+                0x8421, 0x9249, 0x4924, 0x8892,
+                0x8A42, 0x94A5, 0x6969, 0x8924,
+                // Category 4: ColorBass & EDM (12)
+                0xEA00, 0x00A0, 0x0888, 0xA5A5,
+                0x000F, 0x7777, 0xFFF0, 0x8080,
+                0x9090, 0x9A48, 0x69B2, 0xFE02,
+                // Category 5: Glitch & Complex (12)
+                0x9248, 0xAD5B, 0x8892, 0xAA92, 0xADA5,
+                0x5A5A, 0x9421, 0xF842, 0x248F,
+                0xF0F0, 0x6B3D, 0xA8AE
+            };
+
+            const int pIdx = juce::jlimit(0, kTotalPatterns - 1, pattern);
+            return ((kPatternMasks[pIdx] >> (step % 16)) & 1) != 0;
+        }
+
+    private:
+        double sampleRate = 44100.0;
+        double phase = 0.0;
+        int stepIdx = 0, prevStepIdx = 0;
+        float curEnv = 0.0f;
+        float slewCoeff = 0.025f;
+        int mRate = 4, mPattern = 0;
+        float mDepth = 0.8f, mVowel = 0.5f, mDecay = 0.5f;
+        std::array<Svf, 3> fmtL, fmtR;
+        float curF1 = 700.0f, curF2 = 1100.0f, curF3 = 2400.0f;
+    };
 } // namespace gfx
 
 // ==========================================
@@ -738,11 +1011,11 @@ public:
 
     static constexpr int kNumSlots = 5; // FXの数と一致
 
-    enum FxType { None = 0, Saturation, Chorus, Delay, Freeze, Reverb };
+    enum FxType { None = 0, Saturation, Chorus, Delay, Freeze, Reverb, Gate };
 
     static juce::StringArray getTypeNames()
     {
-        return { "None", "Saturation (ADAA)", "Ensemble Chorus", "Tape Delay", "Freeze", "Shimmer Reverb" };
+        return { "None", "Saturation (ADAA)", "Ensemble Chorus", "Tape Delay", "Freeze", "Shimmer Reverb", "Gate" };
     }
     static juce::StringArray getSatAlgoNames()
     {
@@ -801,6 +1074,15 @@ public:
         float revShimmer = 0.4f;    // 0..1
         float revDamp = 0.3f;       // 0..1
         float revMod = 0.4f;        // 0..1
+
+        // --- Gate 詳細 (SPECTRA8 完全一致) ---
+        int   gateRate = 4;        // 1/16 (FormantGate::getRateNames())
+        int   gatePattern = 0;     // 0..49 (FormantGate::getPatternNames())
+        float gateDepth = 80.0f;   // 0..100 (%)
+        float gateDecay = 50.0f;   // 10..100 (%)
+        float gateVowel = 50.0f;   // 0..100 (%)
+        double ppqPosition = 0.0;
+        bool   isPlaying = false;
     };
 
     void prepare(double sr)
@@ -810,7 +1092,18 @@ public:
         delay.prepareToPlay(sr);
         freeze.prepareToPlay(sr);
         reverb.prepareToPlay(sr);
+        formantGate.prepare(sr);
         dcCoef = std::exp((float)(-1.0 / (0.004523 * sr)));
+        for (int ch = 0; ch < 2; ++ch) { satState[ch].reset(); dcState[ch] = 0.0f; }
+    }
+
+    void reset()
+    {
+        chorus.prepareToPlay(sampleRate);
+        delay.prepareToPlay(sampleRate);
+        freeze.prepareToPlay(sampleRate);
+        reverb.prepareToPlay(sampleRate);
+        formantGate.reset();
         for (int ch = 0; ch < 2; ++ch) { satState[ch].reset(); dcState[ch] = 0.0f; }
     }
 
@@ -881,6 +1174,21 @@ public:
                 case Reverb:
                     reverb.process(l, r, amt, p.revDecay, p.revShimmer, p.revDamp, p.revMod);
                     break;
+                case Gate:
+                {
+                    const float inL = l;
+                    const float inR = r;
+                    float procL = l;
+                    float procR = r;
+                    formantGate.setParams(p.gateRate, p.gatePattern,
+                                          p.gateDepth * 0.01f, p.gateDecay * 0.01f, p.gateVowel * 0.01f);
+                    const double sampleBeats = (p.bpm / 60.0) / sampleRate;
+                    const double curPpq = p.ppqPosition + (double)i * sampleBeats;
+                    formantGate.process(procL, procR, p.bpm, curPpq, p.isPlaying);
+                    l = inL * (1.0f - amt) + procL * amt;
+                    r = inR * (1.0f - amt) + procR * amt;
+                    break;
+                }
                 default: break;
                 }
 
@@ -929,6 +1237,7 @@ private:
     gfx::TapeDelay delay;
     gfx::FreezeSmear freeze;
     gfx::ShimmerReverb reverb;
+    gfx::FormantGate formantGate;
 
     gfx::SaturationState satState[2];
     float dcState[2] = { 0.0f, 0.0f };

@@ -101,9 +101,9 @@ private:
     int selectedSlot = 0;
 
     // --- 動的な詳細コントロール ---
-    std::unique_ptr<juce::ComboBox> detailCombo;
-    std::unique_ptr<juce::Label>    detailComboLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> detailComboAttachment;
+    std::vector<std::unique_ptr<juce::ComboBox>> detailCombos;
+    std::vector<std::unique_ptr<juce::Label>>    detailComboLabels;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> detailComboAttachments;
 
     std::vector<std::unique_ptr<ValueKnob>>   detailKnobs;
     std::vector<std::unique_ptr<juce::Label>> detailKnobLabels;
