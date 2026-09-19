@@ -5,7 +5,7 @@
 //   Sampleは含まない（プリセットはノブ/MOD/FX設定のみ。音は各自ロード）。
 //   既存80種（Pads, Textures, Rhythmic, Bass, Leads, Cinematic, Glitch, Experimental）
 //     はピッチ感・音楽性を大幅に底上げ（Tone付加、P-Sync、ScaleQuantize活用）。
-//   新設40種は各カテゴリ内の新設サブカテゴリ「Pitch」（Tone 1.0f全開特化）。
+//   新設40種は独立カテゴリ「Pitch」（Tone 1.0f全開特化、サブカテゴリにPluck, Bell, Lead, Pad, Bass, Arp, Gate, Drone等）。
 //   合計120種。
 // ==========================================
 #pragma once
@@ -378,177 +378,177 @@ namespace GranularPresets
             {"fx1Type",1},{"fx1Amount",35.f},{"fx5Type",5},{"fx5Amount",42.f} }},
 
         // ============================================================
-        // I. 新設サブカテゴリ「Pitch」40選（Tone 1.0f 全開特化）
-        //   メインカテゴリは Leads & Keys / Pads & Ambient / Bass / Rhythmic / Cinematic
-        //   サブカテゴリはすべて「Pitch」
+        // I. 新設カテゴリ「Pitch」40選（Tone 1.0f 全開特化）
+        //   メインカテゴリは独立して「Pitch」とし、ブラウザのカテゴリ一覧に表示
+        //   サブカテゴリに各楽器特性（Pluck, Bell, Lead, Pad, Bass, Arp, Gate, Drone等）
         // ============================================================
 
-        // --- Leads & Keys / Pitch (15) ---
-        { "Reso Pluck C3", "Leads & Keys", "Pitch", {
+        // --- Pitch / Pluck & Bell & Lead (15) ---
+        { "Reso Pluck C3", "Pitch", "Pluck", {
             {"tone",1.0f},{"grainSize",0.06f},{"density",0.6f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.001f},{"decay",0.35f},{"sustain",0.0f},{"release",0.4f},
             {"fx3Type",3},{"fx3Amount",25.f},{"masterHPF",80.f} }},
-        { "Crystal Harp", "Leads & Keys", "Pitch", {
+        { "Crystal Harp", "Pitch", "Harp", {
             {"tone",1.0f},{"grainSize",0.09f},{"density",0.75f},{"pitchSync",1},{"scaleOn",1},{"octave",1},
             {"attack",0.002f},{"decay",0.6f},{"sustain",0.1f},{"release",0.8f},
             {"fx5Type",5},{"fx5Amount",35.f},{"revShimmer",0.6f} }},
-        { "Karplus String", "Leads & Keys", "Pitch", {
+        { "Karplus String", "Pitch", "Pluck", {
             {"tone",1.0f},{"grainSize",0.04f},{"density",0.5f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.001f},{"decay",0.45f},{"sustain",0.05f},{"release",0.5f},
             {"fx1Type",1},{"fx1Amount",20.f},{"satDrive",3.f} }},
-        { "Steel Kalimba", "Leads & Keys", "Pitch", {
+        { "Steel Kalimba", "Pitch", "Pluck", {
             {"tone",1.0f},{"grainSize",0.05f},{"density",0.55f},{"pitchSync",1},{"octave",1},{"scaleOn",1},
             {"attack",0.001f},{"decay",0.5f},{"sustain",0.0f},{"release",0.4f},
             {"fx2Type",2},{"fx2Amount",25.f} }},
-        { "Glass Marimba", "Leads & Keys", "Pitch", {
+        { "Glass Marimba", "Pitch", "Pluck", {
             {"tone",1.0f},{"grainSize",0.045f},{"density",0.5f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.001f},{"decay",0.3f},{"sustain",0.0f},{"release",0.25f},
             {"masterLPF",9000.f},{"fx5Type",5},{"fx5Amount",20.f} }},
-        { "Harmonic Bell", "Leads & Keys", "Pitch", {
+        { "Harmonic Bell", "Pitch", "Bell", {
             {"tone",1.0f},{"grainSize",0.12f},{"density",0.65f},{"pitchSync",1},{"octave",1},{"scaleOn",1},
             {"attack",0.002f},{"decay",1.2f},{"sustain",0.15f},{"release",1.5f},
             {"fx5Type",5},{"fx5Amount",40.f},{"revDecay",0.85f} }},
-        { "Temple Chime", "Leads & Keys", "Pitch", {
+        { "Temple Chime", "Pitch", "Bell", {
             {"tone",1.0f},{"grainSize",0.18f},{"density",0.7f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.005f},{"decay",1.8f},{"sustain",0.1f},{"release",2.0f},
             {"fx3Type",3},{"fx3Amount",30.f},{"fx5Type",5},{"fx5Amount",45.f} }},
-        { "Silver Music Box", "Leads & Keys", "Pitch", {
+        { "Silver Music Box", "Pitch", "Bell", {
             {"tone",1.0f},{"grainSize",0.05f},{"density",0.45f},{"pitchSync",1},{"octave",2},{"scaleOn",1},
             {"attack",0.001f},{"decay",0.8f},{"sustain",0.0f},{"release",0.9f},
             {"fx5Type",5},{"fx5Amount",32.f},{"revShimmer",0.5f} }},
-        { "Glockenspiel Grain", "Leads & Keys", "Pitch", {
+        { "Glockenspiel Grain", "Pitch", "Bell", {
             {"tone",1.0f},{"grainSize",0.04f},{"density",0.5f},{"pitchSync",1},{"octave",2},{"scaleOn",1},
             {"attack",0.001f},{"decay",0.5f},{"sustain",0.0f},{"release",0.4f},
             {"masterHPF",300.f},{"fx2Type",2},{"fx2Amount",20.f} }},
-        { "Tubular Resonance", "Leads & Keys", "Pitch", {
+        { "Tubular Resonance", "Pitch", "Bell", {
             {"tone",1.0f},{"grainSize",0.15f},{"density",0.8f},{"pitchSync",1},{"octave",0},{"scaleOn",1},
             {"attack",0.003f},{"decay",1.5f},{"sustain",0.2f},{"release",1.8f},
             {"fx1Type",1},{"fx1Amount",15.f},{"fx5Type",5},{"fx5Amount",38.f} }},
-        { "Singing Glass Lead", "Leads & Keys", "Pitch", {
+        { "Singing Glass Lead", "Pitch", "Lead", {
             {"tone",1.0f},{"grainSize",0.14f},{"density",0.85f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.04f},{"decay",0.3f},{"sustain",0.85f},{"release",0.5f},
             {"fx2Type",2},{"fx2Amount",35.f},{"fx5Type",5},{"fx5Amount",30.f} }},
-        { "Vocal Formant Lead", "Leads & Keys", "Pitch", {
+        { "Vocal Formant Lead", "Pitch", "Lead", {
             {"tone",1.0f},{"grainSize",0.16f},{"density",0.8f},{"pitchSync",1},{"scaleOn",1},{"spraySpeed",0.1f},
             {"attack",0.03f},{"decay",0.25f},{"sustain",0.8f},{"release",0.45f},
             {"lfo1Rate",5.0f},{"mod1Src",1},{"mod1Dst",12},{"mod1Amt",0.25f} }},
-        { "Cyber Reed Lead", "Leads & Keys", "Pitch", {
+        { "Cyber Reed Lead", "Pitch", "Lead", {
             {"tone",1.0f},{"grainSize",0.08f},{"density",0.9f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.008f},{"decay",0.2f},{"sustain",0.75f},{"release",0.3f},
             {"fx1Type",1},{"fx1Amount",45.f},{"satDrive",6.f},{"masterLPF",6500.f} }},
-        { "Neon Flute", "Leads & Keys", "Pitch", {
+        { "Neon Flute", "Pitch", "Lead", {
             {"tone",1.0f},{"grainSize",0.12f},{"density",0.75f},{"pitchSync",1},{"octave",1},{"scaleOn",1},
             {"attack",0.06f},{"decay",0.3f},{"sustain",0.8f},{"release",0.4f},
             {"fx3Type",3},{"fx3Amount",28.f},{"dlyFeedback",0.4f} }},
-        { "Whistle Synth", "Leads & Keys", "Pitch", {
+        { "Whistle Synth", "Pitch", "Lead", {
             {"tone",1.0f},{"grainSize",0.1f},{"density",0.7f},{"pitchSync",1},{"octave",1},{"scaleOn",1},
             {"attack",0.02f},{"decay",0.2f},{"sustain",0.8f},{"release",0.35f},
             {"fx5Type",5},{"fx5Amount",35.f},{"revShimmer",0.4f} }},
 
-        // --- Pads & Ambient / Pitch (8) ---
-        { "Sine Reso Air", "Pads & Ambient", "Pitch", {
+        // --- Pitch / Pad & Ambient (8) ---
+        { "Sine Reso Air", "Pitch", "Pad", {
             {"tone",1.0f},{"grainSize",0.25f},{"density",0.82f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.8f},{"decay",1.2f},{"sustain",0.9f},{"release",2.2f},
             {"masterLPF",5500.f},{"fx5Type",5},{"fx5Amount",35.f} }},
-        { "Tuned Koto Pad", "Pads & Ambient", "Pitch", {
+        { "Tuned Koto Pad", "Pitch", "Pad", {
             {"tone",1.0f},{"grainSize",0.2f},{"density",0.8f},{"pitchSync",1},{"scaleOn",1},{"scale",4},
             {"attack",0.6f},{"decay",1.0f},{"sustain",0.85f},{"release",2.0f},
             {"fx1Type",1},{"fx1Amount",25.f},{"panSpread",0.8f},{"fx5Type",5},{"fx5Amount",38.f} }},
-        { "Bowed Metal Wash", "Pads & Ambient", "Pitch", {
+        { "Bowed Metal Wash", "Pitch", "Pad", {
             {"tone",1.0f},{"grainSize",0.32f},{"density",0.88f},{"pitchSync",1},{"scaleOn",1},
             {"attack",1.2f},{"decay",1.5f},{"sustain",0.9f},{"release",2.5f},
             {"fx4Type",4},{"fx4Amount",30.f},{"fx5Type",5},{"fx5Amount",45.f} }},
-        { "Ether Choir Pad", "Pads & Ambient", "Pitch", {
+        { "Ether Choir Pad", "Pitch", "Pad", {
             {"tone",1.0f},{"grainSize",0.32f},{"density",0.85f},{"pitchSync",1},{"scaleOn",1},
             {"attack",1.2f},{"decay",1.5f},{"sustain",0.9f},{"release",2.2f},
             {"fx2Type",2},{"fx2Amount",30.f},{"fx5Type",5},{"fx5Amount",45.f},{"revDecay",0.88f} }},
-        { "Resonant Ambient Wash", "Pads & Ambient", "Pitch", {
+        { "Resonant Ambient Wash", "Pitch", "Ambient", {
             {"tone",1.0f},{"grainSize",0.38f},{"density",0.8f},{"pitchSync",1},{"scaleOn",1},
             {"attack",1.8f},{"decay",2.0f},{"sustain",0.95f},{"release",3.0f},
             {"fx5Type",5},{"fx5Amount",50.f},{"revShimmer",0.7f} }},
-        { "Glass Cathedral", "Pads & Ambient", "Pitch", {
+        { "Glass Cathedral", "Pitch", "Ambient", {
             {"tone",1.0f},{"grainSize",0.28f},{"density",0.82f},{"pitchSync",1},{"octave",1},{"scaleOn",1},
             {"attack",1.5f},{"decay",1.8f},{"sustain",0.85f},{"release",2.5f},
             {"fx3Type",3},{"fx3Amount",25.f},{"fx5Type",5},{"fx5Amount",48.f} }},
-        { "Twilight Strings", "Pads & Ambient", "Pitch", {
+        { "Twilight Strings", "Pitch", "Strings", {
             {"tone",1.0f},{"grainSize",0.35f},{"density",0.88f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.8f},{"decay",1.2f},{"sustain",0.88f},{"release",2.0f},
             {"masterLPF",5500.f},{"fx2Type",2},{"fx2Amount",25.f},{"fx5Type",5},{"fx5Amount",38.f} }},
-        { "Frozen Harmonics", "Pads & Ambient", "Pitch", {
+        { "Frozen Harmonics", "Pitch", "Harmonics", {
             {"tone",1.0f},{"grainSize",0.26f},{"density",0.78f},{"pitchSync",1},{"pitchJitter",0.f},{"scaleOn",1},
             {"attack",1.0f},{"decay",1.5f},{"sustain",0.9f},{"release",2.4f},
             {"fx4Type",4},{"fx4Amount",30.f},{"fx5Type",5},{"fx5Amount",42.f} }},
 
-        // --- Bass / Pitch (6) ---
-        { "Cello Reso Bass", "Bass", "Pitch", {
+        // --- Pitch / Bass (6) ---
+        { "Cello Reso Bass", "Pitch", "Bass", {
             {"tone",1.0f},{"grainSize",0.18f},{"density",0.88f},{"pitchSync",1},{"octave",-1},{"scaleOn",1},
             {"attack",0.05f},{"decay",0.4f},{"sustain",0.85f},{"release",0.45f},
             {"masterLPF",3200.f},{"fx2Type",2},{"fx2Amount",25.f} }},
-        { "Overdrive Reso Bass", "Bass", "Pitch", {
+        { "Overdrive Reso Bass", "Pitch", "Bass", {
             {"tone",1.0f},{"grainSize",0.12f},{"density",0.92f},{"pitchSync",1},{"octave",-1},{"scaleOn",1},
             {"attack",0.005f},{"decay",0.3f},{"sustain",0.8f},{"release",0.3f},
             {"fx1Type",1},{"fx1Amount",55.f},{"satDrive",7.f},{"masterLPF",2800.f} }},
-        { "Reso Bass Pluck", "Bass", "Pitch", {
+        { "Reso Bass Pluck", "Pitch", "Bass Pluck", {
             {"tone",1.0f},{"grainSize",0.08f},{"density",0.85f},{"pitchSync",1},{"octave",-2},{"scaleOn",1},
             {"attack",0.002f},{"decay",0.4f},{"sustain",0.1f},{"release",0.3f},
             {"masterLPF",2200.f},{"fx1Type",1},{"fx1Amount",25.f} }},
-        { "Tuned 808 Resonator", "Bass", "Pitch", {
+        { "Tuned 808 Resonator", "Pitch", "Sub Bass", {
             {"tone",1.0f},{"grainSize",0.15f},{"density",0.88f},{"pitchSync",1},{"octave",-2},{"scaleOn",1},
             {"attack",0.002f},{"decay",0.9f},{"sustain",0.3f},{"release",0.5f},
             {"masterLPF",1500.f},{"satDrive",4.f},{"fx1Type",1},{"fx1Amount",30.f} }},
-        { "Vocaloid Bass", "Bass", "Pitch", {
+        { "Vocaloid Bass", "Pitch", "Bass", {
             {"tone",1.0f},{"grainSize",0.12f},{"density",0.9f},{"pitchSync",1},{"octave",-1},{"scaleOn",1},
             {"attack",0.004f},{"decay",0.35f},{"sustain",0.75f},{"release",0.3f},
             {"lfo1Rate",1.0f},{"mod1Src",1},{"mod1Dst",12},{"mod1Amt",0.4f},{"masterLPF",2800.f} }},
-        { "Metallic Reese", "Bass", "Pitch", {
+        { "Metallic Reese", "Pitch", "Bass", {
             {"tone",1.0f},{"grainSize",0.1f},{"density",0.92f},{"pitchSync",1},{"octave",-1},{"scaleOn",1},
             {"attack",0.005f},{"decay",0.3f},{"sustain",0.8f},{"release",0.35f},
             {"fx1Type",1},{"fx1Amount",40.f},{"fx2Type",2},{"fx2Amount",25.f},{"masterLPF",2400.f} }},
 
-        // --- Rhythmic / Pitch (6) ---
-        { "Gate Reso Staccato", "Rhythmic", "Pitch", {
+        // --- Pitch / Rhythmic & Arp (6) ---
+        { "Gate Reso Staccato", "Pitch", "Gate", {
             {"tone",1.0f},{"grainSize",0.12f},{"density",0.85f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.005f},{"decay",0.3f},{"sustain",0.8f},{"release",0.3f},
             {"fx6Type",6},{"fx6Amount",80.f},{"gateRateSync",12},{"gateWidth",0.5f} }},
-        { "Pulsing Chime Gate", "Rhythmic", "Pitch", {
+        { "Pulsing Chime Gate", "Pitch", "Gate", {
             {"tone",1.0f},{"grainSize",0.15f},{"density",0.8f},{"pitchSync",1},{"octave",1},{"scaleOn",1},
             {"attack",0.01f},{"decay",0.4f},{"sustain",0.75f},{"release",0.5f},
             {"fx6Type",6},{"fx6Amount",85.f},{"gateRateSync",12},{"gateWidth",0.4f},{"fx5Type",5},{"fx5Amount",35.f} }},
-        { "Arp Reso Walker", "Rhythmic", "Pitch", {
+        { "Arp Reso Walker", "Pitch", "Arp", {
             {"tone",1.0f},{"grainSize",0.06f},{"density",0.6f},{"pitchSync",1},{"scaleOn",1},
             {"arpEnable",1},{"arpPattern",22},{"arpRateSync",12},{"arpOctaves",2},{"arpGate",0.5f},
             {"attack",0.002f},{"decay",0.25f},{"sustain",0.1f},{"release",0.25f},{"fx3Type",3},{"fx3Amount",25.f} }},
-        { "Strumming Resonator", "Rhythmic", "Pitch", {
+        { "Strumming Resonator", "Pitch", "Arp", {
             {"tone",1.0f},{"grainSize",0.07f},{"density",0.65f},{"pitchSync",1},{"scaleOn",1},
             {"arpEnable",1},{"arpPattern",20},{"arpRateSync",9},{"arpOctaves",1},{"arpGate",0.6f},
             {"attack",0.003f},{"decay",0.35f},{"sustain",0.1f},{"release",0.35f},{"fx5Type",5},{"fx5Amount",30.f} }},
-        { "Pentatonic Rain", "Rhythmic", "Pitch", {
+        { "Pentatonic Rain", "Pitch", "Arp", {
             {"tone",1.0f},{"grainSize",0.05f},{"density",0.55f},{"pitchSync",1},{"octave",1},{"scaleOn",1},{"scale",4},
             {"arpEnable",1},{"arpPattern",4},{"arpRateSync",14},{"arpOctaves",3},{"arpGate",0.45f},
             {"attack",0.001f},{"decay",0.3f},{"sustain",0.0f},{"release",0.3f},{"fx5Type",5},{"fx5Amount",35.f} }},
-        { "Inward Tone Spiral", "Rhythmic", "Pitch", {
+        { "Inward Tone Spiral", "Pitch", "Arp", {
             {"tone",1.0f},{"grainSize",0.08f},{"density",0.7f},{"pitchSync",1},{"scaleOn",1},
             {"arpEnable",1},{"arpPattern",16},{"arpRateSync",12},{"arpOctaves",2},{"arpGate",0.55f},
             {"attack",0.002f},{"decay",0.28f},{"sustain",0.15f},{"release",0.3f},{"fx2Type",2},{"fx2Amount",20.f} }},
 
-        // --- Cinematic / Pitch (5) ---
-        { "Cinematic Reso Sweep", "Cinematic", "Pitch", {
+        // --- Pitch / Cinematic & Drone (5) ---
+        { "Cinematic Reso Sweep", "Pitch", "Cinematic", {
             {"tone",1.0f},{"grainSize",0.18f},{"density",0.82f},{"pitchSync",1},{"scaleOn",1},
             {"attack",0.6f},{"decay",1.5f},{"sustain",0.8f},{"release",2.0f},
             {"masterLPF",4500.f},{"fx4Type",4},{"fx4Amount",35.f} }},
-        { "Celestial Horizon", "Cinematic", "Pitch", {
+        { "Celestial Horizon", "Pitch", "Cinematic", {
             {"tone",1.0f},{"grainSize",0.22f},{"density",0.85f},{"pitchSync",1},{"octave",1},{"scaleOn",1},
             {"attack",1.0f},{"decay",1.5f},{"sustain",0.88f},{"release",2.5f},
             {"fx5Type",5},{"fx5Amount",45.f},{"revShimmer",0.75f} }},
-        { "Dark Reso Drone", "Cinematic", "Pitch", {
+        { "Dark Reso Drone", "Pitch", "Drone", {
             {"tone",1.0f},{"grainSize",0.45f},{"density",0.9f},{"pitchSync",1},{"octave",-2},{"scaleOn",1},
             {"attack",2.0f},{"decay",2.5f},{"sustain",0.95f},{"release",3.5f},
             {"masterLPF",1800.f},{"fx1Type",1},{"fx1Amount",25.f},{"fx5Type",5},{"fx5Amount",45.f} }},
-        { "Submarine Echo", "Cinematic", "Pitch", {
+        { "Submarine Echo", "Pitch", "Drone", {
             {"tone",1.0f},{"grainSize",0.4f},{"density",0.85f},{"pitchSync",1},{"octave",-1},{"scaleOn",1},
             {"attack",1.5f},{"decay",2.0f},{"sustain",0.9f},{"release",3.0f},
             {"fx3Type",3},{"fx3Amount",40.f},{"dlyFeedback",0.65f},{"masterLPF",2500.f} }},
-        { "Solar Flare Drone", "Cinematic", "Pitch", {
+        { "Solar Flare Drone", "Pitch", "Drone", {
             {"tone",1.0f},{"grainSize",0.38f},{"density",0.82f},{"pitchSync",1},{"scaleOn",1},
             {"attack",2.5f},{"decay",2.0f},{"sustain",0.9f},{"release",3.2f},
             {"lfo1Rate",0.15f},{"mod1Src",1},{"mod1Dst",13},{"mod1Amt",0.4f},{"fx5Type",5},{"fx5Amount",45.f} }},

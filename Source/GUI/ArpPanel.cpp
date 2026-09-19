@@ -66,8 +66,10 @@ ArpPanel::ArpPanel(GranularAudioProcessor& p) : proc(p)
     buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         proc.apvts, "reverseGrain", revButton));
 
-    lastScaleKey  = juce::jlimit(0, 11, (int)proc.apvts.getRawParameterValue("key")->load());
-    lastScaleType = juce::jlimit(0, ScaleQuantizer::numScales() - 1,
+    const int keyIdx   = (int)proc.apvts.getRawParameterValue("key")->load();
+    const int rootNote = (keyIdx == 0) ? proc.currentDetectedRoot.load() : (keyIdx - 1);
+    lastScaleKey       = juce::jlimit(0, 11, rootNote);
+    lastScaleType      = juce::jlimit(0, ScaleQuantizer::numScales() - 1,
                                  (int)proc.apvts.getRawParameterValue("scale")->load());
     scaleNotesText = ScaleQuantizer::getNoteNames(lastScaleKey, lastScaleType);
 
@@ -173,14 +175,16 @@ void ArpPanel::timerCallback()
     applyModRing(spraySpeedKnob, D::DstSpraySpeed,  LinearAdd, 0.99f);
 
     // 選択中 Key/Scale の構成音表示更新
-    const int key  = juce::jlimit(0, 11, (int)proc.apvts.getRawParameterValue("key")->load());
-    const int type = juce::jlimit(0, ScaleQuantizer::numScales() - 1,
+    const int keyIdx   = (int)proc.apvts.getRawParameterValue("key")->load();
+    const int rootNote = (keyIdx == 0) ? proc.currentDetectedRoot.load() : (keyIdx - 1);
+    const int safeRoot = juce::jlimit(0, 11, rootNote);
+    const int type     = juce::jlimit(0, ScaleQuantizer::numScales() - 1,
                                   (int)proc.apvts.getRawParameterValue("scale")->load());
-    if (key != lastScaleKey || type != lastScaleType)
+    if (safeRoot != lastScaleKey || type != lastScaleType)
     {
-        lastScaleKey = key;
+        lastScaleKey  = safeRoot;
         lastScaleType = type;
-        scaleNotesText = ScaleQuantizer::getNoteNames(key, type);
+        scaleNotesText = ScaleQuantizer::getNoteNames(safeRoot, type);
         repaint(20, 248, 240, 30);
     }
 }
