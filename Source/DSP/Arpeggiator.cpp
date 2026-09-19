@@ -72,7 +72,7 @@ int Arpeggiator::getGateSamples(double stepSamples, const ArpParams& p) const
 // ------------------------------------------
 int Arpeggiator::quantizeNote(int note, const ArpParams& p) const
 {
-    if (p.scale <= 0) return note;
+    if (!p.scaleEnable || p.scale < 0 || p.scale >= ScaleQuantizer::numScales()) return note;
     const int root = (p.key == 0) ? p.detectedRoot : (p.key - 1);
     return juce::roundToInt(ScaleQuantizer::quantize((float)note, root, p.scale));
 }
@@ -228,6 +228,121 @@ void Arpeggiator::buildSequence(const ArpParams& p)
         break;
     }
 
+    case Inward:
+    {
+        int lo = 0, hi = n - 1;
+        while (lo <= hi)
+        {
+            seq.push_back(asc[(size_t)lo++]);
+            if (lo <= hi) seq.push_back(asc[(size_t)hi--]);
+        }
+        break;
+    }
+
+    case Outward:
+    {
+        int mid = (n - 1) / 2;
+        int lo = mid, hi = mid + 1;
+        while (lo >= 0 || hi < n)
+        {
+            if (lo >= 0) seq.push_back(asc[(size_t)lo--]);
+            if (hi < n) seq.push_back(asc[(size_t)hi++]);
+        }
+        break;
+    }
+
+    case ThumbBass:
+        if (n > 1)
+        {
+            const auto bass = asc[0];
+            for (size_t i = 1; i < asc.size(); ++i)
+            {
+                seq.push_back(bass);
+                seq.push_back(asc[i]);
+            }
+        }
+        else seq = asc;
+        break;
+
+    case PinkyTop:
+        if (n > 1)
+        {
+            const auto top = asc.back();
+            for (size_t i = 0; i < asc.size() - 1; ++i)
+            {
+                seq.push_back(top);
+                seq.push_back(asc[i]);
+            }
+        }
+        else seq = asc;
+        break;
+
+    case ZigZag:
+        if (n >= 3)
+        {
+            for (int i = 0; i < n - 2; ++i)
+            {
+                seq.push_back(asc[(size_t)i]);
+                seq.push_back(asc[(size_t)(i + 2)]);
+                seq.push_back(asc[(size_t)(i + 1)]);
+            }
+            seq.push_back(asc[(size_t)(n - 1)]);
+        }
+        else seq = asc;
+        break;
+
+    case SpiralUp:
+        for (size_t i = 0; i < asc.size(); ++i)
+        {
+            auto pn = asc[i];
+            int octOffset = (int)(i % 3) * 12;
+            pn.note = juce::jlimit(0, 127, pn.note + octOffset);
+            seq.push_back(pn);
+        }
+        break;
+
+    case SpiralDown:
+        for (int i = (int)asc.size() - 1; i >= 0; --i)
+        {
+            auto pn = asc[(size_t)i];
+            int octOffset = (int)((asc.size() - 1 - i) % 3) * -12;
+            pn.note = juce::jlimit(0, 127, pn.note + octOffset);
+            seq.push_back(pn);
+        }
+        break;
+
+    case DoubleStepUp:
+        for (const auto& pn : asc)
+        {
+            seq.push_back(pn);
+            seq.push_back(pn);
+        }
+        break;
+
+    case DoubleStepDown:
+        for (int i = (int)asc.size() - 1; i >= 0; --i)
+        {
+            seq.push_back(asc[(size_t)i]);
+            seq.push_back(asc[(size_t)i]);
+        }
+        break;
+
+    case Leapfrog:
+        if (n >= 3)
+        {
+            for (int i = 0; i < n - 2; ++i)
+            {
+                seq.push_back(asc[(size_t)i]);
+                seq.push_back(asc[(size_t)(i + 1)]);
+                seq.push_back(asc[(size_t)(i + 2)]);
+                seq.push_back(asc[(size_t)(i + 1)]);
+            }
+        }
+        else seq = asc;
+        break;
+
+    case BrownianWalk:
+    case Strum:
     case Random:
     case RandomWalk:
     case Chord:
@@ -264,14 +379,29 @@ void Arpeggiator::fireStep(juce::MidiBuffer& out, int offset, int gateSamples, c
         active.push_back({ note, offset + gateSamples });
     };
 
-    if (p.pattern == Chord)
+    if (p.pattern == Chord || p.pattern == Strum)
     {
-        // 全ノート同時（重複量子化ノートは1回だけ）
+        const int strumDelaySamples = (p.pattern == Strum)
+            ? juce::jlimit(20, 300, (int)(sampleRate * 0.012))
+            : 0;
+
         int lastNote = -1;
-        for (const auto& pn : seq)
+        for (size_t sIdx = 0; sIdx < seq.size(); ++sIdx)
         {
+            const auto& pn = seq[sIdx];
             const int q = juce::jlimit(0, 127, quantizeNote(pn.note, p));
-            if (q != lastNote) { emit(pn); lastNote = q; }
+            if (q != lastNote)
+            {
+                int noteOffset = offset + (int)sIdx * strumDelaySamples;
+                for (auto it = active.begin(); it != active.end(); )
+                {
+                    if (it->note == q) { out.addEvent(juce::MidiMessage::noteOff(1, q), juce::jmax(0, noteOffset - 1)); it = active.erase(it); }
+                    else ++it;
+                }
+                out.addEvent(juce::MidiMessage::noteOn(1, q, pn.vel), noteOffset);
+                active.push_back({ q, noteOffset + gateSamples });
+                lastNote = q;
+            }
         }
     }
     else if (p.pattern == Random)
@@ -282,6 +412,13 @@ void Arpeggiator::fireStep(juce::MidiBuffer& out, int offset, int gateSamples, c
     {
         walkPos += random.nextBool() ? 1 : -1;
         if (walkPos < 0) walkPos = juce::jmin(1, n - 1);       // 反射
+        if (walkPos >= n) walkPos = juce::jmax(0, n - 2);
+        emit(seq[(size_t)walkPos]);
+    }
+    else if (p.pattern == BrownianWalk)
+    {
+        walkPos += (random.nextFloat() < 0.70f) ? 1 : -1;
+        if (walkPos < 0) walkPos = juce::jmin(1, n - 1);
         if (walkPos >= n) walkPos = juce::jmax(0, n - 2);
         emit(seq[(size_t)walkPos]);
     }

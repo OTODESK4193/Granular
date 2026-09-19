@@ -1,6 +1,6 @@
 // ==========================================
 // File: PresetBrowser.h
-// プリセットブラウザ（Factory 80 + User + Favorites）。Mainタブ下の領域に展開。
+// プリセットブラウザ（Factory 120 + User + Favorites）。Mainタブ下の領域に展開。
 //   - 左: カテゴリ（All / Favorites / 各カテゴリ / User）
 //   - 右: プリセット一覧（検索フィルタ、クリックで即ロード、右クリックでメニュー）
 //   - 上: 検索 / ▲▼ / 保存名 / RANDOM / SAVE / INIT / CLOSE

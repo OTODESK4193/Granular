@@ -310,13 +310,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("fineTune", "Fine Tune", -100.0f, 100.0f, 0.0f));
 
     // --- Key / Scale 量子化 ---
+    params.push_back(std::make_unique<juce::AudioParameterBool>("scaleOn", "Scale Quantize", false));
     params.push_back(std::make_unique<juce::AudioParameterChoice>("key", "Key",
         juce::StringArray { "Auto", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
-
-    juce::StringArray scaleChoices;
-    for (const auto& s : ScaleQuantizer::getScales())
-        scaleChoices.add(s.name);
-    params.push_back(std::make_unique<juce::AudioParameterChoice>("scale", "Scale", scaleChoices, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("scale", "Scale", ScaleQuantizer::getAllScaleNames(), 0));
 
     // --- 音程感強調 ---
     params.push_back(std::make_unique<juce::AudioParameterBool>("pitchSync", "Pitch Sync", false));
@@ -553,6 +550,11 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         }
     }
 
+    const bool scaleOn = apvts.getRawParameterValue("scaleOn")->load() > 0.5f;
+    const int scaleIdx = (int)apvts.getRawParameterValue("scale")->load();
+    const int keyIdx   = (int)apvts.getRawParameterValue("key")->load();
+    const int rootNote = (keyIdx == 0) ? currentDetectedRoot.load() : (keyIdx - 1);
+
     // --- アルペジエイター (MIDIを置き換え) ---
     ArpParams arpP;
     arpP.enable       = apvts.getRawParameterValue("arpEnable")->load() > 0.5f;
@@ -564,8 +566,9 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     arpP.durMode      = (int)apvts.getRawParameterValue("arpDurMode")->load();
     arpP.gate         = apvts.getRawParameterValue("arpGate")->load();
     arpP.latch        = apvts.getRawParameterValue("arpLatch")->load() > 0.5f;
-    arpP.key          = (int)apvts.getRawParameterValue("key")->load();
-    arpP.scale        = (int)apvts.getRawParameterValue("scale")->load();
+    arpP.scaleEnable  = scaleOn;
+    arpP.key          = keyIdx;
+    arpP.scale        = scaleIdx;
     arpP.detectedRoot = currentDetectedRoot.load();
     arpP.bpm          = bpm;
 
@@ -582,7 +585,34 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             arpP.rateFree = juce::jlimit(0.1f, 40.0f, arpP.rateFree * std::pow(2.0f, rateMod * 2.0f));
     }
 
-    arp.process(midiMessages, buffer.getNumSamples(), arpP);
+    if (arpP.enable)
+    {
+        arp.process(midiMessages, buffer.getNumSamples(), arpP);
+    }
+    else if (scaleOn)
+    {
+        // ARP Off の通常演奏時でも、入力NoteOn/NoteOffをScaleにスナップ
+        juce::MidiBuffer quantizedMidi;
+        for (const auto metadata : midiMessages)
+        {
+            auto msg = metadata.getMessage();
+            if (msg.isNoteOn())
+            {
+                const int snapped = juce::roundToInt(ScaleQuantizer::quantize((float)msg.getNoteNumber(), rootNote, scaleIdx));
+                quantizedMidi.addEvent(juce::MidiMessage::noteOn(msg.getChannel(), juce::jlimit(0, 127, snapped), msg.getVelocity()), metadata.samplePosition);
+            }
+            else if (msg.isNoteOff())
+            {
+                const int snapped = juce::roundToInt(ScaleQuantizer::quantize((float)msg.getNoteNumber(), rootNote, scaleIdx));
+                quantizedMidi.addEvent(juce::MidiMessage::noteOff(msg.getChannel(), juce::jlimit(0, 127, snapped), msg.getVelocity()), metadata.samplePosition);
+            }
+            else
+            {
+                quantizedMidi.addEvent(msg, metadata.samplePosition);
+            }
+        }
+        midiMessages.swapWith(quantizedMidi);
+    }
 
     // --- MODマトリクス (アルペジオ後のMIDIでトリガー) ---
     ModMatrix::Params mp;
@@ -642,6 +672,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     p.windowShape   = (int)apvts.getRawParameterValue("windowShape")->load();
     p.key           = (int)apvts.getRawParameterValue("key")->load();
     p.scale         = (int)apvts.getRawParameterValue("scale")->load();
+    p.scaleOn       = scaleOn;
     p.pitchSync     = apvts.getRawParameterValue("pitchSync")->load() > 0.5f;
     p.spraySpeed    = apvts.getRawParameterValue("spraySpeed")->load();
     p.tone          = apvts.getRawParameterValue("tone")->load();
@@ -862,6 +893,8 @@ void GranularAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 
     juce::ScopedLock sl(stateLock);
     xml->setAttribute("AudioFilePath", fileToIngest.getFullPathName());
+    xml->setAttribute("editorWidth", savedEditorWidth);
+    xml->setAttribute("editorHeight", savedEditorHeight);
     copyXmlToBinary(*xml, destData);
 }
 
@@ -872,6 +905,9 @@ void GranularAudioProcessor::setStateInformation(const void* data, int sizeInByt
     {
         if (xmlState->hasTagName(apvts.state.getType()))
             apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
+
+        savedEditorWidth  = xmlState->getIntAttribute("editorWidth", 1080);
+        savedEditorHeight = xmlState->getIntAttribute("editorHeight", 640);
 
         juce::String savedFilePath;
         {
@@ -1194,6 +1230,15 @@ void GranularAudioProcessor::run()
 // ==========================================
 // プリセット
 // ==========================================
+void GranularAudioProcessor::panic()
+{
+    synth.reset();
+    dryPreviewActive.store(false);
+    fxChain.reset();
+    arp.reset();
+    masterLimiter.reset();
+}
+
 void GranularAudioProcessor::resetAllParametersToDefault()
 {
     // colorTheme / poly はUI・システム設定なのでプリセット/INITで変えない
@@ -1257,7 +1302,13 @@ void GranularAudioProcessor::randomizePreset()
     setV("release", rf(0.1f, 2.5f));
     setV("fxMix", rf(0.6f, 1.0f));
     setV("outGain", 0.0f);                    // 安全のため0dB固定
-    if (r.nextFloat() < 0.5f) setV("scale", (float)ri(1, 4));
+    const bool scOn = r.nextFloat() < 0.6f;
+    setV("scaleOn", scOn ? 1.0f : 0.0f);
+    if (scOn)
+    {
+        setV("key", (float)ri(0, 12));
+        setV("scale", (float)ri(0, ScaleQuantizer::numScales() - 1));
+    }
 
     // --- LFO/ENV に動きを仕込む ---
     for (int i = 1; i <= 4; ++i)
@@ -1289,20 +1340,28 @@ void GranularAudioProcessor::randomizePreset()
     for (int j = 0; j < k; ++j)
     {
         const juce::String x(1 + r.nextInt(16));
-        setV("mod" + x + "Src", (float)ri(1, 15));
-        setV("mod" + x + "Dst", (float)ri(1, 17));
+        setV("mod" + x + "Src", (float)ri(1, ModMatrix::NumSrcs - 1));
+        setV("mod" + x + "Dst", (float)ri(1, ModMatrix::NumDsts - 1));
         setV("mod" + x + "Amt", rf(-1.0f, 1.0f));
         setV("mod" + x + "Uni", r.nextBool() ? 1.0f : 0.0f);
     }
 
-    // --- FX: 1〜3スロットをランダムに有効化 ---
+    // --- FX: 1〜4スロットをランダムに有効化 (Gate含む) ---
     for (int i = 1; i <= 5; ++i) setV("fx" + juce::String(i) + "Type", 0.0f);
-    const int nfx = ri(1, 3);
+    const int nfx = ri(1, 4);
     for (int j = 0; j < nfx; ++j)
     {
         const juce::String x(1 + r.nextInt(5));
-        setV("fx" + x + "Type", (float)ri(1, 5));
-        setV("fx" + x + "Amount", rf(20.0f, 60.0f));
+        const int fxt = ri(1, 6); // 1: Sat, 2: Cho, 3: Dly, 4: Frz, 5: Rev, 6: Gate
+        setV("fx" + x + "Type", (float)fxt);
+        setV("fx" + x + "Amount", rf(25.0f, 65.0f));
+        if (fxt == 6)
+        {
+            setV("gateDepth", rf(0.3f, 1.0f));
+            setV("gateDecay", rf(0.05f, 0.8f));
+            setV("gateVowel", (float)ri(0, 4));
+            setV("gatePattern", (float)ri(0, 24));
+        }
     }
 
     currentPresetName = "Random";

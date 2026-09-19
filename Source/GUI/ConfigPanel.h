@@ -26,6 +26,9 @@ public:
     void timerCallback() override;
     void applyModRing(juce::Slider& s, int dst, ModKind kind, float scale);
 
+    // GUI スケーリング (Wavetable 準拠)
+    std::function<void(float scale)> onScaleRequested;
+
 private:
     GranularAudioProcessor& proc;
 
@@ -43,6 +46,16 @@ private:
     juce::Label    slopeLabel;
     juce::ComboBox themeBox;
     juce::Label    themeLabel;
+
+    // GUI スケーリングボタン
+    std::array<juce::TextButton, 5> scaleButtons {
+        juce::TextButton{ "75%" },
+        juce::TextButton{ "100%" },
+        juce::TextButton{ "125%" },
+        juce::TextButton{ "150%" },
+        juce::TextButton{ "200%" }
+    };
+    juce::Label scaleLabel;
 
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>>   sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;

@@ -80,7 +80,8 @@ struct GranularParams
     int   windowShape = 0;        // 0..3
 
     int   key = 0;                // 0=Auto(解析結果), 1..12 = C..B
-    int   scale = 0;              // ScaleQuantizer のインデックス (0=Free)
+    int   scale = 0;              // ScaleQuantizer のインデックス (0..81)
+    bool  scaleOn = false;        // スケール量子化の有効/無効
 
     bool  pitchSync = false;      // グレイン発火をノート周波数に同期（音程感強調）
     float spraySpeed = 1.0f;      // 0.01..1 スプレー値の移動速度
@@ -240,6 +241,7 @@ public:
         setReleaseMs(50.0f);
         gain = 1.0f;
     }
+    void reset() noexcept { gain = 1.0f; }
     void setReleaseMs(float ms) noexcept
     {
         const double t = juce::jmax(0.5f, ms) * 0.001;
@@ -293,6 +295,7 @@ public:
     void stopNote(bool allowTailOff);
     bool isActive() const noexcept { return playing; }
     void clearCurrentNote();
+    void reset();
 
     int getCurrentlyPlayingNote() const noexcept { return currentMidiNote; }
     uint64_t getNoteStamp() const noexcept { return noteStamp; }
@@ -376,6 +379,18 @@ public:
     void allNotesOff()
     {
         for (auto& v : voices) v.stopNote(false);
+    }
+
+    void reset()
+    {
+        for (auto& v : voices) v.reset();
+        for (int ch = 0; ch < 2; ++ch)
+            for (int st = 0; st < 2; ++st)
+            {
+                svfHP[ch][st].reset();
+                svfLP[ch][st].reset();
+            }
+        playheadDisplay.store(-1.0f);
     }
 
     GrainVisualizerData visualizer;

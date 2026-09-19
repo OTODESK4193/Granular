@@ -54,6 +54,24 @@ ConfigPanel::ConfigPanel(GranularAudioProcessor& p) : proc(p)
     setupCombo(slopeBox, slopeLabel, "FILTER SLOPE", "filterSlope");
     setupCombo(themeBox, themeLabel, "COLOR THEME", "colorTheme");
 
+    // GUI スケーリング
+    scaleLabel.setText("GUI SCALE", juce::dontSendNotification);
+    scaleLabel.setJustificationType(juce::Justification::centredLeft);
+    scaleLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+    scaleLabel.setColour(juce::Label::textColourId, GranularColors::textDim);
+    addAndMakeVisible(scaleLabel);
+
+    const float scaleValues[5] = { 0.75f, 1.00f, 1.25f, 1.50f, 2.00f };
+    for (size_t i = 0; i < 5; ++i)
+    {
+        auto& btn = scaleButtons[i];
+        btn.setColour(juce::TextButton::buttonColourId, GranularColors::knobTrack);
+        btn.setColour(juce::TextButton::textColourOffId, GranularColors::text);
+        const float s = scaleValues[i];
+        btn.onClick = [this, s] { if (onScaleRequested) onScaleRequested(s); };
+        addAndMakeVisible(btn);
+    }
+
     startTimerHz(30);
 }
 
@@ -142,6 +160,13 @@ void ConfigPanel::resized()
 
     themeLabel.setBounds(700, 40, 110, 14);
     themeBox.setBounds(700, 56, 150, 26);
+
+    scaleLabel.setBounds(870, 40, 180, 14);
+    const int btnW = 34;
+    const int btnH = 26;
+    const int gap  = 4;
+    for (size_t i = 0; i < 5; ++i)
+        scaleButtons[i].setBounds(870 + (int)i * (btnW + gap), 56, btnW, btnH);
 }
 
 void ConfigPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)

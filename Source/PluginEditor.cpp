@@ -14,18 +14,35 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p), arpPanel(p),
       configPanel(p), fxPanel(p), modPanel(p), presetBrowser(p.getUserPresetDir())
 {
+    // Content Component の設定 (アスペクト比固定スケーリング 75%〜200%)
+    addAndMakeVisible(content);
+    content.onPaint  = [this](juce::Graphics& g) { paintContent(g); };
+    content.onLayout = [this] { layoutContent(); };
+
+    constrainer.setFixedAspectRatio((double)kBaseW / (double)kBaseH);
+    constrainer.setSizeLimits(
+        static_cast<int>(kBaseW * 0.75), static_cast<int>(kBaseH * 0.75),
+        static_cast<int>(kBaseW * 2.00), static_cast<int>(kBaseH * 2.00));
+    setConstrainer(&constrainer);
+    setResizable(true, true);
+
+    const int savedW = proc.getSavedEditorWidth();
+    const int savedH = proc.getSavedEditorHeight();
+    setSize(juce::jlimit(static_cast<int>(kBaseW * 0.75), static_cast<int>(kBaseW * 2.00), savedW),
+            juce::jlimit(static_cast<int>(kBaseH * 0.75), static_cast<int>(kBaseH * 2.00), savedH));
+
     setLookAndFeel(&lnf);
 
-    addAndMakeVisible(waveDisplay);
-    addAndMakeVisible(mainPanel);
-    addChildComponent(arpPanel);  // 非表示で追加
-    addChildComponent(modPanel);
-    addChildComponent(fxPanel);
-    addChildComponent(configPanel);
+    content.addAndMakeVisible(waveDisplay);
+    content.addAndMakeVisible(mainPanel);
+    content.addChildComponent(arpPanel);  // 非表示で追加
+    content.addChildComponent(modPanel);
+    content.addChildComponent(fxPanel);
+    content.addChildComponent(configPanel);
 
     // --- タブボタン ---
     for (auto* b : { &mainTabButton, &arpTabButton, &modTabButton, &fxTabButton, &configTabButton })
-        addAndMakeVisible(*b);
+        content.addAndMakeVisible(*b);
 
     mainTabButton.onClick   = [this] { setActiveTab(Tab::Main); };
     arpTabButton.onClick    = [this] { setActiveTab(Tab::Arp); };
@@ -39,15 +56,22 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     {
         b.setColour(juce::TextButton::buttonColourId, GranularColors::knobTrack);
         b.setColour(juce::TextButton::textColourOffId, GranularColors::text);
-        addAndMakeVisible(b);
+        content.addAndMakeVisible(b);
     };
     styleHeaderButton(loadButton);
     styleHeaderButton(analyzeButton);
     styleHeaderButton(deleteButton);
     styleHeaderButton(resetButton);
     styleHeaderButton(dryPlayButton);
+    styleHeaderButton(panicButton);
     styleHeaderButton(browseButton);
     styleHeaderButton(randomButton);
+
+    // PANIC ボタンの配色・クリック処理
+    panicButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0x33ff4444));
+    panicButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffff7777));
+    panicButton.onClick = [this] { proc.panic(); };
+
     randomButton.onClick = [this] { proc.randomizePreset(); };
 
     dryPlayButton.onClick = [this]
@@ -57,9 +81,17 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
         else                              proc.startDryPreview();
     };
 
+    // スケーリング切り替えコールバック (Config パネルから呼出)
+    configPanel.onScaleRequested = [this](float scale)
+    {
+        const int newW = juce::roundToInt((float)kBaseW * scale);
+        const int newH = juce::roundToInt((float)kBaseH * scale);
+        setSize(newW, newH);
+    };
+
     // --- プリセットブラウザ ---
     browseButton.onClick = [this] { toggleBrowser(); };
-    addChildComponent(presetBrowser);
+    content.addChildComponent(presetBrowser);
     presetBrowser.onLoadFactory = [this](int i)          { proc.applyFactoryPreset(i); };
     presetBrowser.onLoadUser    = [this](const juce::File& f) { proc.loadUserPresetFile(f); };
     presetBrowser.onSave        = [this](const juce::String& n) { proc.saveUserPreset(n); };
@@ -81,7 +113,7 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     themeBanner.setColour(juce::Label::textColourId, juce::Colours::white);
     themeBanner.setColour(juce::Label::outlineColourId, GranularColors::mint.withAlpha(0.9f));
     themeBanner.setInterceptsMouseClicks(false, false);
-    addChildComponent(themeBanner);  // 最後に追加=最前面
+    content.addChildComponent(themeBanner);  // 最後に追加=最前面
 
     loadButton.onClick = [this]
     {
@@ -118,7 +150,6 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     };
 
     startTimerHz(10); // HUD更新
-    setSize(1080, 640);
 }
 
 GranularAudioProcessorEditor::~GranularAudioProcessorEditor()
@@ -192,7 +223,7 @@ void GranularAudioProcessorEditor::setActiveTab(Tab t)
     styleTabButton(modTabButton,    t == Tab::Mod);
     styleTabButton(fxTabButton,     t == Tab::Fx);
     styleTabButton(configTabButton, t == Tab::Config);
-    repaint(0, kTabY, getWidth(), kTabH + 8);
+    content.repaint(0, kTabY, kBaseW, kTabH + 8);
 }
 
 // ------------------------------------------
@@ -209,7 +240,7 @@ void GranularAudioProcessorEditor::timerCallback()
         GranularColors::setTheme(themeIdx);
         if (!firstTime) themeMsgFrames = 45; // 約4.5秒バナー表示（初回起動時は出さない）
         repaint();
-        for (auto* child : getChildren()) child->repaint();
+        for (auto* child : content.getChildren()) child->repaint();
     }
     if (themeMsgFrames > 0)
     {
@@ -236,7 +267,7 @@ void GranularAudioProcessorEditor::timerCallback()
     if (f != hudFile || t != hudTask || o != hudOrig || c != hudCorr)
     {
         hudFile = f; hudTask = t; hudOrig = o; hudCorr = c;
-        repaint(0, 0, getWidth(), 64);
+        content.repaint(0, 0, kBaseW, 64);
     }
 }
 
@@ -244,6 +275,11 @@ void GranularAudioProcessorEditor::timerCallback()
 // 描画
 // ------------------------------------------
 void GranularAudioProcessorEditor::paint(juce::Graphics& g)
+{
+    g.fillAll(GranularColors::bg);
+}
+
+void GranularAudioProcessorEditor::paintContent(juce::Graphics& g)
 {
     g.fillAll(GranularColors::bg);
 
@@ -257,7 +293,7 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
 
     g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     g.setColour(GranularColors::mint.withAlpha(0.8f));
-    g.drawText("v1.0.1 B007", 250, 15, 90, 16, juce::Justification::centredLeft);
+    g.drawText("v1.0.1 B008", 250, 15, 90, 16, juce::Justification::centredLeft);
 
     g.setColour(GranularColors::textDim);
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
@@ -293,7 +329,15 @@ void GranularAudioProcessorEditor::paint(juce::Graphics& g)
 // ------------------------------------------
 void GranularAudioProcessorEditor::resized()
 {
-    waveDisplay.setBounds(16, 68, getWidth() - 32, 236);
+    const float scale = juce::jmax(0.25f, (float)getWidth() / (float)kBaseW);
+    content.setTransform(juce::AffineTransform::scale(scale));
+    content.setBounds(0, 0, kBaseW, kBaseH);
+    proc.setSavedEditorSize(getWidth(), getHeight());
+}
+
+void GranularAudioProcessorEditor::layoutContent()
+{
+    waveDisplay.setBounds(16, 68, kBaseW - 32, 236);
 
     // ヘッダー右: 2×2 ボタングリッド
     loadButton.setBounds(888, 8, 80, 22);
@@ -304,14 +348,16 @@ void GranularAudioProcessorEditor::resized()
     // Dryプレビュー再生ボタン + BROWSE (ボタングリッドの左に縦積み)
     dryPlayButton.setBounds(792, 8, 88, 22);
     browseButton.setBounds(792, 34, 88, 22);
-    // RANDOM (BROWSEの左)
+
+    // PANIC (PLAY DRYの左) & RANDOM (BROWSEの左)
+    panicButton.setBounds(696, 8, 88, 22);
     randomButton.setBounds(696, 34, 88, 22);
 
     // プリセットブラウザ (タブパネルと同じ下部領域に展開)
-    presetBrowser.setBounds(0, kPanelY, getWidth(), getHeight() - kPanelY);
+    presetBrowser.setBounds(0, kPanelY, kBaseW, kBaseH - kPanelY);
 
     // テーマ変更バナー (波形上部に重ねて表示)
-    themeBanner.setBounds(getWidth() / 2 - 260, 80, 520, 28);
+    themeBanner.setBounds(kBaseW / 2 - 260, 80, 520, 28);
 
     mainTabButton.setBounds(20,  kTabY, 92, kTabH);
     arpTabButton.setBounds(118, kTabY, 92, kTabH);
@@ -319,7 +365,7 @@ void GranularAudioProcessorEditor::resized()
     fxTabButton.setBounds(314, kTabY, 92, kTabH);
     configTabButton.setBounds(412, kTabY, 92, kTabH);
 
-    const auto panelBounds = juce::Rectangle<int>(0, kPanelY, getWidth(), getHeight() - kPanelY);
+    const auto panelBounds = juce::Rectangle<int>(0, kPanelY, kBaseW, kBaseH - kPanelY);
     mainPanel.setBounds(panelBounds);
     arpPanel.setBounds(panelBounds);
     modPanel.setBounds(panelBounds);

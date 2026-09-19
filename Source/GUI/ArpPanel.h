@@ -13,6 +13,7 @@
 #include "ValueKnob.h"
 #include "GlowToggle.h"
 #include "ColorPalette.h"
+#include "ScaleSelector.h"
 
 class ArpPanel : public juce::Component,
                  private juce::Timer
@@ -48,9 +49,11 @@ private:
     ValueKnob octavesKnob, rateFreeKnob, gateKnob;
     juce::Label octavesLabel, rateFreeLabel, gateLabel;
 
-    // --- QUANTIZE (MAINタブから移動) ---
-    juce::ComboBox keyBox, scaleBox;
+    // --- QUANTIZE (2段構成) ---
+    GlowToggle    scaleOnButton { "ON", GranularColors::accentPitch };
+    juce::ComboBox keyBox;
     juce::Label    keyLabel, scaleLabel;
+    ScaleSelector scaleSelector;
 
     // --- TEXTURE (MAINタブから移動 / SYNCはARPと区別するためP-SYNC表記) ---
     juce::ComboBox windowBox;

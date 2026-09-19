@@ -37,9 +37,21 @@ ArpPanel::ArpPanel(GranularAudioProcessor& p) : proc(p)
     setupKnob(rateFreeKnob, rateFreeLabel, "RATE (Hz)", "arpRateFree", arpAccent);
     setupKnob(gateKnob,     gateLabel,     "GATE",      "arpGate",     arpAccent);
 
-    // --- QUANTIZE ---
-    setupCombo(keyBox,   keyLabel,   "KEY",   "key");
-    setupCombo(scaleBox, scaleLabel, "SCALE", "scale");
+    // --- QUANTIZE (2段構成) ---
+    addAndMakeVisible(scaleOnButton);
+    buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        proc.apvts, "scaleOn", scaleOnButton));
+
+    setupCombo(keyBox, keyLabel, "KEY", "key");
+
+    scaleLabel.setText("SCALE", juce::dontSendNotification);
+    scaleLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+    scaleLabel.setColour(juce::Label::textColourId, GranularColors::textDim);
+    scaleLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(scaleLabel);
+
+    scaleSelector.bindTo(proc.apvts, "scale");
+    addAndMakeVisible(scaleSelector);
 
     // --- TEXTURE ---
     setupCombo(windowBox, windowLabel, "WINDOW", "windowShape");
@@ -213,14 +225,18 @@ void ArpPanel::resized()
     durBox.setBounds(686, ctrlY, 100, 26);
     placeKnob(gateKnob, gateLabel, 806, labelY);
 
-    // --- Row 2: QUANTIZE + TEXTURE ---
-    const int subLabelY = 172;
-    const int comboY = 188;
+    // --- Row 2: QUANTIZE (2段構成) + TEXTURE ---
+    // 1段目: ON (幅64) + KEY (X=96, 幅164)
+    scaleOnButton.setBounds(20, 184, 64, 26);
+    keyLabel.setBounds(96, 168, 50, 14);
+    keyBox.setBounds(96, 184, 164, 26);
 
-    keyLabel.setBounds(20, subLabelY, 60, 14);
-    keyBox.setBounds(20, comboY, 80, 26);
-    scaleLabel.setBounds(110, subLabelY, 80, 14);
-    scaleBox.setBounds(110, comboY, 150, 26);
+    // 2段目: SCALE ツリーセレクター (幅240)
+    scaleLabel.setBounds(20, 218, 50, 14);
+    scaleSelector.setBounds(20, 234, 240, 26);
+
+    const int subLabelY = 172;
+    const int comboY    = 188;
 
     windowLabel.setBounds(300, subLabelY, 80, 14);
     windowBox.setBounds(300, comboY, 110, 26);

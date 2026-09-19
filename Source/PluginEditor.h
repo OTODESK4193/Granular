@@ -37,6 +37,24 @@ private:
     GranularAudioProcessor& proc;
     ArcDialLookAndFeel lnf;
 
+    // --- リサイズ対応 (Wavetable 準拠: アスペクト比固定スケーリング 75%〜200%) ---
+    static constexpr int kBaseW = 1080;
+    static constexpr int kBaseH = 640;
+
+    struct ContentComponent : public juce::Component
+    {
+        std::function<void(juce::Graphics&)> onPaint;
+        std::function<void()> onLayout;
+        void paint(juce::Graphics& g) override { if (onPaint) onPaint(g); }
+        void resized() override { if (onLayout) onLayout(); }
+    };
+
+    ContentComponent content;
+    juce::ComponentBoundsConstrainer constrainer;
+
+    void paintContent(juce::Graphics& g);
+    void layoutContent();
+
     DotWaveformDisplay waveDisplay;
 
     // --- タブ ---
@@ -61,6 +79,7 @@ private:
     juce::TextButton deleteButton  { "DELETE" };
     juce::TextButton resetButton   { "RESET" };
     juce::TextButton dryPlayButton { "PLAY DRY" };
+    juce::TextButton panicButton   { "PANIC" };
     juce::TextButton browseButton  { "BROWSE" };
     juce::TextButton randomButton  { "RANDOM" };
     std::unique_ptr<juce::FileChooser> fileChooser;

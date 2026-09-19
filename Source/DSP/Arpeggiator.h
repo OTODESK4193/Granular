@@ -29,9 +29,10 @@ struct ArpParams
     bool  latch = false;
 
     // Quantize連携
-    int key = 0;             // 0=Auto, 1..12=C..B
-    int scale = 0;           // 0=Free
-    int detectedRoot = 0;
+    bool  scaleEnable = false;
+    int   key = 0;             // 0=Auto, 1..12=C..B
+    int   scale = 0;           // 0..81
+    int   detectedRoot = 0;
 
     double bpm = 120.0;
 };
@@ -44,14 +45,20 @@ public:
         Up = 0, Down, UpDown, DownUp, UpDownIncl,
         Converge, Diverge, PedalLow, PedalHigh,
         AsPlayed, Random, RandomWalk, Chord,
+        Inward, Outward, ThumbBass, PinkyTop, ZigZag,
+        SpiralUp, SpiralDown, BrownianWalk, DoubleStepUp, DoubleStepDown,
+        Leapfrog, Strum,
         NumPatterns
     };
 
     static juce::StringArray getPatternNames()
     {
-        return { "Up", "Down", "Up-Down", "Down-Up", "Up-Down Incl",
+        return { "Up", "Down", "Up-Down", "Down-Up", "Up-Down (Incl)",
                  "Converge", "Diverge", "Pedal Low", "Pedal High",
-                 "As Played", "Random", "Random Walk", "Chord" };
+                 "As Played", "Random", "Random Walk", "Chord",
+                 "Inward", "Outward", "Thumb Bass", "Pinky Top", "Zig-Zag",
+                 "Spiral Up", "Spiral Down", "Brownian Walk", "Double Step Up", "Double Step Down",
+                 "Leapfrog", "Strum" };
     }
 
     static juce::StringArray getRateNames()

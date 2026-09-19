@@ -64,6 +64,18 @@ public:
     void stopDryPreview()  { dryPreviewActive.store(false); }
     std::atomic<bool> dryPreviewActive { false };
 
+    // --- PANIC: 全発音・残響・エフェクトの即時消音 ---
+    void panic();
+
+    // --- GUI スケーリング (Wavetable 準拠) ---
+    int getSavedEditorWidth() const noexcept { return savedEditorWidth; }
+    int getSavedEditorHeight() const noexcept { return savedEditorHeight; }
+    void setSavedEditorSize(int w, int h) noexcept
+    {
+        savedEditorWidth = w;
+        savedEditorHeight = h;
+    }
+
     // --- プリセット ---
     void applyFactoryPreset(int index);                 // ファクトリー(パラメータ上書き)
     void resetAllParametersToDefault();
@@ -110,6 +122,9 @@ private:
     PitchInfo currentPitch;
     juce::AudioBuffer<float> fxDryBuffer;   // FX Dry/Wet 用のプリFXコピー
     double dryPreviewPos = -1.0;            // Dryプレビューの再生位置 (-1=未初期化)
+
+    int savedEditorWidth { 1080 };
+    int savedEditorHeight { 640 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GranularAudioProcessor)
 };

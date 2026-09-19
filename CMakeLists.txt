@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.22)
 #  24-voice granular engine / Key & Scale grain-pitch quantization
 #  最適化: AVX2 SIMD, /fp:fast
 # ============================================================================
-project(Granular VERSION 1.0.0 LANGUAGES C CXX)
+project(Granular VERSION 1.0.1 LANGUAGES C CXX)
 
 # ----------------------------------------------------------------------------
 #  C++20
@@ -37,7 +37,7 @@ juce_add_plugin(Granular
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_AUTO_MANIFEST       FALSE
     COPY_PLUGIN_AFTER_BUILD  TRUE
-    VERSION                  "1.0.0"
+    VERSION                  "1.0.1"
 )
 
 # ----------------------------------------------------------------------------
