@@ -1,6 +1,6 @@
 # GRANULAR
 
-![Release](https://img.shields.io/badge/release-v1.0.0-blue)
+![Release](https://img.shields.io/badge/release-v1.0.1-blue)
 ![License](https://img.shields.io/badge/license-AGPLv3-green)
 ![JUCE](https://img.shields.io/badge/JUCE-8.0.x-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
@@ -14,7 +14,7 @@
 
 In most granular instruments, pitch jitter, LFOs and random spray are applied *after* any scale correction, so the moment you add movement the result drifts out of tune. GRANULAR inserts its scale quantizer at the very end of the pitch chain: note, octave, semitone, fine tune, random jitter and every modulation slot are summed first, and only then snapped to the selected Key and Scale. Turn Pitch Jitter to ±24 semitones and the texture stays musical.
 
-On top of that sits a complete instrument: pitch-synchronous grain firing that gives noise a playable pitch, a comb resonator for string-like tone, a 13-pattern arpeggiator, a 16-slot modulation matrix, a drag-to-reorder 5-slot FX rack, and a dot-matrix waveform display coloured by the sample's own frequency content.
+On top of that sits a complete instrument: pitch-synchronous grain firing that gives noise a playable pitch, a comb resonator for string-like tone, a 13-pattern arpeggiator, a 16-slot modulation matrix, a drag-to-reorder 5-slot FX rack (with exclusive slot selection and FormantGate), a 3-column preset browser with 120 differentiated factory presets, and a dot-matrix waveform display coloured by the sample's own frequency content.
 
 **Design goal:** the chaos of granular synthesis, kept in tune.
 
@@ -24,7 +24,9 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 ### Scale-Quantized Grain Pitch
 
 * **Post-modulation quantization.** The final pitch — note + octave + semi + fine + random jitter + every matrix slot routed to a pitch destination — is snapped to Key + Scale as the last step. Modulation can be extreme without ever going out of key.
-* **17 scales:** Free, Chromatic, Major, Natural Minor, Major/Minor Pentatonic, Dorian, Lydian, Mixolydian, Phrygian, Harmonic Minor, Melodic Minor, Whole Tone, Octaves & Fifths, Quartal, Sus2/4 Cloud, Diminished. Key is Auto (from analysis) or fixed C–B.
+* **SCALE QUANTIZE toggle.** Enable or bypass the quantizer with a single click on the dedicated on/off button.
+* **24 scales:** Free, Chromatic, Major, Natural Minor, Major Pentatonic, Minor Pentatonic, Dorian, Lydian, Mixolydian, Phrygian, Harmonic Minor, Melodic Minor, Whole Tone, Octaves & Fifths, Quartal, Sus2/4 Cloud, Diminished, Blues, Insen, Hirajoshi, Hungarian Minor, Arabian (Bhairav), Prometheus, Enigmatic. Key is Auto (from analysis) or fixed C–B.
+* **ScaleNote real-time preview.** Shows the exact active scale notes (e.g. `C, D, E, F, G, A, B`) directly in the ARP tab.
 * **Nearest-octave snapping.** The quantizer searches adjacent octaves too, so a note at the edge of a scale wraps naturally instead of jumping.
 
 ### 24 Voices × 100 Grains
@@ -84,11 +86,13 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 
 Five slots in series, inserted before the master limiter. Drag any card header to reorder the chain; click a card to edit it in the Details area below.
 
+* **Exclusive slot selection:** An effect active in one slot is automatically disabled (greyed out) in other slots to prevent redundant processing.
 * **Saturation (ADAA)** — antiderivative anti-aliased, with **10 algorithms**: Soft Tanh, Hard Clip, Triode, Tape, Transformer, JFET, BJT, Wavefold, Exciter, Cubic. Includes a pre-highpass and output trim.
 * **Ensemble Chorus** — Rate, Depth, Width.
 * **Tape Delay** — tempo-synced time, Feedback, Damp, and Duck (input-triggered ducking).
 * **Freeze** — Size (20–1000 ms), Feedback up to 0.99, Damp.
 * **Shimmer Reverb** — 16-channel FDN with an octave shifter. Decay, Shimmer, Damp, Mod.
+* **FormantGate** — rhythmic stutter slicer with vowel formant resonance (Rate, Pattern, Depth, Decay, Vowel).
 
 A master **DRY/WET** knob on the MAIN tab blends the whole rack, and is itself a modulation destination.
 
@@ -97,11 +101,13 @@ A master **DRY/WET** knob on the MAIN tab blends the whole rack, and is itself a
 ##
 <img src="Source/Assets/Granular_Config.jpg" width="700">
 
-### Config
+### Config & Safety
 
 * **Analysis** — Material Mode, plus third-party attribution.
 * **Limiter** — Release time (Ceiling lives on the MAIN tab).
-* **System** — Polyphony (1–24 voices), master filter slope, and **ten colour themes**: Midnight, Sakura, Ocean, Forest, Sunset, Mono, Neon, Vaporwave, Amber, Arctic.
+* **System** — Polyphony (1–24 voices), master filter slope (12 / 24 dB/oct), and **ten colour themes**: Midnight, Sakura, Ocean, Forest, Sunset, Mono, Neon, Vaporwave, Amber, Arctic.
+* **PANIC button** — Situated left of PLAY DRY. Instantly silences all active voices, reverb tails, and delay buffers if notes hang.
+* **Aspect-ratio locked UI scaling** — Drag the lower-right handle to scale the UI from **75% to 200%** (810×480 to 2160×1280). Window size is saved with your DAW project.
 
 ### Dot Waveform Display
 
@@ -109,7 +115,18 @@ The waveform is drawn as stacked dots, **coloured by the sample's own frequency 
 
 ### Preset Browser
 
-80 factory presets across 8 categories (Pads & Ambient, Textures, Rhythmic, Bass, Leads & Keys, Cinematic, Glitch & IDM, Experimental) plus user saves. Category filter, search, ★ favourites, right-click delete with confirmation, and ▲▼ / keyboard ↑↓ stepping. **RANDOM** in the header randomises knobs, 3–10 matrix rows and the FX rack while protecting output gain, polyphony and theme.
+A professional **3-column hierarchical browser** with **120 factory presets across 9 categories**:
+
+* **3 Columns:**
+  - **CATEGORY:** `All`, `Favorites ★`, 9 factory categories (`Pads & Ambient`, `Textures`, `Rhythmic`, `Bass`, `Leads`, `Cinematic`, `Glitch`, `Experimental`, `Pitch`), `User`.
+  - **SUBCATEGORY:** Dynamically lists subcategories for the selected category (starts with `All`). Click to filter instantly.
+  - **PRESET:** Filtered presets with name, star icon, and category/subcategory tags.
+* **New "Pitch" category (40 presets):** Emphasizes Tone comb resonance, scale quantization, and varied timing across 8 subcategories (5 presets each): Pluck, Bell, Lead, Pad, Bass, Arp, Gate, Drone.
+* **Rich MOD routing:** All 120 presets extensively utilize the MOD matrix (LFOs, loopable envelopes, velocity, and random) for deep sonic differentiation. Zero FX duplication across all presets.
+* **Star Favorites (★):** Click the gold star icon (`★` / `☆`) at the left edge of any preset row for instant one-click toggle.
+* **Modal Save Dialog:** Clicking **SAVE** opens a dialog to enter Category (combobox), Subcategory (text), and Preset Name.
+* **Cross-field Search:** The search box queries preset names, categories, and subcategories simultaneously.
+* **Deterministic RANDOM:** Header RANDOM shuffles knobs, MOD matrix (3–10 rows), and FX chain without FX duplication, protecting output gain, polyphony, and color theme.
 
 User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are saved as a path reference, not embedded.
 
@@ -133,11 +150,13 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 
 | Parameter | Range | Default | Description |
 |---|---|---|---|
-| Octave | -3 – +3 | 0 | |
-| Semi | -24 – +24 st | 0 | |
-| Fine | -100 – +100 ct | 0 | |
+| Octave | -3 – +3 | 0 | Octave shift |
+| Semi | -24 – +24 st | 0 | Semitone shift |
+| Fine | -100 – +100 ct | 0 | Cent fine tune |
+| Scale Quantize | Off / On | Off | Dedicated toggle button |
 | Key | Auto / C – B | Auto | Auto uses the analysed key |
-| Scale | 17 types | Free | Applied after all modulation |
+| Scale | 24 types | Free | Applied after all modulation |
+| ScaleNote | Real-time preview | — | Displays active notes of the selected scale |
 | P-SYNC | Off / On | Off | Locks grain firing to note frequency |
 | TONE | 0.0 – 1.0 | 0.0 | Note-tuned comb resonator |
 
@@ -147,7 +166,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 |---|---|---|---|
 | Attack | 0.0005 – 10.0 s | 0.02 s | Power curve — 0.5 ms snap to 10 s pad swell |
 | Decay | 0.001 – 10.0 s | 0.1 s | Exponential |
-| Sustain | 0.0 – 1.0 | 1.0 | |
+| Sustain | 0.0 – 1.0 | 1.0 | Sustain level |
 | Release | 0.001 – 10.0 s | 0.5 s | Exponential |
 | Position | 0.0 – 1.0 | 0.0 | Grain origin, ~20 ms glide when moved |
 | Start / End | 0.0 – 1.0 | 0.0 / 1.0 | Playback region, ~3 ms edge fades |
@@ -171,7 +190,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 |---|---|---|---|
 | Pattern | 13 types | Up | Note order |
 | Rate | 1/1 – 1/32 (sync) or 0.5–30 Hz | 1/8 | SYNC toggles between them |
-| Octaves | 1 – 4 | 1 | |
+| Octaves | 1 – 4 | 1 | Octave range |
 | Duration | Gate % / 1/32 / 1/16 / 1/8 / 1/4 | Gate % | Note length mode |
 | Gate | 0.05 – 1.0 | 0.8 | Used in Gate % mode |
 | Latch | Off / On | Off | Holds the chord after release |
@@ -181,7 +200,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | Parameter | Range | Default | Description |
 |---|---|---|---|
 | Source | 11 sources | None | LFO 1–4, ENV 1–3, Velocity, Note, Mod Wheel, Random |
-| Destination | 23 destinations | None | |
+| Destination | 23 destinations | None | All primary parameters + FX amounts |
 | Amount | -1.0 – +1.0 | 0.0 | Double-click to reset |
 | UNI | Off (bipolar) / On (unipolar) | Off | Output polarity |
 | LFO Rate | 0.02 – 20 Hz, or 1/1 – 1/32 | 1.0 Hz | SYNC toggles between them |
@@ -196,6 +215,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | **Tape Delay** | TIME (1/2 – 1/16T), FEEDBACK (0–0.95), DUCK, DAMP |
 | **Freeze** | SIZE (20–1000 ms), FEEDBACK (0–0.99), DAMP |
 | **Shimmer Reverb** | DECAY, SHIMMER, DAMP, MOD |
+| **FormantGate** | RATE (1/2 – 1/32), PATTERN (8 types), DEPTH, DECAY, VOWEL |
 
 ### Config
 
@@ -236,8 +256,8 @@ MIDI In
 [Safety soft-clip]
    │
    ▼
-[FX Rack]  5 slots in series, drag to reorder
-   Saturation / Chorus / Delay / Freeze / Reverb
+[FX Rack]  5 slots in series (exclusive selection, drag to reorder)
+   Saturation / Chorus / Delay / Freeze / Reverb / FormantGate
    │
    ▼
 [Dry/Wet blend]
@@ -259,6 +279,7 @@ The quantizer sitting **inside** the voice, after modulation is summed, is what 
 
 Granular synthesis generates clicks for a living, and a click is broadband — it excites the reverb and comes back as a burst. The defences are layered:
 
+* **PANIC Button.** One-click emergency flush of all voices, delay lines, and reverb tails.
 * **Grain edge fades.** Reads fade to zero ~3 ms before the Start/End boundary, so the wrap never produces a discontinuity.
 * **Non-destructive voice stealing.** A stolen voice keeps its existing grains so they decay through their own windows; only genuinely free voices clear their grain list and comb buffer.
 * **Position glide.** Position moves are smoothed per-sample (~20 ms), so dragging the knob can't teleport the playhead into a loud region. Note-on seeds the value immediately, so attacks stay tight.
@@ -304,7 +325,7 @@ cmake --build build --config Release
 
 * **OS:** Windows 10 / 11 (64-bit)
 * **Format:** VST3 / Standalone
-* **Tested Host:** Ableton Live 11 / 12
+* **Tested Host:** Ableton Live 11 / 12, FL Studio, Studio One, Reaper
 
 > ⚠️ **Compatibility Notice:** Verified operation is confirmed in **Ableton Live**. Other DAWs may work but are currently unverified.
 
