@@ -19,7 +19,8 @@ static inline float hermite4(float frac, float y0, float y1, float y2, float y3)
 
 static inline float readHermiteClamped(const float* src, int numSamples, double pos) noexcept
 {
-    const int i1 = (int)pos;
+    if (numSamples <= 0 || src == nullptr) return 0.0f;
+    const int i1 = (int)std::floor(pos);
     const float frac = (float)(pos - (double)i1);
     const int i0 = juce::jlimit(0, numSamples - 1, i1 - 1);
     const int ic = juce::jlimit(0, numSamples - 1, i1);
@@ -302,10 +303,10 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         }
     }
 
-    // TONE: コムレゾネーター係数
+    // TONE: コムレゾネーター係数 (1次LPFと線形補間の位相遅れ~0.5サンプルを補正して音程精度を向上)
     const bool  toneOn = p.tone > 0.001f && !combBufL.empty();
     const int   combSize = (int)combBufL.size();
-    const float targetCombDelay = (float)juce::jmin(notePeriod, (double)(combSize - 4));
+    const float targetCombDelay = (float)juce::jlimit(2.0, (double)(combSize - 4), notePeriod - 0.5);
     if (currentCombDelay == 0.0f) currentCombDelay = targetCombDelay; // 初回
     const float combFb = 0.55f + 0.40f * p.tone;   // tone↑でレゾナンス強化
     const float combDamp = 0.35f;                  // 高域減衰（金属的な響きを抑制）
@@ -578,15 +579,27 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
 {
     handleMidi(midi, p);
 
-    // 全体グレインバジェット: 現在のアクティブ数を引いた残りをボイス間で共有
+    // 全体グレインバジェット: 現在のアクティブ数を引いた残りをボイス間で公平に共有
     int activeTotal = 0;
+    int activeVoices = 0;
     for (const auto& v : voices)
-        if (v.isActive()) activeTotal += v.getActiveGrainCount();
-    int spawnBudget = juce::jmax(0, MAX_TOTAL_GRAINS - activeTotal);
+        if (v.isActive()) { activeTotal += v.getActiveGrainCount(); ++activeVoices; }
+    int totalSpawnBudget = juce::jmax(0, MAX_TOTAL_GRAINS - activeTotal);
 
     for (auto& v : voices)
+    {
         if (v.isActive())
-            v.renderNextBlock(buf, src, trimStart, trimEnd, windowTables, p, &visualizer, spawnBudget);
+        {
+            // 1ボイスがバジェットを独占するのを防ぎ、和音演奏時でも全ボイス均等に発音
+            int voiceBudget = juce::jmin(totalSpawnBudget,
+                                         juce::jmax(4, (totalSpawnBudget + activeVoices - 1) / juce::jmax(1, activeVoices)));
+            const int budgetBefore = voiceBudget;
+            v.renderNextBlock(buf, src, trimStart, trimEnd, windowTables, p, &visualizer, voiceBudget);
+            const int consumed = budgetBefore - voiceBudget;
+            totalSpawnBudget = juce::jmax(0, totalSpawnBudget - consumed);
+            --activeVoices;
+        }
+    }
 
     // 最新ノートの実プレイヘッド位置をGUIへ公開
     {

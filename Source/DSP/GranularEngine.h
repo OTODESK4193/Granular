@@ -123,8 +123,9 @@ public:
 
     void noteOn() noexcept
     {
-        // 現在値からアタックを再開（位相を逆算）
-        attackPhase = std::pow(juce::jlimit(0.0f, 1.0f, value), 1.0f / kAttackCurve);
+        // 現在値からアタックを再開（位相を逆算、極小値は0でクランプ）
+        const float safeVal = juce::jlimit(0.0f, 1.0f, value);
+        attackPhase = (safeVal > 1.0e-5f) ? std::pow(safeVal, 1.0f / kAttackCurve) : 0.0f;
         attackInc = (float)(1.0 / ((double)atkTime * sampleRate));
         decayCoef = 1.0f - std::exp((float)(-4.6 / ((double)decTime * sampleRate)));
         releaseCoef = 1.0f - std::exp((float)(-6.9 / ((double)relTime * sampleRate)));
@@ -250,6 +251,7 @@ public:
         const float target = peak > ceilingLin ? ceilingLin / peak : 1.0f;
         if (target < gain) gain = target;                    // 即時アタック
         else gain += releaseCoef * (target - gain);          // スムーズリリース
+        gain = juce::jmax(1.0e-6f, gain);                    // デノーマル防止
         l *= gain;
         r *= gain;
     }
