@@ -539,12 +539,6 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     for (int i = 0; i < getTotalNumOutputChannels(); ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    if (ingestState.load() != IngestState::Ready)
-    {
-        synth.allNotesOff(); // サンプル未ロード/削除時は発音を止める
-        return;
-    }
-
     // --- ホストBPM / 再生情報取得 ---
     double bpm = 120.0;
     double ppqPos = 0.0;
@@ -621,6 +615,12 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
     modMatrix.handleMidi(midiMessages);
     modMatrix.processBlock(buffer.getNumSamples(), mp);
+
+    if (ingestState.load() != IngestState::Ready)
+    {
+        synth.allNotesOff(); // サンプル未ロード/削除時は発音を止める
+        return;
+    }
 
     GranularParams p;
     p.attack        = apvts.getRawParameterValue("attack")->load();

@@ -101,6 +101,76 @@ ModPanel::ModPanel(GranularAudioProcessor& p) : proc(p)
 
     setSourceTab(0);
     setMatrixPage(0);
+
+    startTimerHz(30);
+}
+
+ModPanel::~ModPanel() { stopTimer(); }
+
+void ModPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
+{
+    const float rMin = proc.modMatrix.getRangeMin(dst);
+    const float rMax = proc.modMatrix.getRangeMax(dst);
+    const float live = proc.modMatrix.get(dst);
+
+    auto& props = s.getProperties();
+    const bool active = std::abs(rMax - rMin) > 1.0e-4f;
+
+    if (!active)
+    {
+        if ((bool)props.getWithDefault("mod_active", false))
+        {
+            props.set("mod_active", false);
+            s.repaint();
+        }
+        return;
+    }
+
+    const auto range = s.getNormalisableRange();
+    const float base = (float)s.getValue();
+
+    auto toNorm = [&](float modUnit)
+    {
+        float real = (kind == ExpOct) ? base * std::pow(2.0f, modUnit * scale)
+                                      : base + modUnit * scale;
+        real = juce::jlimit((float)range.start, (float)range.end, real);
+        return (float)range.convertTo0to1(real);
+    };
+
+    const float nMin  = toNorm(rMin);
+    const float nMax  = toNorm(rMax);
+    const float nLive = toNorm(live);
+
+    const float oldMin  = (float)props.getWithDefault("mod_min", -1.0f);
+    const float oldMax  = (float)props.getWithDefault("mod_max", -1.0f);
+    const float oldLive = (float)props.getWithDefault("mod_live", -1.0f);
+
+    if (!(bool)props.getWithDefault("mod_active", false)
+        || std::abs(nMin - oldMin) > 0.002f
+        || std::abs(nMax - oldMax) > 0.002f
+        || std::abs(nLive - oldLive) > 0.004f)
+    {
+        props.set("mod_active", true);
+        props.set("mod_min", nMin);
+        props.set("mod_max", nMax);
+        props.set("mod_live", nLive);
+        s.repaint();
+    }
+}
+
+void ModPanel::timerCallback()
+{
+    using D = ModMatrix;
+    for (int i = 0; i < ModMatrix::kNumLfos; ++i)
+        applyModRing(lfoRateKnob[(size_t)i], D::DstLfo1Rate + i, LinearAdd, 10.0f);
+
+    for (int i = 0; i < ModMatrix::kNumEnvs; ++i)
+    {
+        applyModRing(envAttackKnob[(size_t)i],  D::DstEnv1Attack + i * 4,  LinearAdd, 2.5f);
+        applyModRing(envDecayKnob[(size_t)i],   D::DstEnv1Decay + i * 4,   LinearAdd, 2.5f);
+        applyModRing(envSustainKnob[(size_t)i], D::DstEnv1Sustain + i * 4, LinearAdd, 1.0f);
+        applyModRing(envReleaseKnob[(size_t)i], D::DstEnv1Release + i * 4, LinearAdd, 2.5f);
+    }
 }
 
 juce::PopupMenu ModPanel::buildDestMenu(int currentDst)
@@ -184,6 +254,11 @@ juce::PopupMenu ModPanel::buildDestMenu(int currentDst)
         juce::PopupMenu sub;
         for (int d = (int)ModMatrix::DstEnv1Attack; d <= (int)ModMatrix::DstEnv3Release; ++d) addItem(sub, d);
         menu.addSubMenu("Envelope", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstGateDepth; d <= (int)ModMatrix::DstGateVowel; ++d) addItem(sub, d);
+        menu.addSubMenu("Gate", sub);
     }
 
     return menu;

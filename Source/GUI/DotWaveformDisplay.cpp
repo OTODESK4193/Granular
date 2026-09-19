@@ -241,8 +241,11 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
             const float hiN = juce::jlimit(0.0f, 1.0f, posNorm + rMax);
             const float bandX = geo.effX + loN * geo.effW;
             const float bandW = juce::jmax(1.0f, (hiN - loN) * geo.effW);
-            g.setColour(juce::Colours::white.withAlpha(0.10f));
-            g.fillRoundedRectangle(juce::Rectangle<float>(bandX, wave.getY(), bandW, wave.getHeight()), 3.0f);
+            g.setColour(GranularColors::pink.withAlpha(0.28f));
+            const auto bandRect = juce::Rectangle<float>(bandX, wave.getY(), bandW, wave.getHeight());
+            g.fillRoundedRectangle(bandRect, 3.0f);
+            g.setColour(GranularColors::pink.withAlpha(0.55f));
+            g.drawRoundedRectangle(bandRect, 3.0f, 1.0f);
 
             // 現在の変調後 Position（白い明るいラインで動く）
             const float liveN = juce::jlimit(0.0f, 1.0f, posNorm + proc.modMatrix.get(ModMatrix::DstPosition));

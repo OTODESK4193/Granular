@@ -55,8 +55,8 @@ void ArcDialLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int w
         {
             juce::Path band;
             band.addArc(rx, ry, rw, rw, aLo, aHi, true);
-            g.setColour(juce::Colours::white.withAlpha(0.5f));  // 全ノブ共通の白
-            g.strokePath(band, juce::PathStrokeType(arcThickness + 3.0f,
+            g.setColour(GranularColors::pink.withAlpha(0.55f));
+            g.strokePath(band, juce::PathStrokeType(arcThickness + 4.0f,
                          juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
     }
@@ -92,9 +92,9 @@ void ArcDialLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int w
         const auto aLive = rotaryStartAngle + live * (rotaryEndAngle - rotaryStartAngle);
         const float dotX = centreX + std::sin(aLive) * radius;
         const float dotY = centreY - std::cos(aLive) * radius;
-        g.setColour(juce::Colours::white.withAlpha(0.30f));
+        g.setColour(GranularColors::pink.withAlpha(0.40f));
         g.fillEllipse(dotX - 5.0f, dotY - 5.0f, 10.0f, 10.0f);
-        g.setColour(juce::Colours::white);
+        g.setColour(GranularColors::pink);
         g.fillEllipse(dotX - 2.6f, dotY - 2.6f, 5.2f, 5.2f);
     }
 }

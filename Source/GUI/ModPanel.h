@@ -15,15 +15,21 @@
 #include "ModDestSelector.h"
 #include "ColorPalette.h"
 
-class ModPanel : public juce::Component
+class ModPanel : public juce::Component,
+                 private juce::Timer
 {
 public:
     explicit ModPanel(GranularAudioProcessor& processor);
+    ~ModPanel() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
 
 private:
+    enum ModKind { LinearAdd, ExpOct };
+    void timerCallback() override;
+    void applyModRing(juce::Slider& s, int dst, ModKind kind, float scale);
+
     void setupKnob(ValueKnob& s, const juce::String& paramID, juce::Colour accent);
     void setupCombo(juce::ComboBox& c, const juce::String& paramID, juce::Component& parent);
     void setSourceTab(int t);          // 0=LFO, 1=Env
