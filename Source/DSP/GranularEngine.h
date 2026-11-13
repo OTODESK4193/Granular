@@ -215,22 +215,50 @@ struct TptSvf
 {
     void prepare(double sr) noexcept
     {
-        sampleRate = sr;
+        sampleRate = sr > 1.0 ? sr : 44100.0;
         s1 = s2 = 0.0f;
-        g = gTarget = 0.05f;
+        smoothCoef = 1.0f - std::exp(-1.0f / (float)(0.012 * sampleRate)); // ~12ms対数グライド
+        logFreq = logFreqTarget = std::log(1000.0f);
+        g = gTarget = std::tan(juce::MathConstants<float>::pi * 1000.0f / (float)sampleRate);
+        coeffInit = false;
     }
-    void reset() noexcept { s1 = s2 = 0.0f; }
+    void reset() noexcept
+    {
+        s1 = s2 = 0.0f;
+        coeffInit = false;
+    }
 
-    // 目標カットオフ(Hz)/Qを設定（gは実処理でスムージングされる）
+    // 目標カットオフ(Hz)/Qを設定（対数周波数ドメインでper-sampleスムージング）
     void setTarget(float freqHz, float q) noexcept
     {
         const float nyq = (float)(sampleRate * 0.5);
         freqHz = juce::jlimit(10.0f, nyq * 0.99f, freqHz);
+        logFreqTarget = std::log(freqHz);
         gTarget = std::tan(juce::MathConstants<float>::pi * freqHz / (float)sampleRate);
         R2 = 1.0f / juce::jmax(0.05f, q);
+
+        if (!coeffInit)
+        {
+            logFreq = logFreqTarget;
+            g = gTarget;
+            coeffInit = true;
+        }
     }
 
-    inline void tickCoeff() noexcept { g += 0.004f * (gTarget - g); } // per-sampleスムージング
+    inline void tickCoeff() noexcept
+    {
+        const float diff = logFreqTarget - logFreq;
+        if (std::abs(diff) > 1.0e-5f)
+        {
+            logFreq += smoothCoef * diff;
+            g = std::tan(juce::MathConstants<float>::pi * std::exp(logFreq) / (float)sampleRate);
+        }
+        else if (g != gTarget)
+        {
+            logFreq = logFreqTarget;
+            g = gTarget;
+        }
+    }
 
     inline float processLP(float x) noexcept
     {
@@ -251,6 +279,8 @@ struct TptSvf
 
     double sampleRate = 44100.0;
     float g = 0.05f, gTarget = 0.05f, R2 = 1.41421356f, s1 = 0.0f, s2 = 0.0f;
+    float logFreq = 6.907755f, logFreqTarget = 6.907755f, smoothCoef = 0.002f;
+    bool coeffInit = false;
 };
 
 // ==========================================
@@ -367,12 +397,12 @@ private:
     uint64_t noteStamp = 0;
 
     float  velocityGain = 1.0f;
-    double playheadOffset = 0.0;
-    double randomTargetRel = 0.0;   // Randomモード: 現在のジャンプ先（領域内相対）
+    double playheadOffset = 0.0;    // 領域正規化位相 (0..1 / PingPong 0..2)
+    double randomTargetRel = 0.0;   // Randomモード: 現在のジャンプ先（領域内正規化 0..1）
     double randomJumpCountdown = 0.0; // Randomモード: 次のジャンプまでの残りサンプル (0以下=即抽選)
     float  panSide = 1.0f;          // Pan交互配置用（グレイン毎にL/R反転）
     float  lastRelNorm = -1.0f;     // GUI表示用の実プレイヘッド位置
-    int    samplesToNextSpawn = 0;
+    double samplesToNextSpawn = 0.0;
     double smoothedPos01 = 0.0;     // Position のサンプル単位グライド（急ジャンプ→バースト防止）
     double currentSprayTarget = 0.0;
     double currentSprayValue = 0.0;
@@ -385,10 +415,14 @@ private:
     FastRandom random;
     juce::AudioBuffer<float> voiceInternalBuffer;
 
-    // --- TONE: ノート同調コムレゾネーター (Karplus-Strong系) ---
+    // --- TONE: ノート同調コムレゾネーター (Thiran 1次AP補間 + SR補償LPF + DCブロッカー) ---
     std::vector<float> combBufL, combBufR;
     int   combWriteIdx = 0;
     float combLpL = 0.0f, combLpR = 0.0f;
+    float combApXPrevL = 0.0f, combApYPrevL = 0.0f;
+    float combApXPrevR = 0.0f, combApYPrevR = 0.0f;
+    float combDcXPrevL = 0.0f, combDcYPrevL = 0.0f;
+    float combDcXPrevR = 0.0f, combDcYPrevR = 0.0f;
     float currentCombDelay = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GranularVoice)
@@ -426,6 +460,7 @@ public:
                 svfLP[ch][st].reset();
             }
         prevOutGain = 0.0f;
+        hasPrevParams = false;
         playheadDisplay.store(-1.0f);
     }
 
@@ -436,16 +471,22 @@ public:
     static constexpr int MAX_TOTAL_GRAINS = 1200; // 全ボイス合計のCPUバジェット
 
 private:
-    void handleMidi(const juce::MidiBuffer& midi, const GranularParams& p);
+    void handleMidiMessage(const juce::MidiMessage& msg, const GranularParams& p);
+    void renderVoicesRange(juce::AudioBuffer<float>& subBuf,
+                           const juce::AudioBuffer<float>* src,
+                           int trimStart, int trimEnd,
+                           const GranularParams& p);
     void generateWindowTables();
 
     std::array<GranularVoice, NUM_VOICES> voices;
     std::array<std::array<float, 4096>, 4> windowTables;
 
-    // マスターフィルタ: [ch][stage] (stage1は24dB/oct時のみ使用)
+    // マスターフィルタ: [ch][stage] (stage1は24dB/oct Butterworth Q2=1.30656296)
     TptSvf svfHP[2][2];
     TptSvf svfLP[2][2];
 
+    GranularParams prevParams;
+    bool  hasPrevParams = false;
     float prevOutGain = 0.0f;   // 出力ゲインのランプ用
 
     double currentSampleRate = 44100.0;

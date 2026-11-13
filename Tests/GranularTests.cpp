@@ -572,6 +572,347 @@ void testReadAbletonAifBounds()
 
     badAif.deleteFile();
 }
+
+void testPitchAnalyzerYinMpmAnd24Key()
+{
+    std::cout << "Running testPitchAnalyzerYinMpmAnd24Key...\n";
+    constexpr double sr = 44100.0;
+
+    // 1. Multi-harmonic sawtooth wave across 55, 110, 440, 1760 Hz: zero octave jumps
+    const double targetFreqs[4] = { 55.0, 110.0, 440.0, 1760.0 };
+    for (double f0 : targetFreqs)
+    {
+        const int len = 16384;
+        std::vector<float> buf((size_t)len, 0.0f);
+        for (int i = 0; i < len; ++i)
+        {
+            double s = 0.0;
+            for (int h = 1; h <= 8; ++h)
+            {
+                if ((double)h * f0 < sr * 0.45)
+                    s += std::sin(juce::MathConstants<double>::twoPi * f0 * (double)h * (double)i / sr) / (double)h;
+            }
+            buf[(size_t)i] = (float)(s * 0.4);
+        }
+
+        const PitchInfo pi = PitchAnalyzer::analyzeOmni(buf.data(), len, sr, "saw_test.wav", 0);
+        check(pi.isDetected, ("Pitch should be detected for " + std::to_string(f0) + " Hz saw").c_str());
+        check(std::abs(pi.frequency - f0) < f0 * 0.015,
+              ("Octave-accurate YIN/MPM failed at " + std::to_string(f0) + " Hz, got " + std::to_string(pi.frequency)).c_str());
+        check(pi.clarity > 0.7f, "Harmonic saw clarity should exceed 0.7");
+    }
+
+    // 2. Micro sample (< 1024 samples): single-cycle / short 256-sample wavetable
+    {
+        const int len = 256;
+        const double f0 = sr / 128.0; // 2 cycles = 344.53125 Hz
+        std::vector<float> micro((size_t)len);
+        for (int i = 0; i < len; ++i)
+            micro[(size_t)i] = 0.5f * std::sin(juce::MathConstants<float>::twoPi * 2.0f * (float)i / (float)len);
+
+        const PitchInfo pi = PitchAnalyzer::analyzeOmni(micro.data(), len, sr, "micro.wav", 0);
+        check(pi.isDetected, "Micro sample (<1024) must still detect pitch");
+        check(std::abs(pi.frequency - f0) < 5.0,
+              ("Micro sample pitch mismatch: expected " + std::to_string(f0) + ", got " + std::to_string(pi.frequency)).c_str());
+    }
+
+    // 3. HatCym route full-rate FFT (7000 Hz > 5512.5 Hz old alias threshold!)
+    {
+        const int len = 8192;
+        std::vector<float> hat((size_t)len);
+        for (int i = 0; i < len; ++i)
+            hat[(size_t)i] = 0.5f * std::sin(juce::MathConstants<float>::twoPi * 7000.0f * (float)i / (float)sr);
+
+        const PitchInfo pi = PitchAnalyzer::analyzeOmni(hat.data(), len, sr, "closed_hat_hi.wav", 0);
+        check(pi.isDetected, "HatCym FFT should detect 7000 Hz");
+        check(std::abs(pi.frequency - 7000.0) < 25.0,
+              ("HatCym 7000 Hz should not alias down, got " + std::to_string(pi.frequency)).c_str());
+    }
+
+    // 4. Temperley 24-Key Detection (A Minor triad with loud fifth E4 vs C Major triad)
+    {
+        const int len = 16384;
+        std::vector<float> am((size_t)len);
+        std::vector<float> cm((size_t)len);
+        for (int i = 0; i < len; ++i)
+        {
+            const double t = (double)i / sr;
+            // A3 (220), C4 (261.63), loud E4 (329.63)
+            am[(size_t)i] = (float)(0.25 * std::sin(juce::MathConstants<double>::twoPi * 220.0 * t)
+                                  + 0.25 * std::sin(juce::MathConstants<double>::twoPi * 261.6256 * t)
+                                  + 0.35 * std::sin(juce::MathConstants<double>::twoPi * 329.6276 * t));
+            // C3 (130.81), E4 (329.63), G4 (392.00)
+            cm[(size_t)i] = (float)(0.30 * std::sin(juce::MathConstants<double>::twoPi * 130.8128 * t)
+                                  + 0.25 * std::sin(juce::MathConstants<double>::twoPi * 329.6276 * t)
+                                  + 0.30 * std::sin(juce::MathConstants<double>::twoPi * 391.9954 * t));
+        }
+
+        const PitchInfo piAm = PitchAnalyzer::analyzeOmni(am.data(), len, sr, "chord_pad.wav", 0);
+        check(piAm.detectedRoot == 9 && !piAm.isMajor,
+              ("Expected A Minor (root=9, min), got root=" + std::to_string(piAm.detectedRoot) + (piAm.isMajor ? " Maj" : " Min")).c_str());
+
+        const PitchInfo piCm = PitchAnalyzer::analyzeOmni(cm.data(), len, sr, "chord_maj.wav", 0);
+        check(piCm.detectedRoot == 0 && piCm.isMajor,
+              ("Expected C Major (root=0, maj), got root=" + std::to_string(piCm.detectedRoot) + (piCm.isMajor ? " Maj" : " Min")).c_str());
+    }
+}
+
+void testStereoIngestRightOnlyAndMicroRender()
+{
+    std::cout << "Running testStereoIngestRightOnlyAndMicroRender...\n";
+    juce::File tmpR = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("granular_test_right_only.wav");
+    juce::File tmpMicro = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("granular_test_micro256.wav");
+
+    // 1. Stereo file: Left silent, Right = 440 Hz @ -30dB in samples [4000..24000]
+    {
+        const int total = 48000;
+        juce::AudioBuffer<float> buf(2, total);
+        buf.clear();
+        for (int i = 4000; i < 24000; ++i)
+            buf.setSample(1, i, 0.0316f * std::sin(juce::MathConstants<float>::twoPi * 440.0f * (float)i / 48000.0f));
+
+        tmpR.deleteFile();
+        juce::WavAudioFormat wav;
+        if (std::unique_ptr<juce::OutputStream> st{ tmpR.createOutputStream() })
+            if (auto w = wav.createWriterFor(st, juce::AudioFormatWriterOptions{}.withSampleRate(48000.0).withNumChannels(2).withBitsPerSample(24)))
+                w->writeFromAudioSampleBuffer(buf, 0, total);
+
+        auto procPtr = std::make_unique<GranularAudioProcessor>();
+        auto& proc = *procPtr;
+        proc.prepareToPlay(48000.0, 256);
+        proc.loadFileForIngest(tmpR);
+        check(waitForSampleReady(proc), "Right-only stereo ingest timed out");
+
+        const int s = proc.trimStartSample.load();
+        const int e = proc.trimEndSample.load();
+        check(s > 3500 && e < 24500, "Right-channel quiet sample should trim leading/trailing silence accurately");
+        check(proc.currentDetectedRoot.load() == 9 && proc.rootMidiNote.load() == 57,
+              "L+R stereo mix should detect 440 Hz (A -> folded root 57) present only on Right channel");
+        {
+            const juce::ScopedLock sl(proc.stateLock);
+            check(proc.hudLineOrig.contains("440."), "HUD should report detected 440 Hz from Right channel");
+        }
+    }
+
+    // 2. Micro sample (256 samples): waveform bins 0..999 all populated AND audio renders
+    {
+        const int total = 256;
+        juce::AudioBuffer<float> buf(2, total);
+        for (int i = 0; i < total; ++i)
+        {
+            const float v = 0.6f * std::sin(juce::MathConstants<float>::twoPi * 4.0f * (float)i / (float)total);
+            buf.setSample(0, i, v);
+            buf.setSample(1, i, v);
+        }
+
+        tmpMicro.deleteFile();
+        juce::WavAudioFormat wav;
+        if (std::unique_ptr<juce::OutputStream> st{ tmpMicro.createOutputStream() })
+            if (auto w = wav.createWriterFor(st, juce::AudioFormatWriterOptions{}.withSampleRate(48000.0).withNumChannels(2).withBitsPerSample(16)))
+                w->writeFromAudioSampleBuffer(buf, 0, total);
+
+        auto procPtr = std::make_unique<GranularAudioProcessor>();
+        auto& proc = *procPtr;
+        proc.prepareToPlay(48000.0, 256);
+        proc.loadFileForIngest(tmpMicro);
+        check(waitForSampleReady(proc), "Micro 256-sample ingest timed out");
+        check(proc.waveformPeaks[995] > 0.05f, "Micro sample should populate tail bins up to 999");
+
+        proc.resetAllParametersToDefault();
+        setParamReal(proc, "attack", 0.001f);
+        setParamReal(proc, "fxMix", 0.0f);
+        juce::AudioBuffer<float> out(2, 256);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        for (int b = 0; b < 4; ++b)
+        {
+            proc.processBlock(out, midi);
+            midi.clear();
+        }
+        check(computeRms(out) > 0.01f, "Micro sample (<512 samples) must render audible granular output");
+    }
+
+    tmpR.deleteFile();
+    tmpMicro.deleteFile();
+}
+
+void testScaleQuantizerBoundaryClamp()
+{
+    std::cout << "Running testScaleQuantizerBoundaryClamp...\n";
+    const int nScales = ScaleQuantizer::numScales();
+    const float testInputs[5] = { -12.0f, 0.0f, 126.9f, 127.0f, 132.0f };
+    for (int root = 0; root < 12; ++root)
+    {
+        for (int sc = 0; sc < nScales; ++sc)
+        {
+            for (float inVal : testInputs)
+            {
+                const float q = ScaleQuantizer::quantize(inVal, root, sc);
+                check(q >= 0.0f && q <= 127.0f, "ScaleQuantizer::quantize exceeded [0, 127]");
+            }
+        }
+    }
+
+    // C# Major (root=1, scale=1=Major): MIDI 127 (G) is out of scale, 128 (G#) > 127 -> must snap to 126 (F#)
+    const float qTop = ScaleQuantizer::quantize(127.0f, 1, 1);
+    check(std::abs(qTop - 126.0f) < 1.0e-4f,
+          ("Expected C# Major quantize(127) -> 126 (F#), got " + std::to_string(qTop)).c_str());
+}
+
+void testSubBlockMidiTimingAndWindowRms()
+{
+    std::cout << "Running testSubBlockMidiTimingAndWindowRms...\n";
+    constexpr double sr = 48000.0;
+    juce::AudioBuffer<float> src(2, 48000);
+    for (int i = 0; i < 48000; ++i)
+    {
+        const float v = 0.5f * std::sin(juce::MathConstants<float>::twoPi * 261.6256f * (float)i / (float)sr);
+        src.setSample(0, i, v);
+        src.setSample(1, i, v);
+    }
+
+    GranularSynth synth;
+    synth.prepareToPlay(sr, 512);
+
+    GranularParams p;
+    p.attack = 0.001f;
+    p.density = 0.5f;
+    p.grainSize = 0.06f;
+    p.position = 0.5f;
+    p.windowShape = 2; // Square (1% fast edge)
+    p.masterHPF = 20.0f;
+    p.masterLPF = 20000.0f;
+    p.speed = 1.0f;
+
+    juce::AudioBuffer<float> out(2, 512);
+    out.clear();
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 250); // Sample-accurate NoteOn at 250!
+
+    synth.processBlock(out, midi, &src, 0, 48000, p);
+
+    float prePeak = 0.0f, postPeak = 0.0f;
+    for (int i = 0; i < 250; ++i)
+        prePeak = juce::jmax(prePeak, std::abs(out.getSample(0, i)));
+    for (int i = 250; i < 512; ++i)
+        postPeak = juce::jmax(postPeak, std::abs(out.getSample(0, i)));
+
+    check(prePeak == 0.0f, "Samples [0..249] before NoteOn at sample 250 must be strictly zero");
+    check(postPeak > 0.02f, "Samples [250..511] after NoteOn must sound immediately");
+
+    // Window RMS parity check across shapes 0..3
+    float rmsPerShape[4] = {};
+    for (int w = 0; w < 4; ++w)
+    {
+        synth.reset();
+        p.windowShape = w;
+        p.pitchJitter = 0.0f;
+        p.positionSpray = 0.0f;
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+
+        double sumSq = 0.0;
+        int count = 0;
+        for (int blk = 0; blk < 20; ++blk)
+        {
+            out.clear();
+            synth.processBlock(out, midi, &src, 0, 48000, p);
+            midi.clear();
+            if (blk >= 4)
+            {
+                const float* d = out.getReadPointer(0);
+                for (int i = 0; i < 512; ++i) { sumSq += (double)d[i] * d[i]; ++count; }
+            }
+        }
+        rmsPerShape[w] = (float)std::sqrt(sumSq / (double)juce::jmax(1, count));
+        check(rmsPerShape[w] > 0.05f, "Window shape RMS should be substantial");
+    }
+    const float minW = *std::min_element(rmsPerShape, rmsPerShape + 4);
+    const float maxW = *std::max_element(rmsPerShape, rmsPerShape + 4);
+    check(maxW / juce::jmax(1.0e-5f, minW) < 1.35f,
+          ("RMS-normalized windows should match within 1.35x, ratio=" + std::to_string(maxW / minW)).c_str());
+}
+
+void testButterworth24DbCascadeAndCombThiran()
+{
+    std::cout << "Running testButterworth24DbCascadeAndCombThiran...\n";
+    constexpr double sr = 48000.0;
+
+    // 1. 4th-order Butterworth cascade: -3.01dB at fc (1000 Hz) and -48dB at 4000 Hz
+    auto measureSvfGain = [&](double testFreqHz) -> float
+    {
+        TptSvf s0, s1;
+        s0.prepare(sr);
+        s1.prepare(sr);
+        s0.setTarget(1000.0f, 0.54119610f);
+        s1.setTarget(1000.0f, 1.30656296f);
+
+        double sq = 0.0;
+        int cnt = 0;
+        for (int i = 0; i < 12000; ++i)
+        {
+            const float x = std::sin(juce::MathConstants<float>::twoPi * (float)testFreqHz * (float)i / (float)sr);
+            const float y = s1.processLP(s0.processLP(x));
+            if (i >= 8000) { sq += (double)y * y; ++cnt; }
+        }
+        return (float)std::sqrt((sq / (double)cnt) / 0.5);
+    };
+
+    const float gainAtFc = measureSvfGain(1000.0);
+    const float gainAt4Fc = measureSvfGain(4000.0);
+    check(std::abs(gainAtFc - 0.70710678f) < 0.04f,
+          ("4th-order Butterworth @ fc must be ~0.7071 (-3dB), got " + std::to_string(gainAtFc)).c_str());
+    check(gainAt4Fc < 0.006f,
+          ("4th-order Butterworth @ 4*fc must be < 0.006 (-48dB), got " + std::to_string(gainAt4Fc)).c_str());
+
+    // 2. Comb TONE Thiran AP + DC blocker prevents runaway DC offset
+    juce::AudioBuffer<float> biasedSrc(2, 48000);
+    for (int i = 0; i < 48000; ++i)
+    {
+        const float v = 0.25f + 0.35f * std::sin(juce::MathConstants<float>::twoPi * 440.0f * (float)i / (float)sr);
+        biasedSrc.setSample(0, i, v);
+        biasedSrc.setSample(1, i, v);
+    }
+
+    GranularSynth synth;
+    synth.prepareToPlay(sr, 512);
+    GranularParams p;
+    p.attack = 0.001f;
+    p.tone = 0.9f;
+    p.density = 0.6f;
+    p.grainSize = 0.05f;
+    p.masterHPF = 20.0f;
+    p.masterLPF = 20000.0f;
+
+    juce::AudioBuffer<float> out(2, 512);
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 69, 1.0f), 0);
+
+    for (int blk = 0; blk < 60; ++blk)
+    {
+        out.clear();
+        synth.processBlock(out, midi, &biasedSrc, 0, 48000, p);
+        midi.clear();
+    }
+
+    double sum = 0.0;
+    int totalSamples = 0;
+    for (int blk = 0; blk < 16; ++blk)
+    {
+        out.clear();
+        synth.processBlock(out, midi, &biasedSrc, 0, 48000, p);
+        for (int i = 0; i < 512; ++i)
+        {
+            const float s = out.getSample(0, i);
+            check(isFiniteFloat(s), "TONE comb resonator output must be finite");
+            sum += (double)s;
+            ++totalSamples;
+        }
+    }
+    const double mean = sum / (double)totalSamples;
+    check(std::abs(mean) < 0.005,
+          ("TONE comb DC blocker failed to settle DC offset, mean=" + std::to_string(mean)).c_str());
+}
 } // namespace
 
 int main()
@@ -596,6 +937,11 @@ int main()
         testModMatrixSyncRatesAndGuiSnapshot();
         testGrainVisualizerSeqLock();
         testReadAbletonAifBounds();
+        testPitchAnalyzerYinMpmAnd24Key();
+        testStereoIngestRightOnlyAndMicroRender();
+        testScaleQuantizerBoundaryClamp();
+        testSubBlockMidiTimingAndWindowRms();
+        testButterworth24DbCascadeAndCombThiran();
     }
     catch (const std::exception& e)
     {
@@ -613,6 +959,6 @@ int main()
         std::cerr << "\nTOTAL FAILURES: " << gFailures << "\n";
         return 1;
     }
-    std::cerr << "\nALL GRANULAR PHASE 1 TESTS PASSED!\n";
+    std::cerr << "\nALL GRANULAR PHASE 1 & PHASE 2 TESTS PASSED!\n";
     return 0;
 }

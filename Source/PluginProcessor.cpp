@@ -1436,12 +1436,56 @@ void GranularAudioProcessor::run()
     ingestProgress.store(0.25f);
     if (threadShouldExit()) return;
 
-    // --- ピッチ解析 (Omni-Analyzer) ---
+    // --- ピッチ解析 (Omni-Analyzer: 全チャンネル位相整合モノミックス) ---
     ingestState.store(IngestState::Analyzing);
     { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Analyzing Pitch..."; }
 
-    currentPitch = PitchAnalyzer::analyzeOmni(tempRaw.getReadPointer(0), tempRaw.getNumSamples(),
-                                              targetSR, targetFile.getFileName(), materialMode);
+    {
+        const int numRawCh = tempRaw.getNumChannels();
+        const int numRawSamples = tempRaw.getNumSamples();
+        if (numRawCh <= 1)
+        {
+            currentPitch = PitchAnalyzer::analyzeOmni(tempRaw.getReadPointer(0), numRawSamples,
+                                                      targetSR, targetFile.getFileName(), materialMode);
+        }
+        else
+        {
+            std::vector<float> monoMix((size_t)numRawSamples, 0.0f);
+            const float* ch0 = tempRaw.getReadPointer(0);
+            std::vector<float> chSigns((size_t)numRawCh, 1.0f);
+
+            // Lchと逆相のチャンネルがあれば位相反転して加算キャンセルを防止
+            double e0 = 0.0;
+            for (int i = 0; i < numRawSamples; ++i)
+                e0 += (double)ch0[i] * (double)ch0[i];
+
+            for (int ch = 1; ch < numRawCh; ++ch)
+            {
+                const float* ck = tempRaw.getReadPointer(ch);
+                double dot = 0.0, ek = 0.0;
+                for (int i = 0; i < numRawSamples; ++i)
+                {
+                    dot += (double)ch0[i] * (double)ck[i];
+                    ek  += (double)ck[i]  * (double)ck[i];
+                }
+                const double denom = std::sqrt(e0 * ek);
+                if (denom > 1.0e-12 && dot < -0.5 * denom)
+                    chSigns[(size_t)ch] = -1.0f;
+            }
+
+            const float invCh = 1.0f / (float)numRawCh;
+            for (int ch = 0; ch < numRawCh; ++ch)
+            {
+                const float* ck = tempRaw.getReadPointer(ch);
+                const float s = invCh * chSigns[(size_t)ch];
+                for (int i = 0; i < numRawSamples; ++i)
+                    monoMix[(size_t)i] += ck[i] * s;
+            }
+
+            currentPitch = PitchAnalyzer::analyzeOmni(monoMix.data(), numRawSamples,
+                                                      targetSR, targetFile.getFileName(), materialMode);
+        }
+    }
     currentDetectedRoot.store(currentPitch.detectedRoot);
     currentIsMajor.store(currentPitch.isMajor);
     ingestProgress.store(0.45f);
@@ -1551,14 +1595,25 @@ void GranularAudioProcessor::run()
     nextSample->buffer.copyFrom(0, 0, corrected, 0, 0, len);
     nextSample->buffer.copyFrom(1, 0, corrected, corrected.getNumChannels() > 1 ? 1 : 0, 0, len);
 
+    const float rawPeak = nextSample->buffer.getMagnitude(0, len);
     int s = 0, e = len - 1;
-    const float thresh = 0.005f;
-    const float* d = nextSample->buffer.getReadPointer(0);
-    for (int i = 0; i < len; ++i)          { if (std::abs(d[i]) > thresh) { s = i; break; } }
-    for (int i = len - 1; i >= s; --i)     { if (std::abs(d[i]) > thresh) { e = i; break; } }
+    if (rawPeak > 1.0e-7f)
+    {
+        const float thresh = juce::jmax(1.0e-5f, rawPeak * 0.002f); // ピーク相対 -54dB フロア
+        const float* d0 = nextSample->buffer.getReadPointer(0);
+        const float* d1 = nextSample->buffer.getReadPointer(1);
+        for (int i = 0; i < len; ++i)
+        {
+            if (std::max(std::abs(d0[i]), std::abs(d1[i])) > thresh) { s = i; break; }
+        }
+        for (int i = len - 1; i >= s; --i)
+        {
+            if (std::max(std::abs(d0[i]), std::abs(d1[i])) > thresh) { e = i; break; }
+        }
+    }
 
     const float mag = nextSample->buffer.getMagnitude(s, e - s + 1);
-    if (mag > 0.0f) nextSample->buffer.applyGain(s, e - s + 1, 0.5f / mag); // -6dB 正規化
+    if (mag > 1.0e-7f) nextSample->buffer.applyGain(0, len, 0.5f / mag); // -6dB 正規化 (全体連続ゲイン)
 
     nextSample->validSamples = len;
     nextSample->trimStart    = s;
@@ -1570,24 +1625,31 @@ void GranularAudioProcessor::run()
 
     std::array<float, 1000> peaksLocal {};
     std::array<float, 1000> brightLocal {};
-    const int stepSize = juce::jmax(1, len / 1000);
-    const float* wp = nextSample->buffer.getReadPointer(0);
+    const float* wp0 = nextSample->buffer.getReadPointer(0);
+    const float* wp1 = nextSample->buffer.getReadPointer(1);
     for (int i = 0; i < 1000; ++i)
     {
         if (threadShouldExit()) return;
-        const int startIdx = i * stepSize;
-        const int seg = juce::jmin(stepSize, len - startIdx);
-        if (seg <= 0) continue;
+        int startIdx = (int)((double)i * (double)len / 1000.0);
+        int endIdx   = (int)((double)(i + 1) * (double)len / 1000.0);
+        startIdx = juce::jlimit(0, len - 1, startIdx);
+        endIdx   = juce::jlimit(startIdx + 1, len, endIdx);
+        const int seg = endIdx - startIdx;
+
         peaksLocal[(size_t)i] = nextSample->buffer.getMagnitude(startIdx, seg);
 
-        // スペクトル明度: 一次差分(=簡易ハイパス)の全体エネルギー比。
+        // ステレオエネルギー和ベースの一次差分スペクトル明度 (マイクロ素材でも全1000ビン補間)
         double totalE = 1.0e-9, highE = 0.0;
-        for (int n = 1; n < seg; ++n)
+        for (int n = startIdx; n < endIdx; ++n)
         {
-            const float x = wp[startIdx + n];
-            const float dx = x - wp[startIdx + n - 1];
-            totalE += (double)x * x;
-            highE  += (double)dx * dx;
+            const float x0 = wp0[n];
+            const float x1 = wp1[n];
+            const float p0 = (n > 0) ? wp0[n - 1] : x0;
+            const float p1 = (n > 0) ? wp1[n - 1] : x1;
+            const float dx0 = x0 - p0;
+            const float dx1 = x1 - p1;
+            totalE += 0.5 * ((double)x0 * (double)x0 + (double)x1 * (double)x1);
+            highE  += 0.5 * ((double)dx0 * (double)dx0 + (double)dx1 * (double)dx1);
         }
         const float ratio = (float)std::sqrt(highE / totalE); // 0..~2
         brightLocal[(size_t)i] = juce::jlimit(0.0f, 1.0f, ratio / 1.6f);

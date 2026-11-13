@@ -13,6 +13,7 @@ struct PitchInfo
     double frequency = 0.0;
     juce::String noteName = "---";
     float centsOffset = 0.0f;
+    float clarity = 0.0f;
     int midiNote = 60;
     bool isDetected = false;
     int detectedRoot = 0;      // 0..11 (C..B)

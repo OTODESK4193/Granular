@@ -231,30 +231,33 @@ namespace ScaleQuantizer
         return names.joinIntoString(" ");
     }
 
-    // 絶対ピッチ(半音, 小数可) を Key+Scale の最も近い構成音へスナップ
+    // 絶対ピッチ(半音, 小数可) を Key+Scale の最も近い構成音へスナップ ([0, 127] 厳格クランプ)
     inline float quantize(float absSemis, int rootNote, int scaleIndex) noexcept
     {
+        const float clampedInput = juce::jlimit(0.0f, 127.0f, absSemis);
         const auto& scales = getScales();
         if (scaleIndex < 0 || scaleIndex >= (int)scales.size())
-            return absSemis;
+            return clampedInput;
 
         const auto& s = scales[(size_t)scaleIndex];
         if (s.size <= 0)
-            return absSemis;
+            return clampedInput;
 
         const float root = (float)(((rootNote % 12) + 12) % 12);
 
-        float best = absSemis;
+        float best = clampedInput;
         float bestDist = 1.0e9f;
 
         for (int i = 0; i < s.size; ++i)
         {
             const float base = root + (float)s.degrees[(size_t)i];
-            const float k = std::round((absSemis - base) / 12.0f);
-            const float candidate = base + 12.0f * k;
-            const float dist = std::abs(absSemis - candidate);
+            const float k = std::round((clampedInput - base) / 12.0f);
+            float candidate = base + 12.0f * k;
+            while (candidate < 0.0f)   candidate += 12.0f;
+            while (candidate > 127.0f) candidate -= 12.0f;
+            const float dist = std::abs(clampedInput - candidate);
             if (dist < bestDist) { bestDist = dist; best = candidate; }
         }
-        return best;
+        return juce::jlimit(0.0f, 127.0f, best);
     }
 }
