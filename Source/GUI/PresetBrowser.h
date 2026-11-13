@@ -1,6 +1,6 @@
 // ==========================================
 // File: PresetBrowser.h
-// プリセットブラウザ（Factory 120 + User + Favorites）。Mainタブ下の領域に展開。
+// プリセットブラウザ（Factory 150 + User + Favorites）。Mainタブ下の領域に展開。
 //   - 3カラム階層フィルタリング:
 //       1. メインカテゴリ (All / Favorites ★ / 各ファクトリカテゴリ / User)
 //       2. サブカテゴリ   (All / 選択カテゴリに応じたサブカテゴリ一覧)

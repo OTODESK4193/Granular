@@ -14,7 +14,7 @@
 
 In most granular instruments, pitch jitter, LFOs and random spray are applied *after* any scale correction, so the moment you add movement the result drifts out of tune. GRANULAR inserts its scale quantizer at the very end of the pitch chain: note, octave, semitone, fine tune, random jitter and every modulation slot are summed first, and only then snapped to the selected Key and Scale. Turn Pitch Jitter to ±24 semitones and the texture stays musical.
 
-On top of that sits a complete instrument: pitch-synchronous grain firing that gives noise a playable pitch, a comb resonator for string-like tone, a 13-pattern arpeggiator, a 16-slot modulation matrix, a drag-to-reorder 5-slot FX rack (with exclusive slot selection and FormantGate), a 3-column preset browser with 120 differentiated factory presets, and a dot-matrix waveform display coloured by the sample's own frequency content.
+On top of that sits a complete instrument: pitch-synchronous grain firing that gives noise a playable pitch, a comb resonator for string-like tone, a 25-pattern arpeggiator (with Euclidean rhythm gating), a 16-slot modulation matrix, a drag-to-reorder 5-slot FX rack (with exclusive slot selection and FormantGate), a 3-column preset browser with 150 differentiated factory presets, and a dot-matrix waveform display coloured by the sample's own frequency content.
 
 **Design goal:** the chaos of granular synthesis, kept in tune.
 
@@ -62,7 +62,7 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 
 ### Arpeggiator & Texture
 
-* **13 patterns:** Up, Down, Up-Down, Down-Up, Up-Down (Incl), Converge, Diverge, Pedal Low, Pedal High, As Played, Random, Random Walk, Chord.
+* **25 patterns:** Up, Down, Up-Down, Down-Up, Up-Down (Incl), Converge, Diverge, Pedal Low, Pedal High, As Played, Random, Random Walk, Chord, Inward, Outward, Thumb Bass, Pinky Top, Zig-Zag, and more.
 * **Euclidean Rhythm Generator:** Orthogonal Bjorklund $E(k, n, r)$ gating with configurable Steps (2–16), Fills (1–16), and Rotation (0–15).
 * **Tempo-synced** (1/1 – 1/32 including dotted and triplet) **or free** (0.5–30 Hz), with Octaves (1–4), Duration (Gate % or a fixed note value), cross-block Strum, and LATCH.
 * **Safe retrigger.** If a step would fire a note that is still sounding, a note-off is emitted first — this is what stops stacked voices (and sudden bursts) when you turn the Rate or Gate knob mid-pattern.
@@ -120,18 +120,22 @@ The waveform is drawn as stacked dots, **coloured by the sample's own frequency 
 
 ### Preset Browser
 
-A professional **3-column hierarchical browser** with **120 factory presets across 9 categories**:
+A professional **3-column hierarchical browser** with **150 factory presets across 12 categories**:
 
 * **3 Columns:**
-  - **CATEGORY:** `All`, `Favorites ★`, 9 factory categories (`Pads & Ambient`, `Textures`, `Rhythmic`, `Bass`, `Leads`, `Cinematic`, `Glitch`, `Experimental`, `Pitch`), `User`.
+  - **CATEGORY:** `All`, `Favorites ★`, 12 factory categories (`Pads & Ambient`, `Textures`, `Rhythmic`, `Bass`, `Leads`, `Cinematic`, `Glitch`, `Experimental`, `Pitch`, `Engine & Formant`, `Swarm & Modal`, `Euclid & GrainFX`), `User`.
   - **SUBCATEGORY:** Dynamically lists subcategories for the selected category (starts with `All`). Click to filter instantly.
   - **PRESET:** Filtered presets with name, star icon, and category/subcategory tags.
-* **New "Pitch" category (40 presets):** Emphasizes Tone comb resonance, scale quantization, and varied timing across 8 subcategories (5 presets each): Pluck, Bell, Lead, Pad, Bass, Arp, Gate, Drone.
-* **Rich MOD routing:** All 120 presets extensively utilize the MOD matrix (LFOs, loopable envelopes, velocity, and random) for deep sonic differentiation. Zero FX duplication across all presets.
+* **"Pitch" category (40 presets):** Emphasizes Tone comb resonance, scale quantization, and varied timing across 8 subcategories (5 presets each): Pluck, Bell, Lead, Pad, Bass, Arp, Gate, Drone.
+* **Phase 4 Showcase Categories (30 presets):**
+  - `Engine & Formant` (10 presets): WSOLA phase-aligned stretch, TD-PSOLA decoupled formant shifting, and Concatenative Grain Atlas timbre navigation.
+  - `Swarm & Modal` (10 presets): Diatonic Swarm layering and 8-Mode Modal Resonator physical modeling.
+  - `Euclid & GrainFX` (10 presets): Bjorklund Euclidean arp rhythms, intra-grain Envelope Skew / Pitch Chirp, and per-grain Zavalishin SVF modulation.
+* **Rich MOD & Zero-Duplication FX:** All 150 presets utilize coherent MOD matrix routing (LFOs, loopable envelopes, Velocity, Mod Wheel, Random, Aftertouch) and gain-compensated saturation with zero FX duplication across all slots.
 * **Star Favorites (★):** Click the gold star icon (`★` / `☆`) at the left edge of any preset row for instant one-click toggle.
 * **Modal Save Dialog:** Clicking **SAVE** opens a dialog to enter Category (combobox), Subcategory (text), and Preset Name.
 * **Cross-field Search:** The search box queries preset names, categories, and subcategories simultaneously.
-* **Deterministic RANDOM:** Header RANDOM shuffles knobs, MOD matrix (3–10 rows), and FX chain without FX duplication, protecting output gain, polyphony, and color theme.
+* **Smart Musical RANDOM:** Header RANDOM builds cohesive patches from 8 curated archetypes (`Pad`, `Modal Crystal`, `Swarm Choir`, `Formant Lead`, `Euclid Arp`, `Gate Groove`, `Granular Bass`, `Kinetic Lab`), generating Phase 1–4 engine/FX parameters, safe collision-free MOD routing (3–6 slots), and zero duplicate FX while protecting output gain, polyphony, and color theme.
 
 User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are saved as a path reference, not embedded.
 
@@ -212,7 +216,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 
 | Parameter | Range | Default | Description |
 |---|---|---|---|
-| Pattern | 13 types | Up | Note order |
+| Pattern | 25 types | Up | Note order |
 | Rate | 1/1 – 1/32 (sync) or 0.5–30 Hz | 1/8 | SYNC toggles between them |
 | Octaves | 1 – 4 | 1 | Octave range |
 | Duration | Gate % / 1/32 / 1/16 / 1/8 / 1/4 | Gate % | Note length mode |

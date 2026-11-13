@@ -22,9 +22,9 @@
 ## 1. Make a sound
 
 **OTODESK / 24-voice Scale-Quantized Granular Synth (VST3 / Standalone)**  
-**Version:** v1.1.0 (Build 015)
+**Version:** v1.1.0 (Build 016)
 
-GRANULAR breaks incoming audio into tiny "grains" and reconstructs them into new musical forms. Even noise or raw field recordings become fully playable instruments in perfect key, powered by a post-modulation scale quantizer, a 16-slot modulation matrix, an arpeggiator, a 5-slot FX rack, and 120 factory presets.
+GRANULAR breaks incoming audio into tiny "grains" and reconstructs them into new musical forms. Even noise or raw field recordings become fully playable instruments in perfect key, powered by a post-modulation scale quantizer, a 16-slot modulation matrix, an arpeggiator, a 5-slot FX rack, and 150 factory presets.
 
 ### Installation
 
@@ -43,7 +43,7 @@ GRANULAR breaks incoming audio into tiny "grains" and reconstructs them into new
 > **Header Controls**
 > - **PLAY DRY**: Auditions the raw sample directly (click again to stop).
 > - **PANIC**: Instantly silences all active voices, reverb tails, and delay buffers if notes ever hang.
-> - **RANDOM**: Musically randomizes knobs, MOD matrix (3–10 rows), and FX chain while protecting output gain, polyphony, and color theme.
+> - **RANDOM**: Intelligently generates musical patches from 8 curated archetypes (Lush Pad, Modal Crystal, Diatonic Swarm, Formant Lead, Euclid Arp, Gate Groove, Granular Bass, Kinetic Lab) with Phase 4 engine/DSP controls, collision-free MOD routing (3–6 rows), and detailed FX rack parameters while protecting output gain, polyphony, and color theme.
 > - **BROWSE**: Opens and closes the 3-column preset browser in the lower area.
 
 ---
@@ -116,7 +116,7 @@ Advanced synthesis and physical modeling modules that push beyond conventional g
 ## 5. ARP tab (Arpeggiator & Euclidean Rhythm)
 
 ### Arpeggiator
-- **Pattern**: 13 patterns (Up, Down, Up-Down, Down-Up, Up-Down (Incl), Converge, Diverge, Pedal Low, Pedal High, As Played, Random, Random Walk, Chord).
+- **Pattern**: 25 patterns (Up, Down, Up-Down, Down-Up, Up-Down (Incl), Converge, Diverge, Pedal Low, Pedal High, As Played, Random, Random Walk, Chord, Inward, Outward, Thumb Bass, Pinky Top, Zig-Zag, and more).
 - **Rate**: Tempo sync (1/1 to 1/32, dotted & triplets) or free rate (0.5 to 30 Hz).
 - **Octaves**: Range across 1 to 4 octaves.
 - **Duration / Gate**: Note length mode (Gate % or fixed 1/32 to 1/4 note length).
@@ -183,7 +183,7 @@ Click **BROWSE** in the header to open the **3-column hierarchical browser**:
 1. **Left Column "CATEGORY"**:
    - `All` (all presets)
    - `Favorites ★` (starred favorites only)
-   - 9 Factory Categories (`Pads & Ambient`, `Textures`, `Rhythmic`, `Bass`, `Leads`, `Cinematic`, `Glitch`, `Experimental`, `Pitch`)
+   - 12 Factory Categories (`Pads & Ambient`, `Textures`, `Rhythmic`, `Bass`, `Leads`, `Cinematic`, `Glitch`, `Experimental`, `Pitch`, `Engine & Formant`, `Swarm & Modal`, `Euclid & GrainFX`)
    - `User` (user-created presets)
 2. **Center Column "SUBCATEGORY"**:
    - Dynamically lists subcategories belonging to the active category (starts with "All"). Click to instantly filter the preset list.
@@ -202,10 +202,10 @@ Click **BROWSE** in the header to open the **3-column hierarchical browser**:
 
 > **Sample References**: Presets do not embed heavy audio files; they record the **sample's file path**. If the file exists on disk, it is automatically reloaded in the background.
 
-### 120 Factory Presets
-Completely revised in B011 with extensive MOD matrix routing (LFO/ENV/Velocity/Random) for deep sonic differentiation.
-- **Existing 80 presets**: Across Pads, Textures, Rhythmic, Bass, Leads, Cinematic, Glitch, Experimental.
-- **New "Pitch" Category (40 presets)**:
+### 150 Factory Presets
+Audited and refined in B016 for scale coherence, unipolar velocity/envelope curves, and saturation gain trim, plus 30 new presets showcasing Phase 4 DSP across 3 categories:
+- **Existing 80 presets**: Across Pads & Ambient, Textures, Rhythmic, Bass, Leads, Cinematic, Glitch, Experimental.
+- **"Pitch" Category (40 presets)**:
   Organized into 8 dedicated subcategories (5 presets each) emphasizing Tone comb resonance and granular timing:
   - **Pluck (5)**: Crisp acoustic pick attacks and percussive plucks.
   - **Bell (5)**: Metallic chime hardness, fine modulation, shimmer reverb.
@@ -215,6 +215,10 @@ Completely revised in B011 with extensive MOD matrix routing (LFO/ENV/Velocity/R
   - **Arp (5)**: Integrated arpeggiator sequences.
   - **Gate (5)**: FormantGate and rhythmic stutter slices.
   - **Drone (5)**: Infinite harmonic sustain and dark reverberant beds.
+- **New Phase 4 Showcase Categories (30 presets)**:
+  - **Engine & Formant (10)**: WSOLA phase-aligned stretching, TD-PSOLA decoupled formant shifting, and Concatenative Grain Atlas timbre navigation.
+  - **Swarm & Modal (10)**: Diatonic Swarm harmony layering and 8-Mode Modal Resonator physical modeling.
+  - **Euclid & GrainFX (10)**: Bjorklund Euclidean arpeggio gating, intra-grain Skew / Chirp, and per-grain Zavalishin SVF modulation.
 
 ---
 

@@ -196,13 +196,14 @@ private:
         const float damp = juce::jlimit(0.0f, 1.0f, p.damp);
 
         // Compute scale-tuned MIDI targets for ModeScale
+        // If Chromatic (0) is selected, fall back to Octaves & Fifths (12) so 8 stacked modes form an open chord instead of a chromatic cluster.
         std::array<float, kNumModes> scaleFreqsHz {};
         if (p.ratioMode == ModeScale)
         {
+            const int effScaleIdx = (p.scaleIdx == 0) ? 12 : juce::jlimit(0, ScaleQuantizer::kNumScales - 1, p.scaleIdx);
             const auto& scales = ScaleQuantizer::getScales();
-            const auto& sc = scales[(size_t)juce::jlimit(0, ScaleQuantizer::kNumScales - 1, p.scaleIdx)];
-            const float snappedRoot = ScaleQuantizer::quantize(clampedBaseMidi, p.scaleRoot,
-                                                               juce::jlimit(0, ScaleQuantizer::kNumScales - 1, p.scaleIdx));
+            const auto& sc = scales[(size_t)effScaleIdx];
+            const float snappedRoot = ScaleQuantizer::quantize(clampedBaseMidi, p.scaleRoot, effScaleIdx);
             int filled = 0;
             const int degCount = juce::jmax(1, sc.size);
             const int rootPc = ((p.scaleRoot % 12) + 12) % 12;

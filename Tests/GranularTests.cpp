@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -98,16 +99,27 @@ void testAllFactoryPresetsValid()
     proc.prepareToPlay(48000.0, 256);
 
     const auto& list = GranularPresets::all();
-    check(list.size() == 120, "Factory preset count should be 120");
+    check(list.size() == 150, "Factory preset count should be 150");
 
     juce::AudioBuffer<float> buf(2, 256);
     juce::MidiBuffer midi;
+    std::set<juce::String> seenNames;
 
     for (size_t i = 0; i < list.size(); ++i)
     {
         const auto& preset = list[i];
+        check(seenNames.insert(preset.name).second, ("Duplicate preset name: " + preset.name).toStdString());
+
         int fxSeen[8] = {};
+        float fxAmt[6] = {};
+        int   fxType[6] = {};
         bool hasGateFx = false;
+        int scaleOnVal = 0;
+        int scaleVal = 0;
+        int modSrc[17] = {};
+        int modDst[17] = {};
+        float modAmt[17] = {};
+        bool modSet[17] = {};
 
         for (const auto& pp : preset.params)
         {
@@ -120,23 +132,55 @@ void testAllFactoryPresetsValid()
                     ("Preset '" + preset.name + "' param '" + pp.id + "' out of range").toStdString());
             }
 
-            if (std::strcmp(pp.id, "fx1Type") == 0 || std::strcmp(pp.id, "fx2Type") == 0 ||
-                std::strcmp(pp.id, "fx3Type") == 0 || std::strcmp(pp.id, "fx4Type") == 0 ||
-                std::strcmp(pp.id, "fx5Type") == 0)
+            if (std::strcmp(pp.id, "scaleOn") == 0) scaleOnVal = (int)std::round(pp.v);
+            if (std::strcmp(pp.id, "scale") == 0)   scaleVal   = (int)std::round(pp.v);
+
+            for (int slot = 1; slot <= 5; ++slot)
             {
-                const int ft = (int)std::round(pp.v);
-                if (ft > 0 && ft < 8)
+                const std::string tk = "fx" + std::to_string(slot) + "Type";
+                const std::string ak = "fx" + std::to_string(slot) + "Amount";
+                if (pp.id == tk)
                 {
-                    check(fxSeen[ft] == 0, ("Duplicate FX type in preset " + preset.name).toStdString());
-                    fxSeen[ft] = 1;
-                    if (ft == FxChain::Gate) hasGateFx = true;
+                    const int ft = (int)std::round(pp.v);
+                    fxType[slot] = ft;
+                    if (ft > 0 && ft < 8)
+                    {
+                        check(fxSeen[ft] == 0, ("Duplicate FX type in preset " + preset.name).toStdString());
+                        fxSeen[ft] = 1;
+                        if (ft == FxChain::Gate) hasGateFx = true;
+                    }
                 }
+                else if (pp.id == ak)
+                {
+                    fxAmt[slot] = pp.v;
+                }
+            }
+            for (int m = 1; m <= ModMatrix::kNumSlots; ++m)
+            {
+                const std::string sk = "mod" + std::to_string(m) + "Src";
+                const std::string dk = "mod" + std::to_string(m) + "Dst";
+                const std::string mk = "mod" + std::to_string(m) + "Amt";
+                if (pp.id == sk)      { modSrc[m] = (int)std::round(pp.v); modSet[m] = true; }
+                else if (pp.id == dk) { modDst[m] = (int)std::round(pp.v); modSet[m] = true; }
+                else if (pp.id == mk) { modAmt[m] = pp.v;                    modSet[m] = true; }
             }
             if (preset.name == "CD Skip" && std::strcmp(pp.id, "mod1Dst") == 0)
             {
                 check((int)std::round(pp.v) == ModMatrix::DstOutGain, "CD Skip mod1Dst should be DstOutGain (20)");
             }
         }
+
+        for (int slot = 1; slot <= 5; ++slot)
+            if (fxType[slot] > 0)
+                check(fxAmt[slot] > 0.0f, ("Active FX slot missing Amount in preset " + preset.name).toStdString());
+
+        for (int m = 1; m <= ModMatrix::kNumSlots; ++m)
+            if (modSet[m])
+                check(modSrc[m] > 0 && modDst[m] > 0 && std::abs(modAmt[m]) > 1.0e-5f,
+                      ("Incomplete mod slot in preset " + preset.name).toStdString());
+
+        check(!(scaleOnVal == 1 && scaleVal == 0),
+              ("Preset '" + preset.name + "' should not leave scaleOn=1 with Chromatic(0)").toStdString());
 
         if (preset.name == "Gate Rider" || preset.name == "Vowel Lead" ||
             preset.name == "Elastic Formant" || preset.name == "Granular Techno Gate" ||
@@ -155,7 +199,7 @@ void testAllFactoryPresetsValid()
             for (int s = 0; s < 256; ++s)
                 check(isFiniteFloat(buf.getSample(ch, s)), "Non-finite output after preset load");
     }
-    std::cerr << "  120 presets finished\n";
+    std::cerr << "  150 presets finished\n";
 }
 
 void testScaleQuantizerUniqueMenuIds()
@@ -201,12 +245,23 @@ void testGetTailLengthSeconds()
 
 void testRandomizePresetGateUnits()
 {
-    std::cerr << "Running testRandomizePresetGateUnits...\n";
+    std::cerr << "Running testRandomizePresetGateUnits (Phase 1-4 safety & coverage)...\n";
     auto procPtr = std::make_unique<GranularAudioProcessor>();
     auto& proc = *procPtr;
     proc.prepareToPlay(48000.0, 256);
 
-    for (int iter = 0; iter < 50; ++iter)
+    bool sawEngineAlt = false;
+    bool sawSwarm = false;
+    bool sawModal = false;
+    bool sawArp = false;
+    bool sawEuclid = false;
+    bool sawGrainFilter = false;
+    bool sawExprSrc = false;
+
+    juce::AudioBuffer<float> buf(2, 256);
+    juce::MidiBuffer midi;
+
+    for (int iter = 0; iter < 120; ++iter)
     {
         proc.randomizePreset();
         const float gd = getParamReal(proc, "gateDepth");
@@ -220,7 +275,94 @@ void testRandomizePresetGateUnits()
         check(gv >= 0.0f  && gv <= 100.0f, "gateVowel should be in real percent units [0..100]");
         check(gr >= 0     && gr <= 7,      "gateRate index should be in [0..7]");
         check(gp >= 0     && gp <= 49,     "gatePattern index should be in [0..49]");
+
+        check(std::abs(getParamReal(proc, "outGain")) < 1.0e-3f, "randomizePreset must keep outGain at 0 dB");
+        check(getParamReal(proc, "arpLatch") < 0.5f, "randomizePreset must keep arpLatch off");
+        check(getParamReal(proc, "dlyFeedback") <= 0.78f, "randomizePreset must bound dlyFeedback");
+        check(getParamReal(proc, "frzFeedback") <= 0.94f, "randomizePreset must bound frzFeedback");
+
+        const bool scaleOn = getParamReal(proc, "scaleOn") > 0.5f;
+        const int  scaleIdx = (int)std::round(getParamReal(proc, "scale"));
+        check(!(scaleOn && scaleIdx == 0), "randomizePreset with scaleOn must pick a non-chromatic musical scale");
+
+        // FX uniqueness and non-zero amount
+        int fxSeen[8] = {};
+        for (int s = 1; s <= 5; ++s)
+        {
+            const int ft = (int)std::round(getParamReal(proc, "fx" + juce::String(s) + "Type"));
+            const float fa = getParamReal(proc, "fx" + juce::String(s) + "Amount");
+            if (ft > 0)
+            {
+                check(ft < 8 && fxSeen[ft] == 0, "randomizePreset produced duplicate FX type");
+                fxSeen[ft] = 1;
+                check(fa > 0.0f, "randomizePreset active FX slot has zero amount");
+            }
+        }
+
+        // Sequential collision-free ModMatrix without dangerous destinations
+        bool ended = false;
+        bool dstUsed[ModMatrix::NumDsts] = {};
+        int activeMods = 0;
+        for (int m = 1; m <= ModMatrix::kNumSlots; ++m)
+        {
+            const juce::String x(m);
+            const int src = (int)std::round(getParamReal(proc, "mod" + x + "Src"));
+            const int dst = (int)std::round(getParamReal(proc, "mod" + x + "Dst"));
+            const float amt = getParamReal(proc, "mod" + x + "Amt");
+            if (src == 0 && dst == 0 && std::abs(amt) < 1.0e-5f)
+            {
+                ended = true;
+                continue;
+            }
+            check(!ended, "randomizePreset mod slots must be packed sequentially from slot 1");
+            check(src > 0 && src < ModMatrix::NumSrcs, "randomizePreset mod src out of range");
+            check(dst > 0 && dst < ModMatrix::NumDsts, "randomizePreset mod dst out of range");
+            check(std::abs(amt) >= 0.04f, "randomizePreset mod amt too small / dead");
+            check(!dstUsed[dst], "randomizePreset assigned duplicate mod destination");
+            dstUsed[dst] = true;
+            ++activeMods;
+
+            check(dst != ModMatrix::DstOutGain && dst != ModMatrix::DstSampleStart &&
+                  dst != ModMatrix::DstSampleEnd && dst != ModMatrix::DstOctave &&
+                  dst != ModMatrix::DstLimCeiling,
+                  "randomizePreset assigned forbidden mod destination");
+            if (dst == ModMatrix::DstFine)
+                check(!scaleOn, "randomizePreset vibrato (DstFine) requires scaleOn=false");
+
+            if (src == ModMatrix::SrcAftertouch || src == ModMatrix::SrcEnv3)
+                sawExprSrc = true;
+        }
+        check(activeMods >= 3 && activeMods <= 7, "randomizePreset should populate 3..7 active mod slots");
+
+        if ((int)std::round(getParamReal(proc, "engineMode")) > 0) sawEngineAlt = true;
+        if (getParamReal(proc, "swarmMix") > 0.01f) sawSwarm = true;
+        if (getParamReal(proc, "modalMix") > 0.01f) sawModal = true;
+        if (getParamReal(proc, "arpEnable") > 0.5f) sawArp = true;
+        if (getParamReal(proc, "arpEuclidEnable") > 0.5f) sawEuclid = true;
+        if ((int)std::round(getParamReal(proc, "grainFilterMode")) > 0) sawGrainFilter = true;
+
+        if (iter < 24)
+        {
+            buf.clear();
+            midi.clear();
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.85f), 0);
+            proc.processBlock(buf, midi);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int s = 0; s < 256; ++s)
+                {
+                    const float v = buf.getSample(ch, s);
+                    check(isFiniteFloat(v) && std::abs(v) <= 2.0f, "randomizePreset produced non-finite or unclipped audio");
+                }
+        }
     }
+
+    check(sawEngineAlt,   "randomizePreset should explore WSOLA/TD-PSOLA engine modes");
+    check(sawSwarm,       "randomizePreset should explore Diatonic Swarm");
+    check(sawModal,       "randomizePreset should explore Modal Resonator");
+    check(sawArp,         "randomizePreset should explore Arpeggiator");
+    check(sawEuclid,      "randomizePreset should explore Euclidean Arp");
+    check(sawGrainFilter, "randomizePreset should explore Per-Grain Filter");
+    check(sawExprSrc,     "randomizePreset should utilize ENV3 or Aftertouch");
 }
 
 void testMonoBrickLimiterAndModulatedCeiling()

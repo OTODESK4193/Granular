@@ -22,9 +22,9 @@
 ## 1. まずは音を出す
 
 **OTODESK / 24ボイス スケール量子化グラニュラーシンセ（VST3 / Standalone）**  
-**Version:** v1.1.0 (Build 015)
+**Version:** v1.1.0 (Build 016)
 
-読み込んだオーディオファイルを「粒（グレイン）」に分解して再構築するグラニュラーシンセです。環境音やノイズ素材でも音楽的な音程を持った楽器として演奏でき、強力な変調マトリクス・アルペジエイター・5スロットFXチェーン・120種類のファクトリープリセットを備えています。
+読み込んだオーディオファイルを「粒（グレイン）」に分解して再構築するグラニュラーシンセです。環境音やノイズ素材でも音楽的な音程を持った楽器として演奏でき、強力な変調マトリクス・アルペジエイター・5スロットFXチェーン・150種類のファクトリープリセットを備えています。
 
 ### インストール
 
@@ -43,7 +43,7 @@
 > **ヘッダーボタン**
 > - **PLAY DRY**：取り込んだ原音をそのまま試聴します（もう一度押すと停止）。
 > - **PANIC**：万が一音が鳴り止まなくなった際に押すと、全ボイスおよび残響を即座に強制消音・リセットします。
-> - **RANDOM**：ノブ・MODマトリクス（3〜10本）・FXラックを音楽的にランダマイズします（出力ゲイン・同時発音数・カラーテーマは保護）。
+> - **RANDOM**：8種類の音楽的アーキタイプ（Lush Pad / Modal Crystal / Diatonic Swarm / Formant Lead / Euclid Arp / Gate Groove / Granular Bass / Kinetic Lab）からインテリジェントに音色を生成し、安全なMODルーティング（3〜6系統）と重複なしFX詳細設定を自動構成します（出力ゲイン・同時発音数・カラーテーマは保護）。
 > - **BROWSE**：下部に3カラム式のプリセットブラウザを展開／収納します。
 
 ---
@@ -119,7 +119,7 @@
 
 ### アルペジエイター
 鍵盤で押さえた和音を自動でリズミカルに分解・走査して演奏します。
-- **Pattern**：13種類のパターン（Up, Down, Up-Down, Down-Up, Up-Down (Incl), Converge, Diverge, Pedal Low, Pedal High, As Played, Random, Random Walk, Chord）
+- **Pattern**：25種類のパターン（Up, Down, Up-Down, Down-Up, Up-Down (Incl), Converge, Diverge, Pedal Low, Pedal High, As Played, Random, Random Walk, Chord, Inward, Outward, Thumb Bass, Pinky Top, Zig-Zag 他）
 - **Rate**：テンポ同期（1/1 〜 1/32、付点・三連符対応）またはフリー（0.5 〜 30 Hz）
 - **Octaves**：オクターブ範囲（1 〜 4 オクターブ）
 - **Duration / Gate**：ノート長（Gate % または 1/32〜1/4 固定音価）
@@ -187,7 +187,7 @@
 1. **左カラム「CATEGORY」**：
    - `All`（全件表示）
    - `Favorites ★`（お気に入り登録されたプリセットのみ）
-   - 9つのファクトリカテゴリ（`Pads & Ambient`, `Textures`, `Rhythmic`, `Bass`, `Leads`, `Cinematic`, `Glitch`, `Experimental`, `Pitch`）
+   - 12のファクトリカテゴリ（`Pads & Ambient`, `Textures`, `Rhythmic`, `Bass`, `Leads`, `Cinematic`, `Glitch`, `Experimental`, `Pitch`, `Engine & Formant`, `Swarm & Modal`, `Euclid & GrainFX`）
    - `User`（ユーザーが作成・保存したプリセット）
 2. **中央カラム「SUBCATEGORY」**：
    - 左で選択したカテゴリに属するサブカテゴリ一覧を動的に表示（先頭は「All」）。クリックで即座に目的のサブカテゴリに絞り込めます。
@@ -206,10 +206,10 @@
 
 > **サンプルの保存について**：プリセットには巨大な音声ファイルそのものは埋め込まず、**サンプルのファイルパス**をスマートに記録します。元のファイルがPC上に残っていれば、プリセット読み込み時に自動でバックグラウンド再ロードされます。
 
-### 全120種のファクトリープリセット
-B011において全プリセットのパラメータを徹底的に見直し、MODマトリクス（LFO/ENV/Velocity/Random）を大胆に投入して劇的な差別化を行いました。
+### 全150種のファクトリープリセット
+B016において全プリセットのスケール・MOD極性・サチュレーションゲイン補償を検証・再調整し、さらに Phase 4 新機能に特化した30種（3カテゴリ）を追加しました。
 - **既存80種**：Pads & Ambient (10), Textures (10), Rhythmic (10), Bass (10), Leads (10), Cinematic (10), Glitch (10), Experimental (10)
-- **新設「Pitch」カテゴリ（40種）**：
+- **「Pitch」カテゴリ（40種）**：
   Toneコムレゾネーター共鳴と時間軸・ARP・Gateを駆使した8つの明確なサブカテゴリ（各5種）で構成：
   - **Pluck (5)**：急峻なアタックとディケイによる撥弦・打弦楽器の感触。
   - **Bell (5)**：金属的な硬度、Fineモジュレーション、Shimmerリバーブ。
@@ -219,6 +219,10 @@ B011において全プリセットのパラメータを徹底的に見直し、M
   - **Arp (5)**：内蔵アルペジエイター連動シーケンス。
   - **Gate (5)**：FormantGate による鋭いスタッター・スライス。
   - **Drone (5)**：終わらない持続音、Ping-Pong、ダークな残響と唸り。
+- **Phase 4 新規ショーケース（30種）**：
+  - **Engine & Formant (10)**：WSOLA 位相整合ストレッチ、TD-PSOLA 独立フォルマントシフト、Grain Atlas 音色ナビゲーション。
+  - **Swarm & Modal (10)**：ダイアトニックスウォーム和声レイヤーと8モードモーダル共振器。
+  - **Euclid & GrainFX (10)**：Bjorklund ユークリッドアルペジオ、グレイン内 Skew / Chirp、グレイン毎 Zavalishin SVF。
 
 ---
 

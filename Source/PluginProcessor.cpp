@@ -1881,121 +1881,507 @@ void GranularAudioProcessor::applyFactoryPreset(int index)
 
 void GranularAudioProcessor::randomizePreset()
 {
+    // Note: intentionally does not call panic() so sustained DAW/keyboard auditions crossfade cleanly;
+    // resetAllParametersToDefault() clears arpLatch and protects colorTheme / poly.
     resetAllParametersToDefault();
-    juce::Random r;
-    auto setV = [&](juce::String id, float v)
+
+    auto& r = juce::Random::getSystemRandom();
+    auto setV = [&](const char* id, float v)
+    {
+        if (auto* p = apvts.getParameter(id))
+            p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, p->convertTo0to1(v)));
+    };
+    auto setIndexed = [&](const juce::String& id, float v)
     {
         if (auto* p = apvts.getParameter(id))
             p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, p->convertTo0to1(v)));
     };
     auto rf = [&](float a, float b) { return a + (b - a) * r.nextFloat(); };
+    auto rfLog = [&](float a, float b)
+    {
+        const float lo = juce::jmax(1.0e-5f, a);
+        const float hi = juce::jmax(lo * 1.001f, b);
+        return lo * std::pow(hi / lo, r.nextFloat());
+    };
     auto ri = [&](int a, int b) { return a + r.nextInt(b - a + 1); };
+    auto chance = [&](float p) { return r.nextFloat() < p; };
 
-    // --- 音作りの基本 ---
-    setV("grainSize", rf(0.03f, 0.45f));
-    setV("density", rf(0.3f, 0.95f));
-    setV("positionSpray", rf(0.0f, 0.7f));
-    setV("pitchJitter", rf(0.0f, 150.0f));
-    setV("panSpread", rf(0.3f, 1.0f));
-    setV("speed", rf(0.1f, 1.5f));
+    auto pickMusicalScale = [&](bool preferConsonant) -> int
+    {
+        static constexpr int kConsonantScales[] = {
+            1, 2, 3, 4, 5, 6, 7, 9, 12, 14, 44, 45, 47, 64, 65, 67, 68, 80
+        };
+        if (preferConsonant || chance(0.85f))
+            return kConsonantScales[r.nextInt((int)std::size(kConsonantScales))];
+        return ri(1, ScaleQuantizer::numScales() - 1);
+    };
+
+    // Protections & safe baseline
+    setV("outGain", 0.0f);
+    setV("ceiling", -0.3f);
+    setV("fxMix", rf(0.72f, 1.0f));
+    setV("masterHPF", rfLog(22.0f, 240.0f));
+    setV("masterLPF", rfLog(4800.0f, 19500.0f));
+    setV("filterSlope", chance(0.35f) ? 1.0f : 0.0f);
+    setV("panSpread", rf(0.35f, 1.0f));
+    setV("speed", rf(0.15f, 1.35f));
     setV("playMode", (float)ri(0, 3));
     setV("windowShape", (float)ri(0, 3));
-    setV("octave", (float)ri(-2, 1));
-    setV("tone", rf(0.0f, 0.6f));
-    setV("pitchSync", r.nextBool() ? 1.0f : 0.0f);
-    setV("masterHPF", rf(20.0f, 400.0f));
-    setV("masterLPF", rf(3000.0f, 20000.0f));
-    setV("attack", rf(0.002f, 2.0f));
-    setV("decay", rf(0.05f, 1.5f));
-    setV("sustain", rf(0.3f, 1.0f));
-    setV("release", rf(0.1f, 2.5f));
-    setV("fxMix", rf(0.6f, 1.0f));
-    setV("outGain", 0.0f);                    // 安全のため0dB固定
-    const bool scOn = r.nextFloat() < 0.6f;
-    setV("scaleOn", scOn ? 1.0f : 0.0f);
-    if (scOn)
-    {
-        setV("key", (float)ri(0, 12));
-        setV("scale", (float)ri(0, ScaleQuantizer::numScales() - 1));
-    }
+    setV("tone", rf(0.0f, 0.55f));
 
-    // --- LFO/ENV に動きを仕込む ---
-    for (int i = 1; i <= 4; ++i)
+    // Musical archetypes spanning all Phase 1-4 capabilities
+    enum Archetype
     {
-        const juce::String x(i);
-        setV("lfo" + x + "Rate", rf(0.1f, 8.0f));
-        setV("lfo" + x + "Wave", (float)ri(0, 5));
-        setV("lfo" + x + "Sync", r.nextBool() ? 1.0f : 0.0f);
-        setV("lfo" + x + "SyncRate", (float)ri(0, 15));
-    }
-    for (int i = 1; i <= 3; ++i)
-    {
-        const juce::String x(i);
-        setV("env" + x + "Attack", rf(0.01f, 3.0f));
-        setV("env" + x + "Decay", rf(0.05f, 3.0f));
-        setV("env" + x + "Sustain", rf(0.0f, 1.0f));
-        setV("env" + x + "Release", rf(0.05f, 2.0f));
-        setV("env" + x + "Loop", r.nextBool() ? 1.0f : 0.0f);
-    }
+        ArchPad = 0,
+        ArchModalCrystal,
+        ArchSwarmChoir,
+        ArchFormantLead,
+        ArchEuclidArp,
+        ArchGateGroove,
+        ArchGranularBass,
+        ArchKineticLab,
+        NumArchetypes
+    };
+    const int arch = ri(0, NumArchetypes - 1);
 
-    // --- MODマトリクス: ランダムな本数(3〜10)を有効化 ---
-    for (int i = 1; i <= 16; ++i)
-    {
-        const juce::String x(i);
-        setV("mod" + x + "Src", 0.0f); setV("mod" + x + "Dst", 0.0f);
-        setV("mod" + x + "Amt", 0.0f); setV("mod" + x + "Uni", 0.0f);
-    }
-    const int k = ri(3, 10);
-    for (int j = 0; j < k; ++j)
-    {
-        const juce::String x(1 + r.nextInt(16));
-        setV("mod" + x + "Src", (float)ri(1, ModMatrix::NumSrcs - 1));
-        setV("mod" + x + "Dst", (float)ri(1, ModMatrix::NumDsts - 1));
-        setV("mod" + x + "Amt", rf(-1.0f, 1.0f));
-        setV("mod" + x + "Uni", r.nextBool() ? 1.0f : 0.0f);
-    }
+    // Pre-assign FX helper (guarantees unique non-overlapping slots & safe details)
+    std::vector<int> freeFxSlots = { 1, 2, 3, 4, 5 };
+    for (int i = (int)freeFxSlots.size() - 1; i > 0; --i)
+        std::swap(freeFxSlots[(size_t)i], freeFxSlots[(size_t)r.nextInt(i + 1)]);
+    int fxCursor = 0;
+    bool usedFxTypes[7] = {};
 
-    // --- FX: 1〜4スロットを重複なしでランダムに有効化 (Gate含む) ---
-    for (int i = 1; i <= 5; ++i)
+    auto addFx = [&](int fxt, float amtMin, float amtMax) -> bool
     {
-        setV("fx" + juce::String(i) + "Type", 0.0f);
-        setV("fx" + juce::String(i) + "Amount", 0.0f);
-    }
+        if (fxt < 1 || fxt > 6 || usedFxTypes[fxt] || fxCursor >= (int)freeFxSlots.size())
+            return false;
+        usedFxTypes[fxt] = true;
+        const int slot = freeFxSlots[(size_t)fxCursor++];
+        const juce::String idx(slot);
+        setIndexed("fx" + idx + "Type", (float)fxt);
+        setIndexed("fx" + idx + "Amount", rf(amtMin, amtMax));
 
-    // 利用可能なFXタイプ [1..6] をシャッフル (重複なし)
-    std::vector<int> availableTypes = { 1, 2, 3, 4, 5, 6 };
-    for (int i = (int)availableTypes.size() - 1; i > 0; --i)
-    {
-        int swapIdx = r.nextInt(i + 1);
-        std::swap(availableTypes[(size_t)i], availableTypes[(size_t)swapIdx]);
-    }
-
-    // スロット [1..5] をシャッフル (重複なし)
-    std::vector<int> availableSlots = { 1, 2, 3, 4, 5 };
-    for (int i = (int)availableSlots.size() - 1; i > 0; --i)
-    {
-        int swapIdx = r.nextInt(i + 1);
-        std::swap(availableSlots[(size_t)i], availableSlots[(size_t)swapIdx]);
-    }
-
-    const int nfx = ri(1, 4);
-    for (int j = 0; j < nfx; ++j)
-    {
-        const int slotIdx = availableSlots[(size_t)j];
-        const int fxt     = availableTypes[(size_t)j];
-        const juce::String x(slotIdx);
-
-        setV("fx" + x + "Type", (float)fxt);
-        setV("fx" + x + "Amount", rf(25.0f, 65.0f));
-
-        if (fxt == 6)
+        if (fxt == FxChain::Saturation)
         {
-            setV("gateRate", (float)ri(1, 6));
-            setV("gatePattern", (float)ri(0, gfx::FormantGate::kTotalPatterns - 1));
-            setV("gateDepth", rf(35.0f, 100.0f));
-            setV("gateDecay", rf(15.0f, 90.0f));
-            setV("gateVowel", rf(0.0f, 100.0f));
+            const int algo = (arch == ArchKineticLab) ? ri(0, 9) : ri(0, 6);
+            const float drive = (arch == ArchGranularBass || arch == ArchKineticLab) ? rf(1.8f, 6.2f) : rf(1.3f, 3.8f);
+            setV("satAlgo", (float)algo);
+            setV("satDrive", drive);
+            setV("satPreHz", rfLog(24.0f, 320.0f));
+            setV("satTrim", juce::jlimit(-6.0f, 0.0f, -0.45f * (drive - 1.8f)));
         }
+        else if (fxt == FxChain::Chorus)
+        {
+            setV("choRate", rfLog(0.15f, 2.2f));
+            setV("choDepth", rf(0.22f, 0.80f));
+            setV("choWidth", rf(0.50f, 1.0f));
+        }
+        else if (fxt == FxChain::Delay)
+        {
+            static constexpr int kMusicalDly[] = { 1, 2, 4, 5, 6, 8, 9 };
+            setV("dlyTime", (float)kMusicalDly[r.nextInt((int)std::size(kMusicalDly))]);
+            setV("dlyFeedback", rf(0.18f, 0.65f));
+            setV("dlyDuck", rf(0.25f, 0.78f));
+            setV("dlyDamp", rf(0.20f, 0.68f));
+        }
+        else if (fxt == FxChain::Freeze)
+        {
+            setV("frzSize", rfLog(65.0f, 440.0f));
+            setV("frzFeedback", rf(0.62f, 0.88f));
+            setV("frzDamp", rf(0.15f, 0.62f));
+        }
+        else if (fxt == FxChain::Reverb)
+        {
+            setV("revDecay", rf(0.45f, 0.88f));
+            setV("revShimmer", (arch == ArchSwarmChoir || arch == ArchPad) ? rf(0.25f, 0.85f) : rf(0.0f, 0.55f));
+            setV("revDamp", rf(0.18f, 0.65f));
+            setV("revMod", rf(0.20f, 0.72f));
+        }
+        else if (fxt == FxChain::Gate)
+        {
+            setV("gateRate", (float)ri(2, 6)); // 1/8 .. 1/32
+            setV("gatePattern", (float)ri(0, gfx::FormantGate::kTotalPatterns - 1));
+            setV("gateDepth", rf(45.0f, 95.0f));
+            setV("gateDecay", rf(20.0f, 85.0f));
+            setV("gateVowel", rf(10.0f, 95.0f));
+        }
+        return true;
+    };
+
+    bool scaleEnabled = true;
+    bool preferConsonantScale = true;
+    float vibratoScale = 0.0f;
+
+    switch (arch)
+    {
+    case ArchPad:
+    {
+        setV("engineMode", chance(0.40f) ? 1.0f : 0.0f);
+        if (chance(0.40f)) setV("formantShift", rf(-4.5f, 4.5f));
+        setV("grainSize", rf(0.18f, 0.46f));
+        setV("density", rf(0.68f, 0.95f));
+        setV("position", rf(0.0f, 0.75f));
+        setV("positionSpray", rf(0.08f, 0.38f));
+        setV("speed", rf(0.08f, 0.65f));
+        setV("pitchJitter", rf(0.0f, 16.0f));
+        setV("pitchSync", chance(0.65f) ? 1.0f : 0.0f);
+        setV("reverseGrain", chance(0.28f) ? 1.0f : 0.0f);
+        setV("octave", (float)ri(-1, 1));
+        if (chance(0.38f)) setV("swarmMix", rf(0.18f, 0.48f));
+        if (chance(0.35f)) { setV("timbreAmt", rf(0.20f, 0.65f)); setV("timbreScrub", rf(0.15f, 0.85f)); }
+        if (chance(0.40f))
+        {
+            setV("grainFilterMode", (float)ri(1, 2)); // LP or BP
+            setV("grainFilterFreq", rfLog(650.0f, 6200.0f));
+            setV("grainFilterRes", rf(0.6f, 2.0f));
+        }
+        if (chance(0.28f))
+        {
+            setV("modalMix", rf(0.12f, 0.32f));
+            setV("modalRatioMode", chance(0.6f) ? 0.0f : 4.0f);
+            setV("modalDecay", rfLog(0.9f, 2.8f));
+        }
+        setV("attack", rfLog(0.45f, 2.8f));
+        setV("decay", rf(1.0f, 3.0f));
+        setV("sustain", rf(0.72f, 1.0f));
+        setV("release", rfLog(1.2f, 3.6f));
+        scaleEnabled = chance(0.85f);
+        addFx(FxChain::Reverb, 32.0f, 58.0f);
+        if (chance(0.60f)) addFx(FxChain::Chorus, 20.0f, 44.0f);
+        if (chance(0.40f)) addFx(FxChain::Delay, 20.0f, 38.0f);
+        if (chance(0.22f)) addFx(FxChain::Freeze, 22.0f, 40.0f);
+        break;
+    }
+
+    case ArchModalCrystal:
+    {
+        setV("engineMode", chance(0.25f) ? 1.0f : 0.0f);
+        setV("grainSize", rf(0.025f, 0.11f));
+        setV("density", rf(0.32f, 0.68f));
+        setV("position", rf(0.0f, 0.65f));
+        setV("positionSpray", rf(0.02f, 0.22f));
+        setV("grainSkew", rf(-0.78f, -0.15f));
+        setV("tone", rf(0.18f, 0.85f));
+        setV("pitchJitter", rf(0.0f, 8.0f));
+        setV("pitchSync", 1.0f);
+        setV("octave", (float)ri(0, 1));
+        const int rMode = (std::array<int, 4>{ 0, 2, 3, 1 })[(size_t)ri(0, 3)];
+        setV("modalRatioMode", (float)rMode);
+        setV("modalMix", rf(0.38f, 0.78f));
+        setV("modalDecay", rfLog(0.38f, 2.5f));
+        setV("modalDamp", rf(0.15f, 0.65f));
+        setV("modalInharm", (rMode == 3) ? rf(0.15f, 0.65f) : rf(0.0f, 0.25f));
+        setV("attack", rfLog(0.001f, 0.015f));
+        setV("decay", rfLog(0.24f, 1.35f));
+        setV("sustain", rf(0.0f, 0.22f));
+        setV("release", rfLog(0.28f, 1.45f));
+        scaleEnabled = true;
+        addFx(FxChain::Delay, 20.0f, 42.0f);
+        addFx(FxChain::Reverb, 26.0f, 50.0f);
+        if (chance(0.35f)) addFx(FxChain::Chorus, 16.0f, 34.0f);
+        break;
+    }
+
+    case ArchSwarmChoir:
+    {
+        setV("engineMode", chance(0.35f) ? 1.0f : 0.0f);
+        setV("swarmMix", rf(0.42f, 0.88f));
+        setV("timbreAmt", rf(0.15f, 0.55f));
+        setV("timbreScrub", rf(0.20f, 0.80f));
+        setV("atlasPitchLock", rf(0.20f, 0.68f));
+        setV("grainSize", rf(0.10f, 0.30f));
+        setV("density", rf(0.62f, 0.92f));
+        setV("positionSpray", rf(0.12f, 0.36f));
+        setV("panSpread", rf(0.75f, 1.0f));
+        setV("reverseGrain", chance(0.35f) ? 1.0f : 0.0f);
+        setV("pitchSync", 1.0f);
+        setV("pitchJitter", rf(0.0f, 16.0f));
+        setV("octave", (float)ri(-1, 1));
+        setV("attack", rfLog(0.22f, 1.6f));
+        setV("decay", rf(0.8f, 2.2f));
+        setV("sustain", rf(0.72f, 1.0f));
+        setV("release", rfLog(0.8f, 2.8f));
+        scaleEnabled = true;
+        addFx(FxChain::Reverb, 34.0f, 58.0f);
+        if (chance(0.65f)) addFx(FxChain::Chorus, 22.0f, 42.0f);
+        if (chance(0.35f)) addFx(FxChain::Delay, 18.0f, 36.0f);
+        break;
+    }
+
+    case ArchFormantLead:
+    {
+        setV("engineMode", chance(0.68f) ? 2.0f : 1.0f); // TD-PSOLA or WSOLA
+        setV("formantShift", chance(0.75f) ? rf(-7.5f, 7.5f) : rf(-2.5f, 2.5f));
+        setV("timbreAmt", rf(0.25f, 0.72f));
+        setV("timbreScrub", rf(0.15f, 0.85f));
+        setV("atlasPitchLock", rf(0.25f, 0.78f));
+        setV("grainSize", rf(0.06f, 0.19f));
+        setV("density", rf(0.58f, 0.88f));
+        setV("panSpread", rf(0.22f, 0.70f));
+        setV("octave", (float)ri(-1, 1));
+        setV("pitchSync", 1.0f);
+        setV("pitchJitter", rf(0.0f, 12.0f));
+        setV("tone", rf(0.10f, 0.65f));
+        setV("masterLPF", rfLog(3600.0f, 18500.0f));
+        setV("attack", rfLog(0.006f, 0.10f));
+        setV("decay", rf(0.20f, 0.85f));
+        setV("sustain", rf(0.55f, 0.95f));
+        setV("release", rfLog(0.18f, 0.75f));
+        vibratoScale = rf(0.06f, 0.18f);
+        scaleEnabled = chance(0.25f);
+        if (scaleEnabled) vibratoScale = 0.0f; // Keep DstFine smooth when scale quantizer is off
+        preferConsonantScale = false;
+        if (chance(0.60f)) addFx(FxChain::Saturation, 18.0f, 40.0f);
+        addFx(FxChain::Delay, 20.0f, 40.0f);
+        if (chance(0.65f)) addFx(FxChain::Reverb, 24.0f, 45.0f);
+        break;
+    }
+
+    case ArchEuclidArp:
+    {
+        static constexpr int kArpRates[] = { 6, 7, 9, 10, 11, 12, 14 };
+        setV("arpEnable", 1.0f);
+        setV("arpPattern", (float)ri(0, Arpeggiator::NumPatterns - 1));
+        setV("arpOctaves", (float)ri(1, 3));
+        setV("arpSync", 1.0f);
+        setV("arpRateSync", (float)kArpRates[r.nextInt((int)std::size(kArpRates))]);
+        setV("arpDurMode", (float)ri(0, 3));
+        setV("arpGate", rf(0.32f, 0.85f));
+        if (chance(0.68f))
+        {
+            const int steps = ri(5, 16);
+            setV("arpEuclidEnable", 1.0f);
+            setV("arpEuclidSteps", (float)steps);
+            setV("arpEuclidFills", (float)ri(2, steps - 1));
+            setV("arpEuclidRot", (float)ri(0, steps - 1));
+        }
+        setV("grainSize", rf(0.03f, 0.12f));
+        setV("density", rf(0.45f, 0.78f));
+        setV("grainSkew", rf(-0.60f, 0.15f));
+        setV("tone", rf(0.20f, 0.78f));
+        setV("pitchSync", chance(0.80f) ? 1.0f : 0.0f);
+        setV("pitchJitter", rf(0.0f, 12.0f));
+        if (chance(0.55f))
+        {
+            setV("grainFilterMode", (float)ri(1, 2));
+            setV("grainFilterFreq", rfLog(1200.0f, 9000.0f));
+            setV("grainFilterRes", rf(0.7f, 2.5f));
+        }
+        if (chance(0.38f))
+        {
+            setV("modalMix", rf(0.14f, 0.44f));
+            setV("modalRatioMode", chance(0.5f) ? 0.0f : 2.0f);
+            setV("modalDecay", rfLog(0.20f, 0.90f));
+        }
+        setV("attack", rfLog(0.001f, 0.012f));
+        setV("decay", rfLog(0.14f, 0.48f));
+        setV("sustain", rf(0.05f, 0.45f));
+        setV("release", rfLog(0.12f, 0.38f));
+        scaleEnabled = true;
+        addFx(FxChain::Delay, 22.0f, 44.0f);
+        if (chance(0.65f)) addFx(FxChain::Reverb, 22.0f, 42.0f);
+        if (chance(0.35f)) addFx(FxChain::Saturation, 15.0f, 34.0f);
+        break;
+    }
+
+    case ArchGateGroove:
+    {
+        setV("engineMode", chance(0.30f) ? 2.0f : 0.0f);
+        setV("grainSize", rf(0.07f, 0.22f));
+        setV("density", rf(0.68f, 0.94f));
+        setV("position", rf(0.0f, 0.6f));
+        setV("positionSpray", rf(0.05f, 0.30f));
+        setV("pitchSync", 1.0f);
+        setV("pitchJitter", rf(0.0f, 15.0f));
+        setV("tone", rf(0.25f, 0.72f));
+        if (chance(0.45f)) setV("swarmMix", rf(0.18f, 0.50f));
+        if (chance(0.45f))
+        {
+            setV("grainFilterMode", (float)ri(1, 2));
+            setV("grainFilterFreq", rfLog(900.0f, 7500.0f));
+            setV("grainFilterRes", rf(0.8f, 2.8f));
+        }
+        setV("attack", rfLog(0.003f, 0.045f));
+        setV("decay", rf(0.25f, 1.0f));
+        setV("sustain", rf(0.70f, 1.0f));
+        setV("release", rfLog(0.16f, 0.45f));
+        scaleEnabled = chance(0.85f);
+        addFx(FxChain::Gate, 58.0f, 92.0f);
+        if (chance(0.65f)) addFx(FxChain::Reverb, 20.0f, 40.0f);
+        if (chance(0.45f)) addFx(FxChain::Delay, 18.0f, 35.0f);
+        if (chance(0.35f)) addFx(FxChain::Saturation, 18.0f, 38.0f);
+        break;
+    }
+
+    case ArchGranularBass:
+    {
+        setV("engineMode", chance(0.30f) ? 1.0f : 0.0f);
+        setV("octave", (float)ri(-2, -1));
+        setV("grainSize", rf(0.045f, 0.18f));
+        setV("density", rf(0.75f, 0.96f));
+        setV("panSpread", rf(0.05f, 0.50f));
+        setV("masterHPF", rfLog(24.0f, 75.0f));
+        setV("masterLPF", rfLog(750.0f, 3600.0f));
+        setV("filterSlope", 1.0f); // Tight 24dB/oct bass low-pass
+        setV("pitchSync", 1.0f);
+        setV("pitchJitter", rf(0.0f, 14.0f));
+        setV("grainSkew", rf(-0.55f, 0.05f));
+        if (chance(0.48f))
+        {
+            setV("grainFilterMode", 1.0f);
+            setV("grainFilterFreq", rfLog(450.0f, 2600.0f));
+            setV("grainFilterRes", rf(0.8f, 3.0f));
+        }
+        setV("attack", rfLog(0.001f, 0.015f));
+        setV("decay", rfLog(0.16f, 0.65f));
+        setV("sustain", rf(0.35f, 0.90f));
+        setV("release", rfLog(0.10f, 0.34f));
+        scaleEnabled = chance(0.60f);
+        addFx(FxChain::Saturation, 24.0f, 58.0f);
+        if (chance(0.35f)) addFx(FxChain::Chorus, 14.0f, 30.0f);
+        if (chance(0.25f)) addFx(FxChain::Delay, 14.0f, 28.0f);
+        break;
+    }
+
+    case ArchKineticLab:
+    default:
+    {
+        setV("engineMode", (float)ri(0, 2));
+        setV("playMode", (float)ri(1, 3));
+        setV("reverseGrain", chance(0.50f) ? 1.0f : 0.0f);
+        setV("grainSize", rf(0.035f, 0.24f));
+        setV("density", rf(0.45f, 0.90f));
+        setV("position", rf(0.0f, 0.90f));
+        setV("positionSpray", rf(0.15f, 0.65f));
+        setV("timbreAmt", rf(0.40f, 0.92f));
+        setV("timbreScrub", rf(0.0f, 1.0f));
+        setV("atlasPitchLock", rf(0.15f, 0.70f));
+        setV("grainSkew", rf(-0.85f, 0.85f));
+        setV("grainChirp", rf(-6.5f, 6.5f));
+        setV("grainFilterMode", (float)ri(1, 4));
+        setV("grainFilterFreq", rfLog(380.0f, 7500.0f));
+        setV("grainFilterRes", rf(0.8f, 3.6f));
+        setV("grainFilterJitter", rf(0.25f, 0.92f));
+        if (chance(0.55f))
+        {
+            setV("modalMix", rf(0.15f, 0.50f));
+            setV("modalRatioMode", chance(0.5f) ? 4.0f : 3.0f); // Plate or Bell
+            setV("modalInharm", rf(0.20f, 0.85f));
+            setV("modalDecay", rfLog(0.3f, 2.0f));
+        }
+        setV("pitchJitter", rf(0.0f, 75.0f));
+        setV("attack", rfLog(0.002f, 0.35f));
+        setV("decay", rf(0.3f, 1.8f));
+        setV("sustain", rf(0.45f, 0.95f));
+        setV("release", rfLog(0.25f, 2.0f));
+        scaleEnabled = chance(0.70f);
+        preferConsonantScale = false;
+        if (chance(0.50f)) addFx(FxChain::Freeze, 22.0f, 44.0f);
+        if (chance(0.60f)) addFx(FxChain::Delay, 22.0f, 45.0f);
+        if (chance(0.55f)) addFx(FxChain::Reverb, 24.0f, 48.0f);
+        if (chance(0.35f)) addFx(FxChain::Saturation, 18.0f, 42.0f);
+        break;
+    }
+    }
+
+    // Scale quantize pairing
+    setV("scaleOn", scaleEnabled ? 1.0f : 0.0f);
+    if (scaleEnabled)
+    {
+        setV("key", chance(0.75f) ? 0.0f : (float)ri(1, 12));
+        setV("scale", (float)pickMusicalScale(preferConsonantScale));
+    }
+
+    // Configure LFOs (log rate distribution for sweeping evolution + vibrato) & ENVs
+    for (int i = 1; i <= ModMatrix::kNumLfos; ++i)
+    {
+        const juce::String x(i);
+        const float rate = (i == 1 && vibratoScale > 0.0f) ? rf(3.8f, 5.8f) : rfLog(0.04f, 5.5f);
+        const int wave = (i == 1 && vibratoScale > 0.0f) ? 0
+                       : (arch == ArchKineticLab && chance(0.5f)) ? ri(4, 5)
+                       : ri(0, 5);
+        setIndexed("lfo" + x + "Rate", rate);
+        setIndexed("lfo" + x + "Wave", (float)wave);
+        setIndexed("lfo" + x + "Sync", (i == 1 && vibratoScale > 0.0f) ? 0.0f : (chance(0.42f) ? 1.0f : 0.0f));
+        setIndexed("lfo" + x + "SyncRate", (float)ri(2, 13));
+    }
+    for (int i = 1; i <= ModMatrix::kNumEnvs; ++i)
+    {
+        const juce::String x(i);
+        setIndexed("env" + x + "Attack", rfLog(0.005f, 2.2f));
+        setIndexed("env" + x + "Decay", rfLog(0.06f, 2.4f));
+        setIndexed("env" + x + "Sustain", rf(0.0f, 0.9f));
+        setIndexed("env" + x + "Release", rfLog(0.05f, 1.8f));
+        setIndexed("env" + x + "Loop", chance(0.25f) ? 1.0f : 0.0f);
+    }
+
+    // Sequential, collision-free Mod Matrix wiring with strictly musical destination ranges
+    int modCursor = 1;
+    bool usedDst[ModMatrix::NumDsts] = {};
+    auto addMod = [&](int src, int dst, float amt, bool uni)
+    {
+        if (modCursor > ModMatrix::kNumSlots || dst <= 0 || dst >= ModMatrix::NumDsts || usedDst[dst])
+            return;
+        usedDst[dst] = true;
+        const juce::String x(modCursor++);
+        setIndexed("mod" + x + "Src", (float)src);
+        setIndexed("mod" + x + "Dst", (float)dst);
+        setIndexed("mod" + x + "Amt", juce::jlimit(-1.0f, 1.0f, amt));
+        setIndexed("mod" + x + "Uni", uni ? 1.0f : 0.0f);
+    };
+
+    if (vibratoScale > 0.0f && !scaleEnabled)
+        addMod(ModMatrix::SrcLfo1, ModMatrix::DstFine, vibratoScale, false);
+    if (arch == ArchFormantLead || arch == ArchSwarmChoir)
+        addMod(ModMatrix::SrcAftertouch,
+               (arch == ArchFormantLead) ? ModMatrix::DstFormantShift : ModMatrix::DstSwarmMix,
+               rf(0.20f, 0.45f), true);
+    if (arch == ArchModalCrystal)
+        addMod(ModMatrix::SrcVelocity, ModMatrix::DstTone, rf(0.15f, 0.35f), true);
+    if (arch == ArchKineticLab)
+        addMod(ModMatrix::SrcLfo2, ModMatrix::DstTimbreScrub, rf(0.25f, 0.65f), false);
+
+    struct SafeModEntry { int dst; float maxAmt; bool forceUni; bool requireScale; };
+    static constexpr SafeModEntry kSafeModPool[] = {
+        { ModMatrix::DstPosition,        0.55f, false, false },
+        { ModMatrix::DstSize,            0.40f, false, false },
+        { ModMatrix::DstDensity,         0.38f, false, false },
+        { ModMatrix::DstSpray,           0.45f, true,  false },
+        { ModMatrix::DstPanSpread,       0.40f, false, false },
+        { ModMatrix::DstSpeed,           0.45f, false, false },
+        { ModMatrix::DstTone,            0.35f, false, false },
+        { ModMatrix::DstSemi,            0.40f, false, true  }, // only when scaleOn is true
+        { ModMatrix::DstMasterLpf,       0.45f, false, false },
+        { ModMatrix::DstFormantShift,    0.50f, false, false },
+        { ModMatrix::DstTimbreScrub,     0.60f, false, false },
+        { ModMatrix::DstGrainSkew,       0.65f, false, false },
+        { ModMatrix::DstGrainChirp,      0.38f, false, false },
+        { ModMatrix::DstGrainFilterFreq, 0.50f, false, false },
+        { ModMatrix::DstGrainFilterRes,  0.30f, true,  false },
+        { ModMatrix::DstModalDamp,       0.45f, false, false },
+        { ModMatrix::DstRevShimmer,      0.45f, true,  false }
+    };
+    static constexpr int kSafeSrcs[] = {
+        ModMatrix::SrcLfo1, ModMatrix::SrcLfo2, ModMatrix::SrcLfo3, ModMatrix::SrcLfo4,
+        ModMatrix::SrcEnv1, ModMatrix::SrcEnv2, ModMatrix::SrcEnv3,
+        ModMatrix::SrcVelocity, ModMatrix::SrcModWheel, ModMatrix::SrcRandom, ModMatrix::SrcAftertouch
+    };
+
+    const int targetModCount = ri(3, 6);
+    int attempts = 0;
+    while (modCursor <= targetModCount && attempts++ < 48)
+    {
+        const auto& e = kSafeModPool[r.nextInt((int)std::size(kSafeModPool))];
+        if (e.requireScale && !scaleEnabled) continue;
+        if (usedDst[e.dst]) continue;
+        const int src = kSafeSrcs[r.nextInt((int)std::size(kSafeSrcs))];
+        const bool isExpressiveUniSrc = (src >= ModMatrix::SrcEnv1 && src != ModMatrix::SrcRandom);
+        const bool uni = e.forceUni
+                      || (isExpressiveUniSrc && (e.dst == ModMatrix::DstMasterLpf || e.dst == ModMatrix::DstTone || chance(0.8f)));
+        float amt = rf(0.18f, e.maxAmt);
+        if (!uni && chance(0.45f)) amt = -amt;
+        if (e.dst == ModMatrix::DstMasterLpf && amt < 0.0f) amt = juce::jmax(-0.30f, amt);
+        addMod(src, e.dst, amt, uni);
     }
 
     currentPresetName = "Random";

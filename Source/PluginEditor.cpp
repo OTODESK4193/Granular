@@ -299,7 +299,7 @@ void GranularAudioProcessorEditor::paintContent(juce::Graphics& g)
 
     g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     g.setColour(GranularColors::mint.withAlpha(0.8f));
-    g.drawText("v1.1.0 B015", 250, 15, 90, 16, juce::Justification::centredLeft);
+    g.drawText("v1.1.0 B016", 250, 15, 90, 16, juce::Justification::centredLeft);
 
     g.setColour(GranularColors::textDim);
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
