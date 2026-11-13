@@ -28,6 +28,12 @@ struct ArpParams
     float gate = 0.8f;       // 0.05..1.0
     bool  latch = false;
 
+    // Euclidean Rhythm
+    bool  euclidEnable = false;
+    int   euclidSteps = 8;   // 2..16
+    int   euclidFills = 5;   // 1..16
+    int   euclidRot = 0;     // 0..15
+
     // Quantize連携
     bool  scaleEnable = false;
     int   key = 0;             // 0=Auto, 1..12=C..B
@@ -79,12 +85,24 @@ public:
         held.reserve(32);
         seq.reserve(1024);
         active.reserve(512);
+        pendingStrum.reserve(128);
         scratchSorted.reserve(32);
         scratchAsc.reserve(512);
         scratchConv.reserve(512);
         scratchOut.ensureSize(2048);
         scratchPassthrough.ensureSize(512);
         reset();
+    }
+
+    static inline bool isEuclideanHit(int step, int fills, int steps, int rot) noexcept
+    {
+        const int n = juce::jlimit(1, 16, steps);
+        const int k = juce::jlimit(0, n, fills);
+        if (k <= 0) return false;
+        if (k >= n) return true;
+        const int r = ((rot % n) + n) % n;
+        const int s = ((step - r) % n + n) % n;
+        return ((s * k) % n) < k;
     }
 
     void reset();
@@ -95,11 +113,12 @@ public:
 private:
     struct PoolNote { int note = 60; float vel = 1.0f; };
     struct ActiveNote { int note = 60; int samplesLeft = 0; };
+    struct PendingStrumNote { int note = 60; float vel = 1.0f; int samplesLeft = 0; int gateSamples = 0; };
 
     void handleInputEvent(const juce::MidiMessage& msg, const ArpParams& p);
     void buildSequence(const ArpParams& p);       // held → seq (パターン展開)
     int  quantizeNote(int note, const ArpParams& p) const;
-    void fireStep(juce::MidiBuffer& out, int offset, int gateSamples, const ArpParams& p);
+    void fireStep(juce::MidiBuffer& out, int offset, int numSamples, int gateSamples, const ArpParams& p);
     double getStepSamples(const ArpParams& p) const;
     int    getGateSamples(double stepSamples, const ArpParams& p) const;
 
@@ -114,12 +133,15 @@ private:
     std::vector<PoolNote> seq;               // パターン展開済みシーケンス
     int seqPos = 0;
     int walkPos = 0;
+    int euclidPos = 0;
 
     double samplesToNextStep = 0.0;
     bool running = false;
     bool wasEnabled = false;
+    bool prevLatch = false;
 
     std::vector<ActiveNote> active;          // noteOff待ち
+    std::vector<PendingStrumNote> pendingStrum; // ブロック境界跨ぎStrum予約
     juce::Random random;
 
     // buildSequence/process用スクラッチ（アロケーション回避）

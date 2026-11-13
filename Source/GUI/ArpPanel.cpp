@@ -33,9 +33,17 @@ ArpPanel::ArpPanel(GranularAudioProcessor& p) : proc(p)
     setupCombo(rateBox,    rateLabel,    "RATE",     "arpRateSync");
     setupCombo(durBox,     durLabel,     "DURATION", "arpDurMode");
 
-    setupKnob(octavesKnob,  octavesLabel,  "OCTAVES",   "arpOctaves",  arpAccent);
-    setupKnob(rateFreeKnob, rateFreeLabel, "RATE (Hz)", "arpRateFree", arpAccent);
-    setupKnob(gateKnob,     gateLabel,     "GATE",      "arpGate",     arpAccent);
+    setupKnob(octavesKnob,     octavesLabel,     "OCTAVES",   "arpOctaves",     arpAccent);
+    setupKnob(rateFreeKnob,    rateFreeLabel,    "RATE (Hz)", "arpRateFree",    arpAccent);
+    setupKnob(gateKnob,        gateLabel,        "GATE",      "arpGate",        arpAccent);
+
+    // --- EUCLID ---
+    addAndMakeVisible(euclidButton);
+    buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        proc.apvts, "arpEuclidEnable", euclidButton));
+    setupKnob(euclidStepsKnob, euclidStepsLabel, "STEPS",     "arpEuclidSteps", GranularColors::sage);
+    setupKnob(euclidFillsKnob, euclidFillsLabel, "FILLS",     "arpEuclidFills", GranularColors::sage);
+    setupKnob(euclidRotKnob,   euclidRotLabel,   "ROT",       "arpEuclidRot",   GranularColors::sage);
 
     // --- QUANTIZE (2段構成) ---
     addAndMakeVisible(scaleOnButton);
@@ -207,7 +215,8 @@ void ArpPanel::paint(juce::Graphics& g)
         g.fillRect(x, y + 16, w, 1);
     };
 
-    drawSection("ARPEGGIATOR", 20,  6,   860, GranularColors::accentEnv);
+    drawSection("ARPEGGIATOR", 20,  6,   712, GranularColors::accentEnv);
+    drawSection("EUCLID",      750, 6,   310, GranularColors::sage);
     drawSection("QUANTIZE",    20,  150, 240, GranularColors::accentPitch);
     drawSection("TEXTURE",     300, 150, 360, GranularColors::accentGrain);
 
@@ -251,26 +260,31 @@ void ArpPanel::resized()
         l.setBounds(x - 6, y + kKnobH, kKnobW + 4, kLabelH);
     };
 
-    // --- Row 1: ARP ---
+    // --- Row 1: ARP + EUCLID ---
     const int labelY = 34;
     const int ctrlY = 50;
 
-    enableButton.setBounds(20, ctrlY, 76, 26);
-    latchButton.setBounds(20, ctrlY + 32, 76, 26);
+    enableButton.setBounds(20, ctrlY, 72, 26);
+    latchButton.setBounds(20, ctrlY + 32, 72, 26);
 
-    patternLabel.setBounds(120, labelY, 100, 14);
-    patternBox.setBounds(120, ctrlY, 160, 26);
+    patternLabel.setBounds(104, labelY, 100, 14);
+    patternBox.setBounds(104, ctrlY, 144, 26);
 
-    placeKnob(octavesKnob, octavesLabel, 306, labelY);
+    placeKnob(octavesKnob, octavesLabel, 260, labelY);
 
-    syncButton.setBounds(396, ctrlY, 70, 26);
-    rateLabel.setBounds(482, labelY, 80, 14);
-    rateBox.setBounds(482, ctrlY, 90, 26);
-    placeKnob(rateFreeKnob, rateFreeLabel, 592, labelY);
+    syncButton.setBounds(334, ctrlY, 60, 26);
+    rateLabel.setBounds(404, labelY, 76, 14);
+    rateBox.setBounds(404, ctrlY, 76, 26);
+    placeKnob(rateFreeKnob, rateFreeLabel, 490, labelY);
 
-    durLabel.setBounds(686, labelY, 90, 14);
-    durBox.setBounds(686, ctrlY, 100, 26);
-    placeKnob(gateKnob, gateLabel, 806, labelY);
+    durLabel.setBounds(566, labelY, 82, 14);
+    durBox.setBounds(566, ctrlY, 82, 26);
+    placeKnob(gateKnob, gateLabel, 660, labelY);
+
+    euclidButton.setBounds(750, ctrlY + 8, 66, 28);
+    placeKnob(euclidStepsKnob, euclidStepsLabel, 826, labelY);
+    placeKnob(euclidFillsKnob, euclidFillsLabel, 904, labelY);
+    placeKnob(euclidRotKnob,   euclidRotLabel,   982, labelY);
 
     // --- Row 2: QUANTIZE (3段構成: 1段目=ON/KEY, 2段目=SCALE, 3段目=NOTES) + TEXTURE ---
     // 1段目: ON (幅64) + KEY (X=92, 幅168)

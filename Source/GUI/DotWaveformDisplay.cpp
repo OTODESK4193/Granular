@@ -158,9 +158,11 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
     const float maxHalfH = wave.getHeight() * 0.5f - 4.0f;
 
     std::array<float, 1000> peaksCopy;
+    std::array<float, 1000> brightCopy;
     {
         const juce::ScopedLock sl(proc.stateLock);
         peaksCopy = proc.waveformPeaks;
+        brightCopy = proc.waveformBright;
     }
 
     for (int col = 0; col < numCols; ++col)
@@ -171,14 +173,23 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         const int binStart = (int)(colNorm * 999.0f);
         const int binEnd = juce::jmin(999, (int)(((float)(col + 1) / (float)numCols) * 999.0f));
         float peak = 0.0f;
+        float brightWeightedSum = 0.0f;
+        float weightSum = 0.0f;
         for (int b = binStart; b <= binEnd; ++b)
-            peak = juce::jmax(peak, peaksCopy[(size_t)b]);
+        {
+            const float pVal = peaksCopy[(size_t)b];
+            const float w = 0.1f + pVal;
+            peak = juce::jmax(peak, pVal);
+            brightWeightedSum += brightCopy[(size_t)b] * w;
+            weightSum += w;
+        }
+        const float colBright = (weightSum > 1.0e-5f) ? (brightWeightedSum / weightSum) : 0.5f;
 
         const float ampH = juce::jlimit(0.0f, maxHalfH, peak * 2.0f * maxHalfH);
         const int dotCount = juce::jmax(1, (int)(ampH / kDotSpacingY));
 
         const bool insideRegion = (colNorm >= geo.effSN && colNorm <= geo.effEN);
-        auto baseColour = GranularColors::waveformGradient(colNorm);
+        auto baseColour = GranularColors::spectralColour(colBright);
         if (!insideRegion) baseColour = baseColour.withMultipliedAlpha(0.18f);
 
         for (int k = 0; k < dotCount; ++k)

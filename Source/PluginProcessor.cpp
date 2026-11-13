@@ -470,6 +470,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("arpGate", "Arp Gate",
         0.05f, 1.0f, 0.8f));
     params.push_back(std::make_unique<juce::AudioParameterBool>("arpLatch", "Arp Latch", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("arpEuclidEnable", "Arp Euclid On", false));
+    params.push_back(std::make_unique<juce::AudioParameterInt>("arpEuclidSteps", "Arp Euclid Steps", 2, 16, 8));
+    params.push_back(std::make_unique<juce::AudioParameterInt>("arpEuclidFills", "Arp Euclid Fills", 1, 16, 5));
+    params.push_back(std::make_unique<juce::AudioParameterInt>("arpEuclidRot", "Arp Euclid Rotate", 0, 15, 0));
 
     // --- マスター ---
     params.push_back(std::make_unique<juce::AudioParameterFloat>("masterHPF", "HPF (Hz)", juce::NormalisableRange<float>(20.0f, 2000.0f, 1.0f, 0.3f), 20.0f));
@@ -608,9 +612,13 @@ void GranularAudioProcessor::initParamCache()
     cp.arpSync     = getPtr("arpSync");
     cp.arpRateSync = getPtr("arpRateSync");
     cp.arpRateFree = getPtr("arpRateFree");
-    cp.arpDurMode  = getPtr("arpDurMode");
-    cp.arpGate     = getPtr("arpGate");
-    cp.arpLatch    = getPtr("arpLatch");
+    cp.arpDurMode      = getPtr("arpDurMode");
+    cp.arpGate         = getPtr("arpGate");
+    cp.arpLatch        = getPtr("arpLatch");
+    cp.arpEuclidEnable = getPtr("arpEuclidEnable");
+    cp.arpEuclidSteps  = getPtr("arpEuclidSteps");
+    cp.arpEuclidFills  = getPtr("arpEuclidFills");
+    cp.arpEuclidRot    = getPtr("arpEuclidRot");
 }
 
 void GranularAudioProcessor::resetPhysicalToSnapped() noexcept
@@ -739,9 +747,13 @@ void GranularAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     modMatrix.prepare(sampleRate);
     fxDryBuffer.setSize(2, samplesPerBlock, false, false, true);
     quantizedMidi.ensureSize(2048);
+    dryPreviewPlaying = false;
+    dryPreviewEnv = 0.0f;
+    dryPreviewPos = -1.0;
+    dryPreviewStopRequested.store(false, std::memory_order_release);
 
-    // ルックアヘッド等の遅延は無いためレイテンシ0を明示的にDAWへ報告
-    setLatencySamples(0);
+    // ルックアヘッドリミッターの実レイテンシ(~1.5ms)をDAWへ正確に報告 (PDC対応)
+    setLatencySamples(masterLimiter.getLatencySamples());
 
     // DAWのSRが変わった場合は新SRへ自動再インジェスト（最高音質へ復帰）
     // 完了までの間は processBlock 側の srComp 補正がピッチを守る
@@ -804,6 +816,9 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         masterLimiter.reset();
         dryPreviewActive.store(false, std::memory_order_release);
         dryPreviewResetPos.store(false, std::memory_order_release);
+        dryPreviewStopRequested.store(false, std::memory_order_release);
+        dryPreviewPlaying = false;
+        dryPreviewEnv = 0.0f;
         dryPreviewPos = -1.0;
         prevArpEnabled = false;
         return;
@@ -842,6 +857,10 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     arpP.durMode      = (int)cp.arpDurMode->load();
     arpP.gate         = cp.arpGate->load();
     arpP.latch        = cp.arpLatch->load() > 0.5f;
+    arpP.euclidEnable = cp.arpEuclidEnable->load() > 0.5f;
+    arpP.euclidSteps  = (int)cp.arpEuclidSteps->load();
+    arpP.euclidFills  = (int)cp.arpEuclidFills->load();
+    arpP.euclidRot    = (int)cp.arpEuclidRot->load();
     arpP.scaleEnable  = scaleOn;
     arpP.key          = keyIdx;
     arpP.scale        = scaleIdx;
@@ -987,6 +1006,9 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         || activeSample == nullptr
         || activeSample->validSamples <= 0)
     {
+        dryPreviewPlaying = false;
+        dryPreviewEnv = 0.0f;
+        dryPreviewPos = -1.0;
         synth.allNotesOff(); // サンプル未ロード/削除時は発音を止める
         return;
     }
@@ -1074,7 +1096,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         effS = juce::jmax(autoS, effE - minSpan);
     }
 
-    synth.processBlock(buffer, midiMessages, &activeSample->buffer, effS, effE, p);
+    synth.processBlock(buffer, midiMessages, &activeSample->buffer, effS, effE, p, &activeSample->mipLevels);
 
     // --- FX前の安全ソフトクリップ ---
     {
@@ -1157,15 +1179,28 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         }
     }
 
-    // --- Dryサンプル・プレビュー (原音をそのまま出力に加算) ---
-    if (dryPreviewActive.load(std::memory_order_acquire) && totalSamples > 0)
+    // --- Dryサンプル・プレビュー (~5msコサイン・フェードイン/アウトによるクリックレス再生) ---
+    const bool reqPlay = dryPreviewActive.load(std::memory_order_acquire);
+    const bool reqReset = dryPreviewResetPos.exchange(false, std::memory_order_acquire);
+    if ((reqPlay || dryPreviewPlaying) && totalSamples > 0)
     {
         const int srcCh = activeSample->buffer.getNumChannels();
         int startS = autoS;
         int endS   = autoE;
         if (endS <= startS || endS > totalSamples) { startS = 0; endS = totalSamples; }
-        if (dryPreviewResetPos.exchange(false, std::memory_order_acquire) || dryPreviewPos < 0.0)
+
+        if (reqReset || !dryPreviewPlaying || dryPreviewPos < (double)startS)
+        {
             dryPreviewPos = (double)startS;
+            dryPreviewEnv = 0.0f;
+            dryPreviewPlaying = true;
+        }
+
+        const double previewSr = sr > 1000.0 ? sr : 44100.0;
+        const int regionLen = juce::jmax(1, endS - startS);
+        const int maxFade = juce::jmax(8, juce::roundToInt(0.005 * previewSr));
+        const int fadeSamps = juce::jmin(maxFade, juce::jmax(1, regionLen / 2));
+        const float fadeStep = 1.0f / (float)fadeSamps;
 
         for (int i = 0; i < numSm; ++i)
         {
@@ -1173,16 +1208,49 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             if (sp >= endS)
             {
                 dryPreviewActive.store(false, std::memory_order_release);
+                dryPreviewStopRequested.store(false, std::memory_order_release);
+                dryPreviewPlaying = false;
                 dryPreviewPos = -1.0;
+                dryPreviewEnv = 0.0f;
                 break;
             }
+
+            const bool stopping = dryPreviewStopRequested.load(std::memory_order_acquire)
+                               || !dryPreviewActive.load(std::memory_order_acquire)
+                               || ((double)endS - dryPreviewPos <= (double)fadeSamps);
+
+            if (stopping)
+            {
+                dryPreviewEnv = juce::jmax(0.0f, dryPreviewEnv - fadeStep);
+                if (dryPreviewEnv <= 1.0e-5f)
+                {
+                    dryPreviewActive.store(false, std::memory_order_release);
+                    dryPreviewStopRequested.store(false, std::memory_order_release);
+                    dryPreviewPlaying = false;
+                    dryPreviewPos = -1.0;
+                    dryPreviewEnv = 0.0f;
+                    break;
+                }
+            }
+            else
+            {
+                dryPreviewEnv = juce::jmin(1.0f, dryPreviewEnv + fadeStep);
+            }
+
+            const float gain = 0.5f * (1.0f - std::cos(juce::MathConstants<float>::pi * dryPreviewEnv));
             for (int ch = 0; ch < numCh; ++ch)
             {
                 const float s = activeSample->buffer.getSample(juce::jmin(ch, srcCh - 1), sp);
-                buffer.addSample(ch, i, s);
+                buffer.addSample(ch, i, s * gain);
             }
             dryPreviewPos += 1.0;
         }
+    }
+    else
+    {
+        dryPreviewPlaying = false;
+        dryPreviewEnv = 0.0f;
+        dryPreviewPos = -1.0;
     }
 
     // --- マスターブリックウォールリミッター + NaN/Inf/バーストセーフティガード ---
@@ -1622,6 +1690,7 @@ void GranularAudioProcessor::run()
     nextSample->detectedRoot = currentPitch.detectedRoot;
     nextSample->isMajor      = currentPitch.isMajor;
     nextSample->rootMidiNote = foldedRoot;
+    nextSample->mipLevels.buildFrom(nextSample->buffer);
 
     std::array<float, 1000> peaksLocal {};
     std::array<float, 1000> brightLocal {};

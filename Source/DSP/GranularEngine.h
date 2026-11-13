@@ -284,48 +284,167 @@ struct TptSvf
 };
 
 // ==========================================
-// BrickLimiter — マスター用ブリックウォールリミッター
-//   アタック即時（天井を絶対に超えない）/ リリース可変
+// BrickLimiter — ルックアヘッド型ブリックウォールリミッター (~1.5ms先読み)
+//   スライディング最小値キュー + 移動平均FIRによる無歪み先読みアタック
 // ==========================================
 class BrickLimiter
 {
 public:
-    void prepare(double sr) noexcept
+    BrickLimiter() { prepare(44100.0); }
+
+    void prepare(double sr)
     {
-        sampleRate = sr;
+        sampleRate = sr > 1000.0 ? sr : 44100.0;
+        lookAheadSamples = juce::jlimit(4, 1024, juce::roundToInt(sampleRate * 0.0015));
+        windowLen = lookAheadSamples + 1;
+        delayL.assign((size_t)windowLen, 0.0f);
+        delayR.assign((size_t)windowLen, 0.0f);
+        maBuf.assign((size_t)windowLen, 1.0f);
+        dq.resize((size_t)windowLen);
         setReleaseMs(50.0f);
-        gain = 1.0f;
+        reset();
     }
-    void reset() noexcept { gain = 1.0f; }
+
+    int getLatencySamples() const noexcept { return lookAheadSamples; }
+
+    void reset() noexcept
+    {
+        std::fill(delayL.begin(), delayL.end(), 0.0f);
+        std::fill(delayR.begin(), delayR.end(), 0.0f);
+        std::fill(maBuf.begin(), maBuf.end(), 1.0f);
+        writeSlot = 0;
+        maIdx = 0;
+        dqHead = 0;
+        dqCount = 0;
+        sampleIndex = 0;
+        relEnv = 1.0f;
+        maSum = (double)windowLen;
+    }
+
     void setReleaseMs(float ms) noexcept
     {
         const double t = juce::jmax(0.5f, ms) * 0.001;
         releaseCoef = 1.0f - std::exp((float)(-1.0 / (t * sampleRate)));
     }
+
     inline void processMono(float& s, float ceilingLin) noexcept
     {
-        const float peak = juce::jmax(std::abs(s), 1.0e-9f);
-        const float target = peak > ceilingLin ? ceilingLin / peak : 1.0f;
-        if (target < gain) gain = target;                    // 即時アタック
-        else gain += releaseCoef * (target - gain);          // スムーズリリース
-        gain = juce::jmax(1.0e-6f, gain);                    // デノーマル防止
-        s *= gain;
+        float dummyR = s;
+        processStereoInternal(s, dummyR, ceilingLin, true);
     }
+
     inline void process(float& l, float& r, float ceilingLin) noexcept
     {
         if (&l == &r) { processMono(l, ceilingLin); return; }
-        const float peak = juce::jmax(std::abs(l), std::abs(r), 1.0e-9f);
-        const float target = peak > ceilingLin ? ceilingLin / peak : 1.0f;
-        if (target < gain) gain = target;                    // 即時アタック
-        else gain += releaseCoef * (target - gain);          // スムーズリリース
-        gain = juce::jmax(1.0e-6f, gain);                    // デノーマル防止
-        l *= gain;
-        r *= gain;
+        processStereoInternal(l, r, ceilingLin, false);
     }
+
 private:
+    struct DqEntry { uint64_t idx = 0; float val = 1.0f; };
+
+    inline void processStereoInternal(float& l, float& r, float ceilingLin, bool mono) noexcept
+    {
+        if (windowLen <= 1)
+        {
+            const float peak = mono ? std::abs(l) : juce::jmax(std::abs(l), std::abs(r));
+            const float g = peak > ceilingLin ? ceilingLin / juce::jmax(peak, 1.0e-9f) : 1.0f;
+            l *= g;
+            if (!mono) r *= g;
+            return;
+        }
+
+        const float inL = l;
+        const float inR = mono ? l : r;
+        const float peak = juce::jmax(mono ? std::abs(inL) : juce::jmax(std::abs(inL), std::abs(inR)), 1.0e-9f);
+        const float reqGain = peak > ceilingLin ? (ceilingLin / peak) : 1.0f;
+
+        // 先読みウィンドウ幅Wのスライディング最小値（O(1) 均等償却）
+        while (dqCount > 0 && dq[(size_t)dqHead].idx + (uint64_t)windowLen <= sampleIndex)
+        {
+            dqHead = (dqHead + 1) % windowLen;
+            --dqCount;
+        }
+        while (dqCount > 0)
+        {
+            const int tailIdx = (dqHead + dqCount - 1) % windowLen;
+            if (dq[(size_t)tailIdx].val >= reqGain) --dqCount;
+            else break;
+        }
+        dq[(size_t)((dqHead + dqCount) % windowLen)] = { sampleIndex, reqGain };
+        ++dqCount;
+
+        const float winMin = dq[(size_t)dqHead].val;
+        relEnv = (winMin < relEnv) ? winMin : juce::jmin(winMin, relEnv + releaseCoef * (winMin - relEnv));
+
+        // 移動平均FIRによる先読みランプ平滑化 (W点移動平均でピーク到達時に必ず<=reqGainに収束)
+        const float oldMa = maBuf[(size_t)maIdx];
+        maBuf[(size_t)maIdx] = relEnv;
+        if (maIdx == 0)
+        {
+            double s = 0.0;
+            for (int k = 0; k < windowLen; ++k) s += (double)maBuf[(size_t)k];
+            maSum = s;
+        }
+        else
+        {
+            maSum += (double)relEnv - (double)oldMa;
+        }
+        if (++maIdx >= windowLen) maIdx = 0;
+
+        float g = juce::jlimit(1.0e-6f, 1.0f, (float)(maSum / (double)windowLen));
+
+        // 円形遅延バッファ読み書き (ちょうど lookAheadSamples = windowLen - 1 サンプル遅延)
+        delayL[(size_t)writeSlot] = inL;
+        if (!mono) delayR[(size_t)writeSlot] = inR;
+
+        const int readSlot = (writeSlot + 1) % windowLen;
+        const float outL = delayL[(size_t)readSlot];
+        const float outR = mono ? outL : delayR[(size_t)readSlot];
+
+        // 浮動小数点丸め誤差への最終ハードガード
+        const float outPeak = mono ? std::abs(outL) : juce::jmax(std::abs(outL), std::abs(outR));
+        if (outPeak * g > ceilingLin && outPeak > 1.0e-9f)
+            g = ceilingLin / outPeak;
+
+        l = outL * g;
+        if (!mono) r = outR * g;
+
+        writeSlot = readSlot;
+        ++sampleIndex;
+    }
+
     double sampleRate = 44100.0;
-    float gain = 1.0f;
+    int lookAheadSamples = 66;
+    int windowLen = 67;
+    std::vector<float> delayL, delayR, maBuf;
+    std::vector<DqEntry> dq;
+    int writeSlot = 0;
+    int maIdx = 0;
+    int dqHead = 0, dqCount = 0;
+    uint64_t sampleIndex = 0;
+    float relEnv = 1.0f;
+    double maSum = 67.0;
     float releaseCoef = 0.0005f;
+};
+
+// ==========================================
+// オクターブ Mip-Map サンプルピラミッド
+//   Level 0 (=1x) は親バッファを直接参照し、2x/4x/8x/16x の帯域制限縮小版を事前生成。
+//   +1〜+4oct 以上の高速再生でも折り返し雑音(エイリアシング)を抑制する。
+// ==========================================
+struct SampleMipLevels
+{
+    static constexpr int kExtraLevels = 4; // 0:2x (+1oct), 1:4x (+2oct), 2:8x (+3oct), 3:16x (+4oct)
+    std::array<juce::AudioBuffer<float>, kExtraLevels> downsampled;
+    int numExtraLevels = 0;
+
+    void clear()
+    {
+        for (auto& b : downsampled) b.setSize(0, 0);
+        numExtraLevels = 0;
+    }
+
+    void buildFrom(const juce::AudioBuffer<float>& base);
 };
 
 // ==========================================
@@ -343,6 +462,7 @@ struct Grain
     float  amp = 1.0f;
     double trimStart = 0.0;       // スポーン時のStart位置
     double trimEnd = 0.0;         // スポーン時のEnd位置
+    float  mipLevel = 0.0f;       // 再生速度比に応じたMip-Mapレベル (0=1x .. 4=16x)
 };
 
 // ==========================================
@@ -368,6 +488,7 @@ public:
 
     void renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                          const juce::AudioBuffer<float>* sharedSourceBuffer,
+                         const SampleMipLevels* mipLevels,
                          int trimStart, int trimEnd,
                          const std::array<std::array<float, 4096>, 4>& windowTables,
                          const GranularParams& p,
@@ -443,7 +564,8 @@ public:
                       juce::MidiBuffer& midiMessages,
                       const juce::AudioBuffer<float>* sharedSourceBuffer,
                       int trimStart, int trimEnd,
-                      const GranularParams& p);
+                      const GranularParams& p,
+                      const SampleMipLevels* mipLevels = nullptr);
 
     void allNotesOff()
     {
@@ -474,6 +596,7 @@ private:
     void handleMidiMessage(const juce::MidiMessage& msg, const GranularParams& p);
     void renderVoicesRange(juce::AudioBuffer<float>& subBuf,
                            const juce::AudioBuffer<float>* src,
+                           const SampleMipLevels* mipLevels,
                            int trimStart, int trimEnd,
                            const GranularParams& p);
     void generateWindowTables();

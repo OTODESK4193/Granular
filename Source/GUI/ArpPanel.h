@@ -42,12 +42,15 @@ private:
     GlowToggle enableButton { "ON",    GranularColors::mint };
     GlowToggle latchButton  { "LATCH", GranularColors::lilac };
     GlowToggle syncButton   { "SYNC",  GranularColors::babyBlue };
+    GlowToggle euclidButton { "EUCLID", GranularColors::sage };
 
     juce::ComboBox patternBox, rateBox, durBox;
     juce::Label    patternLabel, rateLabel, durLabel;
 
     ValueKnob octavesKnob, rateFreeKnob, gateKnob;
+    ValueKnob euclidStepsKnob, euclidFillsKnob, euclidRotKnob;
     juce::Label octavesLabel, rateFreeLabel, gateLabel;
+    juce::Label euclidStepsLabel, euclidFillsLabel, euclidRotLabel;
 
     // --- QUANTIZE (3段構成: 1段目=ON/KEY, 2段目=SCALE, 3段目=NOTES) ---
     GlowToggle    scaleOnButton { "ON", GranularColors::accentPitch };

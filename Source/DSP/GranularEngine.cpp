@@ -29,6 +29,81 @@ static inline float readHermiteClamped(const float* src, int numSamples, double 
     return hermite4(frac, src[i0], src[ic], src[i2], src[i3]);
 }
 
+// ------------------------------------------
+// SampleMipLevels: 31タップ・ゼロ位相 Blackman 窓付き sinc (fc=0.45π) による 2x デシメーションピラミッド
+// ------------------------------------------
+void SampleMipLevels::buildFrom(const juce::AudioBuffer<float>& base)
+{
+    clear();
+    const int numCh = base.getNumChannels();
+    const int baseLen = base.getNumSamples();
+    if (numCh <= 0 || baseLen < 16) return;
+
+    constexpr int kHalfTaps = 15;
+    constexpr int kNumTaps = kHalfTaps * 2 + 1; // 31 taps
+    std::array<float, kNumTaps> kernel {};
+    {
+        constexpr double cutoff = 0.45; // Nyquist比 (fs/4 を保護)
+        double sum = 0.0;
+        for (int n = 0; n < kNumTaps; ++n)
+        {
+            const int k = n - kHalfTaps;
+            const double sinc = (k == 0) ? cutoff
+                : std::sin(juce::MathConstants<double>::pi * cutoff * (double)k)
+                  / (juce::MathConstants<double>::pi * (double)k);
+            const double w = 0.42
+                           - 0.50 * std::cos(2.0 * juce::MathConstants<double>::pi * (double)n / (double)(kNumTaps - 1))
+                           + 0.08 * std::cos(4.0 * juce::MathConstants<double>::pi * (double)n / (double)(kNumTaps - 1));
+            const double coeff = sinc * w;
+            kernel[(size_t)n] = (float)coeff;
+            sum += coeff;
+        }
+        const float invSum = (float)(1.0 / (sum > 1.0e-12 ? sum : 1.0));
+        for (float& c : kernel) c *= invSum;
+    }
+
+    const juce::AudioBuffer<float>* prev = &base;
+    for (int lvl = 0; lvl < kExtraLevels; ++lvl)
+    {
+        const int prevLen = prev->getNumSamples();
+        const int nextLen = prevLen / 2;
+        if (nextLen < 8) break;
+
+        auto& dst = downsampled[(size_t)lvl];
+        dst.setSize(numCh, nextLen, false, false, false);
+
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            const float* in = prev->getReadPointer(ch);
+            float* out = dst.getWritePointer(ch);
+
+            for (int j = 0; j < nextLen; ++j)
+            {
+                const int center = j * 2;
+                float acc = 0.0f;
+                if (center >= kHalfTaps && center + kHalfTaps < prevLen)
+                {
+                    const float* pIn = in + (center - kHalfTaps);
+                    for (int t = 0; t < kNumTaps; ++t)
+                        acc += pIn[t] * kernel[(size_t)t];
+                }
+                else
+                {
+                    for (int t = 0; t < kNumTaps; ++t)
+                    {
+                        const int idx = juce::jlimit(0, prevLen - 1, center + t - kHalfTaps);
+                        acc += in[idx] * kernel[(size_t)t];
+                    }
+                }
+                out[j] = acc;
+            }
+        }
+
+        numExtraLevels = lvl + 1;
+        prev = &dst;
+    }
+}
+
 // ==========================================
 // GranularVoice
 // ==========================================
@@ -168,6 +243,8 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
     const double pitchRatio = std::pow(2.0, ((double)totalAbsSemis - (double)p.rootNote) / 12.0)
                             * (double)p.srComp;
     grain.step = p.reverseGrain ? -pitchRatio : pitchRatio;
+    grain.mipLevel = (pitchRatio > 1.0) ? juce::jlimit(0.0f, (float)SampleMipLevels::kExtraLevels, (float)std::log2(pitchRatio))
+                                        : 0.0f;
 
     // --------------------------------------
     // スポーン位置（時間ベースランダムウォークスプレー + 境界反射）
@@ -233,6 +310,7 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
 
 void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                                     const juce::AudioBuffer<float>* sharedSourceBuffer,
+                                    const SampleMipLevels* mipLevels,
                                     int trimStart, int trimEnd,
                                     const std::array<std::array<float, 4096>, 4>& windowTables,
                                     const GranularParams& p,
@@ -258,6 +336,29 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     const int srcLen = sharedSourceBuffer->getNumSamples();
     const float* srcL = sharedSourceBuffer->getReadPointer(0);
     const float* srcR = sharedSourceBuffer->getNumChannels() > 1 ? sharedSourceBuffer->getReadPointer(1) : srcL;
+
+    struct MipView { const float* l = nullptr; const float* r = nullptr; int len = 0; double scale = 1.0; };
+    std::array<MipView, SampleMipLevels::kExtraLevels + 1> mips;
+    mips[0] = { srcL, srcR, srcLen, 1.0 };
+    int maxMipLvl = 0;
+    if (mipLevels != nullptr)
+    {
+        const int avail = juce::jlimit(0, SampleMipLevels::kExtraLevels, mipLevels->numExtraLevels);
+        for (int m = 0; m < avail; ++m)
+        {
+            const auto& b = mipLevels->downsampled[(size_t)m];
+            if (b.getNumSamples() > 0 && b.getNumChannels() > 0)
+            {
+                const int mIdx = m + 1;
+                mips[(size_t)mIdx].l = b.getReadPointer(0);
+                mips[(size_t)mIdx].r = b.getNumChannels() > 1 ? b.getReadPointer(1) : mips[(size_t)mIdx].l;
+                mips[(size_t)mIdx].len = b.getNumSamples();
+                mips[(size_t)mIdx].scale = 1.0 / (double)(1 << mIdx);
+                maxMipLvl = mIdx;
+            }
+            else break;
+        }
+    }
 
     // ノート周波数（オクターブ/セミ/ファイン/MOD込み、ジッター前）
     const double globalSemis = (double)p.octave * 12.0 + (double)p.pitchSt
@@ -437,8 +538,39 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             const float winFrac = fIdx - (float)idx0;
             const float windowValue = window[(size_t)idx0] * (1.0f - winFrac) + window[(size_t)idx1] * winFrac;
 
-            const float sL = readHermiteClamped(srcL, srcLen, grain.position);
-            const float sR = readHermiteClamped(srcR, srcLen, grain.position);
+            float sL = 0.0f, sR = 0.0f;
+            if (maxMipLvl > 0 && grain.mipLevel > 1.0e-3f)
+            {
+                const float lvlF = juce::jmin(grain.mipLevel, (float)maxMipLvl);
+                const int lvl0 = (int)lvlF;
+                const int lvl1 = juce::jmin(maxMipLvl, lvl0 + 1);
+                const float frac = lvlF - (float)lvl0;
+
+                const auto& m0 = mips[(size_t)lvl0];
+                const double pos0 = grain.position * m0.scale;
+                const float l0 = readHermiteClamped(m0.l, m0.len, pos0);
+                const float r0 = readHermiteClamped(m0.r, m0.len, pos0);
+
+                if (lvl1 != lvl0 && frac > 1.0e-3f)
+                {
+                    const auto& m1 = mips[(size_t)lvl1];
+                    const double pos1 = grain.position * m1.scale;
+                    const float l1 = readHermiteClamped(m1.l, m1.len, pos1);
+                    const float r1 = readHermiteClamped(m1.r, m1.len, pos1);
+                    sL = l0 + (l1 - l0) * frac;
+                    sR = r0 + (r1 - r0) * frac;
+                }
+                else
+                {
+                    sL = l0;
+                    sR = r0;
+                }
+            }
+            else
+            {
+                sL = readHermiteClamped(srcL, srcLen, grain.position);
+                sR = readHermiteClamped(srcR, srcLen, grain.position);
+            }
 
             float edgeFade = 1.0f;
             if (edgeFadeLen > 0.0)
@@ -626,6 +758,7 @@ void GranularSynth::handleMidiMessage(const juce::MidiMessage& msg, const Granul
 
 void GranularSynth::renderVoicesRange(juce::AudioBuffer<float>& subBuf,
                                       const juce::AudioBuffer<float>* src,
+                                      const SampleMipLevels* mipLevels,
                                       int trimStart, int trimEnd,
                                       const GranularParams& p)
 {
@@ -644,7 +777,7 @@ void GranularSynth::renderVoicesRange(juce::AudioBuffer<float>& subBuf,
             int voiceBudget = juce::jmin(totalSpawnBudget,
                                          juce::jmax(4, (totalSpawnBudget + activeVoices - 1) / juce::jmax(1, activeVoices)));
             const int budgetBefore = voiceBudget;
-            v.renderNextBlock(subBuf, src, trimStart, trimEnd, windowTables, p, &visualizer, voiceBudget);
+            v.renderNextBlock(subBuf, src, mipLevels, trimStart, trimEnd, windowTables, p, &visualizer, voiceBudget);
             const int consumed = budgetBefore - voiceBudget;
             totalSpawnBudget = juce::jmax(0, totalSpawnBudget - consumed);
             --activeVoices;
@@ -656,7 +789,8 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
                                  juce::MidiBuffer& midi,
                                  const juce::AudioBuffer<float>* src,
                                  int trimStart, int trimEnd,
-                                 const GranularParams& p)
+                                 const GranularParams& p,
+                                 const SampleMipLevels* mipLevels)
 {
     const int nSmp = buf.getNumSamples();
     constexpr int kModSubBlock = 64; // <= 64サンプル単位で変調補間＆MIDIサンプル分割
@@ -688,7 +822,7 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
         }
 
         juce::AudioBuffer<float> subBuf(buf.getArrayOfWritePointers(), buf.getNumChannels(), startSample, chunkLen);
-        renderVoicesRange(subBuf, src, trimStart, trimEnd, subP);
+        renderVoicesRange(subBuf, src, mipLevels, trimStart, trimEnd, subP);
     };
 
     // サンプル単位MIDIイベント境界分割 ＋ サブブロック変調補間

@@ -75,49 +75,73 @@ namespace gfx
         }
     };
 
-    // Shimmer用オクターブシフター
+    // Shimmer用オクターブシフター (SRスケール対応・ヒープ確保)
     class OctaveShifter
     {
-        std::array<float, 4096> buffer {};
+        std::vector<float> buffer;
+        int bufMask = 0;
+        int windowSize = 2048;
         int writeIdx = 0;
         float phase = 0.0f;
     public:
+        void prepareToPlay(double sr)
+        {
+            const int targetWin = juce::jlimit(512, 16384, juce::roundToInt(2048.0 * sr / 44100.0));
+            windowSize = targetWin;
+            int size = 1024;
+            while (size < targetWin * 2) size <<= 1;
+            buffer.assign((size_t)size, 0.0f);
+            bufMask = size - 1;
+            clearState();
+        }
         void clearState() noexcept
         {
-            buffer.fill(0.0f);
+            std::fill(buffer.begin(), buffer.end(), 0.0f);
             writeIdx = 0;
             phase = 0.0f;
         }
         float process(float in) noexcept
         {
+            if (buffer.empty()) return in;
             buffer[(size_t)writeIdx] = in;
 
-            const float windowSize = 2048.0f;
-            phase += 1.0f / windowSize;
+            const float winF = (float)windowSize;
+            phase += 1.0f / winF;
             if (phase >= 1.0f) phase -= 1.0f;
 
             float phaseB = phase + 0.5f;
             if (phaseB >= 1.0f) phaseB -= 1.0f;
 
-            const float delayA = (1.0f - phase) * windowSize;
-            const float delayB = (1.0f - phaseB) * windowSize;
+            const float delayA = (1.0f - phase) * winF;
+            const float delayB = (1.0f - phaseB) * winF;
 
-            auto getInterpolated = [&](float d) noexcept
+            auto getHermite = [&](float d) noexcept
             {
+                const float bufLen = (float)(bufMask + 1);
                 float readPos = (float)writeIdx - d;
-                if (readPos < 0.0f) readPos += 4096.0f;
-                const int idx1 = (int)readPos;
-                const float frac = readPos - (float)idx1;
-                const int idx2 = (idx1 + 1) % 4096;
-                return buffer[(size_t)idx1] * (1.0f - frac) + buffer[(size_t)idx2] * frac;
+                while (readPos < 0.0f) readPos += bufLen;
+                const int idx1 = ((int)readPos) & bufMask;
+                const float frac = readPos - std::floor(readPos);
+                const int idx0 = (idx1 - 1) & bufMask;
+                const int idx2 = (idx1 + 1) & bufMask;
+                const int idx3 = (idx1 + 2) & bufMask;
+                const float y0 = buffer[(size_t)idx0];
+                const float y1 = buffer[(size_t)idx1];
+                const float y2 = buffer[(size_t)idx2];
+                const float y3 = buffer[(size_t)idx3];
+                const float c0 = y1;
+                const float c1 = 0.5f * (y2 - y0);
+                const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+                const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+                return ((c3 * frac + c2) * frac + c1) * frac + c0;
             };
 
-            const float outA = getInterpolated(delayA);
-            const float outB = getInterpolated(delayB);
+            const float outA = getHermite(delayA);
+            const float outB = getHermite(delayB);
             const float winA = 0.5f * (1.0f - std::cos(phase * juce::MathConstants<float>::twoPi));
             const float winB = 0.5f * (1.0f - std::cos(phaseB * juce::MathConstants<float>::twoPi));
 
-            writeIdx = (writeIdx + 1) % 4096;
+            writeIdx = (writeIdx + 1) & bufMask;
             return outA * winA + outB * winB;
         }
     };
@@ -131,21 +155,23 @@ namespace gfx
         std::vector<Tap> taps;
         float amount = 0.0f;
 
-        void prepare(float fs)
+        void prepare(float fs, uint32_t seed = 12345u)
         {
-            const int size = 16384;
+            const float durationMs = 50.0f;
+            const float totalSamples = durationMs * fs * 0.001f;
+            int size = 1024;
+            while ((float)size < totalSamples + 64.0f) size <<= 1;
+
             buffer.assign((size_t)size, 0.0f);
             bufferMask = size - 1;
             writePos = 0;
 
             taps.clear();
-            const int numTaps = 48;
-            const float durationMs = 50.0f;
-            const float totalSamples = durationMs * fs * 0.001f;
+            const int numTaps = juce::jlimit(48, 128, juce::roundToInt(48.0 * fs / 44100.0));
             const float grid = totalSamples / (float)numTaps;
 
-            std::mt19937 gen(12345);
-            std::uniform_real_distribution<float> distOffset(0.0f, grid - 1.0f);
+            std::mt19937 gen(seed);
+            std::uniform_real_distribution<float> distOffset(0.0f, juce::jmax(0.25f, grid - 1.0f));
             std::uniform_int_distribution<> sign(0, 1);
             const float normGain = 1.0f / std::sqrt((float)numTaps);
 
@@ -202,17 +228,25 @@ namespace gfx
     }
 
     // ------------------------------------------
-    // Shimmer Reverb (16ch FDN + OctaveShifter)
+    // Shimmer Reverb (16ch FDN + OctaveShifter + Jot T60)
     // ------------------------------------------
     class ShimmerReverb
     {
         static constexpr int NUM_CHANNELS = 16;
+        double sampleRate = 44100.0;
         std::vector<std::vector<float>> delayBuffers;
         std::array<int, NUM_CHANNELS> writePos {};
         std::array<int, NUM_CHANNELS> delayLengths {};
         std::array<float, NUM_CHANNELS> dampStates {};
         std::array<float, NUM_CHANNELS> dcX1 {}, dcY1 {}; // DCブロッカー状態
+        std::array<float, NUM_CHANNELS> cachedFbGains {};
         float curAmount = 0.0f;                            // スムージング済みwet量
+        float curDecay = 0.7f;
+        float cachedDecay = -1.0f;
+        float cachedDamp = -1.0f;
+        float cachedDampFactor = 0.2f;
+        float dcCoef = 0.9975f;
+        float amountSmoothCoef = 0.008f;
         std::array<ChaosLFO, NUM_CHANNELS> lfos;
 
         VelvetNoiseDiffuser velvetL, velvetR;
@@ -235,14 +269,23 @@ namespace gfx
                 lfos[(size_t)i].setPhase((float)i / (float)NUM_CHANNELS);
             }
             curAmount = 0.0f;
+            cachedDecay = -1.0f;
+            cachedDamp = -1.0f;
         }
 
         void prepareToPlay(double sr)
         {
-            velvetL.prepare((float)sr);
-            velvetR.prepare((float)sr);
+            sampleRate = sr > 1000.0 ? sr : 44100.0;
+            // ステレオ非相関のためにL/Rで異なるベロシティノイズシードを設定
+            velvetL.prepare((float)sampleRate, 12345u);
+            velvetR.prepare((float)sampleRate, 67891u);
+            shifter.prepareToPlay(sampleRate);
 
-            const int maxDelaySamples = (int)(sr * 2.0);
+            dcCoef = std::exp(-juce::MathConstants<float>::twoPi * 15.0f / (float)sampleRate);
+            amountSmoothCoef = 1.0f - std::exp(-1.0f / (0.006f * (float)sampleRate));
+
+            // 最大ベース遅延101ms + モジュレーション余裕を含めた200ms確保（192kHzでも省メモリ）
+            const int maxDelaySamples = std::max(256, (int)std::ceil(sampleRate * 0.20));
 
             static const float LFO_RATIOS[16] = {
                 1.000f, 0.618f, 1.272f, 0.786f, 1.618f, 0.382f, 1.414f, 0.528f,
@@ -254,10 +297,10 @@ namespace gfx
             for (int i = 0; i < NUM_CHANNELS; ++i)
             {
                 delayBuffers[(size_t)i].assign((size_t)maxDelaySamples, 0.0f);
-                const float targetSamps = baseDelaysMs[i] * 0.001f * (float)sr;
+                const float targetSamps = baseDelaysMs[i] * 0.001f * (float)sampleRate;
                 delayLengths[(size_t)i] = findNearestPrime((int)targetSamps);
-                if (delayLengths[(size_t)i] > maxDelaySamples - 100) delayLengths[(size_t)i] = maxDelaySamples - 100;
-                lfos[(size_t)i].setFrequency(0.5f * LFO_RATIOS[i], (float)sr);
+                if (delayLengths[(size_t)i] > maxDelaySamples - 64) delayLengths[(size_t)i] = maxDelaySamples - 64;
+                lfos[(size_t)i].setFrequency(0.5f * LFO_RATIOS[i], (float)sampleRate);
             }
             clearState();
         }
@@ -267,14 +310,36 @@ namespace gfx
         void process(float& inOutL, float& inOutR, float amount,
                      float decay, float shimmer, float damp, float mod) noexcept
         {
-            // wet量をスムージング（変調で急に0↔xすると段差=クリックになりReverbが弾ける）
-            // 係数を0.002→0.008に引き上げ: 急な変調復帰時にFDN蓄積分が一気に開放されるのを防ぐ
-            curAmount += 0.008f * (amount - curAmount);
-            if (amount <= 0.0f && curAmount < 1.0e-4f) return;
-            amount = curAmount;
+            // wet量をSR独立スムージング。amount==0でもFDN内部状態は回し続けてテールフリーズ/復帰クリックを防止。
+            curAmount += amountSmoothCoef * (amount - curAmount);
+            const float mixAmount = juce::jlimit(0.0f, 1.0f, curAmount);
 
-            velvetL.setAmount(amount * 0.8f);
-            velvetR.setAmount(amount * 0.8f);
+            const float targetDecay = juce::jlimit(0.0f, 1.0f, decay);
+            curDecay += amountSmoothCoef * (targetDecay - curDecay);
+
+            // Jot / Chowning SR独立 T60 フィードバックゲイン計算 (T60 = 0.25s .. 14.25s)
+            if (std::abs(curDecay - cachedDecay) > 2.0e-4f || cachedDecay < 0.0f)
+            {
+                cachedDecay = curDecay;
+                const double t60 = 0.25 + (double)(curDecay * curDecay) * 14.0;
+                const double logDecayPerSample = -6.907755278982137 / (t60 * sampleRate); // ln(0.001) / (T60 * sr)
+                for (int i = 0; i < NUM_CHANNELS; ++i)
+                    cachedFbGains[(size_t)i] = juce::jlimit(0.05f, 0.995f,
+                        (float)std::exp(logDecayPerSample * (double)delayLengths[(size_t)i]));
+            }
+
+            // SR独立ワンポールLPFダンピング係数 (18kHz .. 1.2kHz)
+            const float dampClamped = juce::jlimit(0.0f, 1.0f, damp);
+            if (std::abs(dampClamped - cachedDamp) > 2.0e-4f || cachedDamp < 0.0f)
+            {
+                cachedDamp = dampClamped;
+                const float dampHz = 18000.0f * std::pow(1200.0f / 18000.0f, dampClamped);
+                cachedDampFactor = std::exp(-juce::MathConstants<float>::twoPi * dampHz / (float)sampleRate);
+            }
+            const float dampFactor = cachedDampFactor;
+
+            velvetL.setAmount(0.45f + mixAmount * 0.45f);
+            velvetR.setAmount(0.45f + mixAmount * 0.45f);
 
             const float vL = velvetL.process(inOutL);
             const float vR = velvetR.process(inOutR);
@@ -289,9 +354,7 @@ namespace gfx
             float delayOutputs[16] = {};
             float feedbackInputs[16] = {};
 
-            const float lfoDepth = mod * 15.0f;
-            const float dampFactor = 0.05f + damp * 0.6f;
-            const float feedback = std::min(0.98f, 0.5f + decay * 0.48f);
+            const float lfoDepth = mod * (15.0f * (float)(sampleRate / 44100.0));
 
             for (int i = 0; i < NUM_CHANNELS; ++i)
             {
@@ -313,10 +376,9 @@ namespace gfx
 
                 dampStates[(size_t)i] = rawRead * (1.0f - dampFactor) + dampStates[(size_t)i] * dampFactor;
 
-                // DCブロッカー: フィードバックにDC/サブソニックが蓄積して
-                // 長周期でジワジワ膨れる残響スウェルを防ぐ（音色は保つ）
+                // SR補償済み 15Hz DCブロッカー
                 const float dcIn = dampStates[(size_t)i];
-                const float hp = dcIn - dcX1[(size_t)i] + 0.9975f * dcY1[(size_t)i];
+                const float hp = dcIn - dcX1[(size_t)i] + dcCoef * dcY1[(size_t)i];
                 dcX1[(size_t)i] = dcIn;
                 dcY1[(size_t)i] = hp;
 
@@ -332,11 +394,9 @@ namespace gfx
                 const int bufSize = (int)delayBuffers[(size_t)i].size();
                 if (bufSize == 0) continue;
 
+                const float fb = cachedFbGains[(size_t)i];
                 const float inSig = (i % 2 == 0) ? injectL : injectR;
-                // in×(1-fb)+loop×fb : 定常ゲインが1に収束し、ARP等の連続入力でも
-                // FDNにエネルギーが蓄積して暴発（たまに残響が大音量化）しない。
-                // (旧: inSig + loop×fb は 1/(1-fb) 倍まで蓄積 → fb0.98で飽和爆音)
-                float v_n = inSig * (1.0f - feedback) + feedbackInputs[i] * feedback;
+                float v_n = inSig * (1.0f - fb) + feedbackInputs[i] * fb;
                 v_n = antiDenormal(safeLoopSaturate(v_n));
 
                 delayBuffers[(size_t)i][(size_t)writePos[(size_t)i]] = v_n;
@@ -346,35 +406,40 @@ namespace gfx
                 else       sumR += delayOutputs[i];
             }
 
-            sumL *= 0.25f;
-            sumR *= 0.25f;
-
-            auto softClipOutput = [](float x) noexcept
+            if (mixAmount > 1.0e-5f)
             {
-                const float ax = std::abs(x);
-                if (ax > 1.0f) return x > 0.0f ? 1.0f : -1.0f;
-                return x * (1.5f - 0.5f * x * x);
-            };
+                sumL *= 0.25f;
+                sumR *= 0.25f;
 
-            inOutL = inOutL * (1.0f - amount) + softClipOutput(sumL) * amount * 1.2f;
-            inOutR = inOutR * (1.0f - amount) + softClipOutput(sumR) * amount * 1.2f;
+                auto softClipOutput = [](float x) noexcept
+                {
+                    const float ax = std::abs(x);
+                    if (ax > 1.0f) return x > 0.0f ? 1.0f : -1.0f;
+                    return x * (1.5f - 0.5f * x * x);
+                };
+
+                inOutL = inOutL * (1.0f - mixAmount) + softClipOutput(sumL) * mixAmount * 1.2f;
+                inOutR = inOutR * (1.0f - mixAmount) + softClipOutput(sumR) * mixAmount * 1.2f;
+            }
         }
     };
 
     // ------------------------------------------
-    // Ensemble Chorus (4ボイス)
+    // Ensemble Chorus (4ボイス・ヒープ確保・192kHz対応)
     // ------------------------------------------
     class EnsembleChorus
     {
     public:
         void prepareToPlay(double sr)
         {
-            sampleRate = sr;
+            sampleRate = sr > 1000.0 ? sr : 44100.0;
+            const int reqHalf = std::max(512, (int)std::ceil(sampleRate * 0.05) + 16);
+            delayBuffer.assign((size_t)reqHalf * 2, 0.0f);
             clearState();
         }
         void clearState() noexcept
         {
-            delayBuffer.fill(0.0f);
+            std::fill(delayBuffer.begin(), delayBuffer.end(), 0.0f);
             writeIndex = 0;
             lfoPhase1 = lfoPhase2 = 0.0f;
         }
@@ -383,8 +448,9 @@ namespace gfx
         void process(float& inOutL, float& inOutR, float amount,
                      float rate, float depth, float width) noexcept
         {
-            // amount <= 0.0f でも LFO 更新とバッファ書き込みを継続することで、
-            // 変調時のバッファ陳腐化によるバーストを防止します。
+            const int halfSize = (int)(delayBuffer.size() / 2);
+            if (halfSize < 16) return;
+
             const float lfoRate1 = rate;
             const float lfoRate2 = rate * 1.5f;
 
@@ -405,8 +471,6 @@ namespace gfx
                 return ((c3 * frac + c2) * frac + c1) * frac + c0;
             };
 
-            const int halfSize = (int)(delayBuffer.size() / 2);
-
             float mods[4];
             mods[0] = std::sin(lfoPhase1 * juce::MathConstants<float>::twoPi);
             mods[1] = -mods[0];
@@ -419,12 +483,11 @@ namespace gfx
                 const float delaySamps = delayMs * (float)(sampleRate / 1000.0);
 
                 float readPos = (float)writeIndex - delaySamps;
-                if (readPos < 0.0f) readPos += (float)halfSize;
+                while (readPos < 0.0f) readPos += (float)halfSize;
 
                 int idx1 = (int)readPos;
-                if (idx1 >= halfSize) idx1 = 0;
-                if (idx1 < 0) idx1 += halfSize;
-                const float frac = readPos - (float)idx1;
+                if (idx1 >= halfSize) idx1 %= halfSize;
+                const float frac = readPos - std::floor(readPos);
 
                 int idx0 = idx1 - 1; if (idx0 < 0) idx0 += halfSize;
                 int idx2 = idx1 + 1; if (idx2 >= halfSize) idx2 -= halfSize;
@@ -452,7 +515,6 @@ namespace gfx
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
-            // WIDTH: ウェット信号の Mid/Side バランスでステレオ幅を調整
             float wetL = outL * 0.25f;
             float wetR = outR * 0.25f;
             const float mono = (wetL + wetR) * 0.5f;
@@ -468,25 +530,35 @@ namespace gfx
 
     private:
         double sampleRate = 44100.0;
-        std::array<float, 96000 * 2> delayBuffer {};
+        std::vector<float> delayBuffer;
         int writeIndex = 0;
         float lfoPhase1 = 0.0f, lfoPhase2 = 0.0f;
     };
 
     // ------------------------------------------
-    // Tape Delay (テンポ同期・ダッキング付き)
+    // Tape Delay (テンポ同期・ダッキング付き・192kHzヒープ確保)
     // ------------------------------------------
     class TapeDelay
     {
     public:
         void prepareToPlay(double sr)
         {
-            sampleRate = sr;
+            sampleRate = sr > 1000.0 ? sr : 44100.0;
+            // 最大4.5秒を確保（192kHzでも2ビート低BPMまで余裕）
+            const int reqHalf = std::max(2048, (int)std::ceil(sampleRate * 4.5));
+            delayBuffer.assign((size_t)reqHalf * 2, 0.0f);
+
+            amountSmoothCoef = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
+            delaySmoothCoef  = 1.0f - std::exp(-1.0f / (0.020f * (float)sampleRate));
+            envAttackCoef    = 1.0f - std::exp(-1.0f / (0.020f * (float)sampleRate));
+            envReleaseCoef   = 1.0f - std::exp(-1.0f / (0.120f * (float)sampleRate));
+            dcCoef = std::exp(-juce::MathConstants<float>::twoPi * 15.0f / (float)sampleRate);
+
             clearState();
         }
         void clearState() noexcept
         {
-            delayBuffer.fill(0.0f);
+            std::fill(delayBuffer.begin(), delayBuffer.end(), 0.0f);
             writeIndex = 0;
             envelope = 0.0f;
             currentDelaySamps = 0.0f;
@@ -494,6 +566,8 @@ namespace gfx
             curFeedback = 0.0f;
             lpStateL = lpStateR = 0.0f;
             dcX1L = dcY1L = dcX1R = dcY1R = 0.0f;
+            cachedDamp = -1.0f;
+            cachedLpCoef = 0.5f;
         }
 
         // amount=Wet量, timeBeats=ディレイタイム(拍), feedback=0..0.95,
@@ -501,41 +575,33 @@ namespace gfx
         void process(float& inOutL, float& inOutR, float amount, double bpm,
                      float timeBeats, float feedback, float duck, float damp) noexcept
         {
-            // amount/feedback をサンプル単位でスムージング（ブロック境界のプチ音防止）。
-            // amount==0でも早期リターンせずディレイラインを回し続け、書き込みの
-            // 途切れ(=クラックの原因)を無くす。
-            // サンプルレートに基づいた時定数でスムージングを適用
-            const float amountSmoothCoef = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate)); // 15ms
-            const float fbSmoothCoef = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate)); // 15ms
+            const int halfSize = (int)(delayBuffer.size() / 2);
+            if (halfSize < 64) return;
+
             curAmount   += amountSmoothCoef * (amount - curAmount);
-            curFeedback += fbSmoothCoef * (juce::jlimit(0.0f, 0.95f, feedback) - curFeedback);
+            curFeedback += amountSmoothCoef * (juce::jlimit(0.0f, 0.95f, feedback) - curFeedback);
 
             const float inSum = std::abs(inOutL) + std::abs(inOutR);
-            const float attack = 0.001f;
-            const float release = 0.0002f;
-            if (inSum > envelope) envelope += attack * (inSum - envelope);
-            else envelope += release * (inSum - envelope);
+            if (inSum > envelope) envelope += envAttackCoef * (inSum - envelope);
+            else envelope += envReleaseCoef * (inSum - envelope);
 
             const float duckingGain = 1.0f - juce::jlimit(0.0f, 0.85f, envelope * 4.0f * duck);
 
             const double effectiveBpm = bpm > 0.0 ? bpm : 120.0;
             const double beatSec = 60.0 / effectiveBpm;
-            const int halfSize = (int)(delayBuffer.size() / 2);
 
             float targetDelaySamps = (float)(sampleRate * beatSec * (double)timeBeats);
             targetDelaySamps = juce::jlimit(32.0f, (float)(halfSize - 2), targetDelaySamps);
 
             if (currentDelaySamps == 0.0f) currentDelaySamps = targetDelaySamps;
-            const float delaySmoothCoef = 1.0f - std::exp(-1.0f / (0.02f * (float)sampleRate)); // 20ms
             currentDelaySamps += delaySmoothCoef * (targetDelaySamps - currentDelaySamps);
 
             float readPos = (float)writeIndex - currentDelaySamps;
-            if (readPos < 0.0f) readPos += (float)halfSize;
+            while (readPos < 0.0f) readPos += (float)halfSize;
 
             int idx1 = (int)readPos;
-            if (idx1 >= halfSize) idx1 = 0;
-            if (idx1 < 0) idx1 += halfSize;
-            const float frac = readPos - (float)idx1;
+            if (idx1 >= halfSize) idx1 %= halfSize;
+            const float frac = readPos - std::floor(readPos);
 
             int idx2 = idx1 + 1;
             if (idx2 >= halfSize) idx2 -= halfSize;
@@ -543,18 +609,24 @@ namespace gfx
             float dL = delayBuffer[(size_t)idx1 * 2] * (1.0f - frac) + delayBuffer[(size_t)idx2 * 2] * frac;
             float dR = delayBuffer[(size_t)idx1 * 2 + 1] * (1.0f - frac) + delayBuffer[(size_t)idx2 * 2 + 1] * frac;
 
-            // DAMP: フィードバックループ内の高域減衰（テープ的な丸まり）
-            const float lpCoef = 1.0f - damp * 0.85f;
+            // DAMP: SR独立カットオフによる高域減衰 (18kHz .. 1kHz)
+            const float dampClamped = juce::jlimit(0.0f, 1.0f, damp);
+            if (std::abs(dampClamped - cachedDamp) > 2.0e-4f || cachedDamp < 0.0f)
+            {
+                cachedDamp = dampClamped;
+                const float dampHz = 18000.0f * std::pow(1000.0f / 18000.0f, dampClamped);
+                cachedLpCoef = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * dampHz / (float)sampleRate);
+            }
+            const float lpCoef = cachedLpCoef;
             lpStateL += lpCoef * (dL - lpStateL);
             lpStateR += lpCoef * (dR - lpStateR);
             dL = lpStateL;
             dR = lpStateR;
 
-            // DCブロッカー: フィードバックへのDC/サブソニック蓄積を除去（長周期の膨らみ防止）
-            const float hpL = dL - dcX1L + 0.9975f * dcY1L; dcX1L = dL; dcY1L = hpL; dL = hpL;
-            const float hpR = dR - dcX1R + 0.9975f * dcY1R; dcX1R = dR; dcY1R = hpR; dR = hpR;
+            // SR補償済み 15Hz DCブロッカー
+            const float hpL = dL - dcX1L + dcCoef * dcY1L; dcX1L = dL; dcY1L = hpL; dL = hpL;
+            const float hpR = dR - dcX1R + dcCoef * dcY1R; dcX1R = dR; dcY1R = hpR; dR = hpR;
 
-            // ループ書き込みはソフトクリップで安全化（持続音×高FBの蓄積を抑える）
             const float fb = curFeedback;
             delayBuffer[(size_t)writeIndex * 2] =
                 gfx::antiDenormal(gfx::safeLoopSaturate((inOutL * duckingGain) + (dL * fb)));
@@ -569,7 +641,7 @@ namespace gfx
 
     private:
         double sampleRate = 44100.0;
-        std::array<float, 192000 * 2> delayBuffer {};
+        std::vector<float> delayBuffer;
         int writeIndex = 0;
         float envelope = 0.0f;
         float currentDelaySamps = 0.0f;
@@ -577,35 +649,54 @@ namespace gfx
         float curAmount = 0.0f;      // スムージング済みWet量
         float curFeedback = 0.0f;    // スムージング済みFeedback
         float dcX1L = 0.0f, dcY1L = 0.0f, dcX1R = 0.0f, dcY1R = 0.0f; // DCブロッカー
+        float amountSmoothCoef = 0.0015f, delaySmoothCoef = 0.0011f;
+        float envAttackCoef = 0.001f, envReleaseCoef = 0.0002f;
+        float dcCoef = 0.9975f;
+        float cachedDamp = -1.0f, cachedLpCoef = 0.5f;
     };
 
     // ------------------------------------------
-    // Freeze / Smear
+    // Freeze / Smear (192kHzヒープ確保 + Velvetノイズ拡散 + SR補償Damp)
     // ------------------------------------------
     class FreezeSmear
     {
     public:
         void prepareToPlay(double sr)
         {
-            sampleRate = sr;
+            sampleRate = sr > 1000.0 ? sr : 44100.0;
+            // 最大1.25秒確保 (sizeMs上限1000msを192kHzでもカバー)
+            const int reqHalf = std::max(1024, (int)std::ceil(sampleRate * 1.25));
+            buffer.assign((size_t)reqHalf * 2, 0.0f);
+
+            velvetL.prepare((float)sampleRate, 24681u);
+            velvetR.prepare((float)sampleRate, 97531u);
+            amountSmoothCoef = 1.0f - std::exp(-1.0f / (0.010f * (float)sampleRate));
+            dcCoef = std::exp(-juce::MathConstants<float>::twoPi * 15.0f / (float)sampleRate);
+
             clearState();
         }
         void clearState() noexcept
         {
-            buffer.fill(0.0f);
+            std::fill(buffer.begin(), buffer.end(), 0.0f);
+            velvetL.clearState();
+            velvetR.clearState();
             writeIndex = 0;
+            curAmount = 0.0f;
             lpStateL = lpStateR = 0.0f;
+            dcX1L = dcY1L = dcX1R = dcY1R = 0.0f;
+            cachedDamp = -1.0f;
+            cachedLpCoef = 0.5f;
         }
 
         // amount=Wet量, sizeMs=ループ長(20..1000ms), feedback=0..0.99, damp=高域減衰
         void process(float& inOutL, float& inOutR, float amount,
                      float sizeMs, float feedback, float damp) noexcept
         {
-            // amount==0 でもバッファ書き込みは継続する（早期リターンしない）。
-            // バッファを常に最新入力で更新し続けることで、amount が 0→非0 に
-            // 変わった瞬間に古い残存データがフィードバックに載って爆発するのを防ぐ。
-
             const int halfSize = (int)(buffer.size() / 2);
+            if (halfSize < 128) return;
+
+            curAmount += amountSmoothCoef * (juce::jlimit(0.0f, 1.0f, amount) - curAmount);
+
             const int delaySamps = juce::jlimit(64, halfSize - 2,
                                                 (int)(sampleRate * (double)sizeMs * 0.001));
             int readIndex = writeIndex - delaySamps;
@@ -614,16 +705,32 @@ namespace gfx
             float smL = buffer[(size_t)readIndex * 2];
             float smR = buffer[(size_t)readIndex * 2 + 1];
 
-            // DAMP: ループ内の高域減衰（にじみの質感）
-            const float lpCoef = 1.0f - damp * 0.85f;
+            // SR独立ループ内LPF減衰 (18kHz .. 1kHz)
+            const float dampClamped = juce::jlimit(0.0f, 1.0f, damp);
+            if (std::abs(dampClamped - cachedDamp) > 2.0e-4f || cachedDamp < 0.0f)
+            {
+                cachedDamp = dampClamped;
+                const float dampHz = 18000.0f * std::pow(1000.0f / 18000.0f, dampClamped);
+                cachedLpCoef = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * dampHz / (float)sampleRate);
+            }
+            const float lpCoef = cachedLpCoef;
             lpStateL += lpCoef * (smL - lpStateL);
             lpStateR += lpCoef * (smR - lpStateR);
             smL = lpStateL;
             smR = lpStateR;
 
-            // クロスフェード蓄積器: in×(1-fb) + loop×fb
-            //  定常ゲインが常に1倍に収束し、音を鳴らし続けても暴発しない
-            //  (旧: in + loop×fb は 1/(1-fb) 倍まで蓄積 → fb0.99で+40dBの爆音バグ)
+            // SR補償済み 15Hz DCブロッカー
+            const float hpL = smL - dcX1L + dcCoef * dcY1L; dcX1L = smL; dcY1L = hpL; smL = hpL;
+            const float hpR = smR - dcX1R + dcCoef * dcY1R; dcX1R = smR; dcY1R = hpR; smR = hpR;
+
+            // Velvet Noise ディフューザーによる時間軸スメア（単一タップの金属的コム感を解消）
+            const float smearAmt = 0.55f + dampClamped * 0.30f;
+            velvetL.setAmount(smearAmt);
+            velvetR.setAmount(smearAmt);
+            smL = velvetL.process(smL);
+            smR = velvetR.process(smR);
+
+            // クロスフェード蓄積器: in*(1-fb) + loop*fb
             const float fb = juce::jlimit(0.0f, 0.99f, feedback);
             buffer[(size_t)writeIndex * 2] =
                 gfx::antiDenormal(gfx::safeLoopSaturate(inOutL * (1.0f - fb) + smL * fb));
@@ -632,19 +739,24 @@ namespace gfx
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
-            // amount > 0 のときだけWet信号を出力にミックス
-            if (amount > 0.0f)
+            if (curAmount > 1.0e-5f)
             {
-                inOutL = inOutL * (1.0f - amount) + smL * amount;
-                inOutR = inOutR * (1.0f - amount) + smR * amount;
+                inOutL = inOutL * (1.0f - curAmount) + smL * curAmount;
+                inOutR = inOutR * (1.0f - curAmount) + smR * curAmount;
             }
         }
 
     private:
         double sampleRate = 44100.0;
-        std::array<float, 96000 * 2> buffer {};
+        std::vector<float> buffer;
+        VelvetNoiseDiffuser velvetL, velvetR;
         int writeIndex = 0;
+        float curAmount = 0.0f;
+        float amountSmoothCoef = 0.002f;
         float lpStateL = 0.0f, lpStateR = 0.0f;
+        float dcX1L = 0.0f, dcY1L = 0.0f, dcX1R = 0.0f, dcY1R = 0.0f;
+        float dcCoef = 0.9975f;
+        float cachedDamp = -1.0f, cachedLpCoef = 0.5f;
     };
 
     // ------------------------------------------
@@ -743,10 +855,11 @@ namespace gfx
 
         if (!state.active)
         {
+            const float prevG = state.lastX * drive;
             state.active = true;
             state.lastX = g;
             state.lastF = calcADAAFunc(g, type);
-            return direct(g);
+            return direct(0.5f * (g + prevG));
         }
 
         const float Fx = calcADAAFunc(g, type);
@@ -754,7 +867,7 @@ namespace gfx
 
         float output;
         if (std::abs(delta) < 1.0e-5f)
-            output = direct(g);
+            output = direct(0.5f * (g + state.lastX));
         else
             output = (Fx - state.lastF) / delta;
 
@@ -766,29 +879,45 @@ namespace gfx
     // ------------------------------------------
     // SPECTRA8 移植: Formant Gate 用 SVF & softClip
     // ------------------------------------------
+    struct SvfCoeffs
+    {
+        float g = 0.0f, k = 0.2f, a1 = 1.0f, a2 = 0.0f, a3 = 0.0f;
+        void update(float fcNorm, float Q) noexcept
+        {
+            g = std::tan(juce::MathConstants<float>::pi
+                       * juce::jlimit(0.0005f, 0.49f, fcNorm));
+            k = 1.0f / juce::jmax(0.3f, Q);
+            a1 = 1.0f / (1.0f + g * (g + k));
+            a2 = g * a1;
+            a3 = g * a2;
+        }
+    };
+
     struct Svf
     {
         float ic1 = 0.0f, ic2 = 0.0f;
         void reset() noexcept { ic1 = ic2 = 0.0f; }
 
-        void process(float in, float fcNorm, float Q, float& lp, float& bp, float& hp) noexcept
+        void processWithCoeffs(float in, const SvfCoeffs& c, float& lp, float& bpNorm, float& hp) noexcept
         {
-            const float g = std::tan(juce::MathConstants<float>::pi
-                                   * juce::jlimit(0.0005f, 0.49f, fcNorm));
-            const float k = 1.0f / juce::jmax(0.3f, Q);
-            const float a1 = 1.0f / (1.0f + g * (g + k));
-            const float a2 = g * a1;
-            const float a3 = g * a2;
-
             const float v3 = in - ic2;
-            const float v1 = a1 * ic1 + a2 * v3;
-            const float v2 = ic2 + a2 * ic1 + a3 * v3;
+            const float v1 = c.a1 * ic1 + c.a2 * v3;
+            const float v2 = ic2 + c.a2 * ic1 + c.a3 * v3;
             ic1 = 2.0f * v1 - ic1;
             ic2 = 2.0f * v2 - ic2;
 
             lp = v2;
-            bp = v1;
-            hp = in - k * v1 - v2;
+            bpNorm = c.k * v1; // Q=6等でも中心周波数でピークゲイン1.0(0dB)になる正規化BP
+            hp = in - bpNorm - v2;
+        }
+
+        void process(float in, float fcNorm, float Q, float& lp, float& bp, float& hp) noexcept
+        {
+            SvfCoeffs c;
+            c.update(fcNorm, Q);
+            float bpNorm = 0.0f;
+            processWithCoeffs(in, c, lp, bpNorm, hp);
+            bp = bpNorm / c.k;
         }
     };
 
@@ -839,8 +968,9 @@ namespace gfx
 
         void prepare(double sr)
         {
-            sampleRate = sr;
+            sampleRate = sr > 1000.0 ? sr : 44100.0;
             slewCoeff = (float)(1.0 - std::exp(-1.0 / (sampleRate * 0.0008)));
+            vowelGlideCoeff = (float)(1.0 - std::exp(-1.0 / (sampleRate * 0.0035)));
             reset();
         }
 
@@ -853,6 +983,7 @@ namespace gfx
             for (auto& f : fmtL) f.reset();
             for (auto& f : fmtR) f.reset();
             curF1 = 700.0f; curF2 = 1100.0f; curF3 = 2400.0f;
+            cachedF1 = cachedF2 = cachedF3 = -1.0f;
         }
 
         void setParams(int rateIdx, int patternIdx, float depth01, float decay01, float vowel01) noexcept
@@ -904,6 +1035,9 @@ namespace gfx
                 nextStep = (stepIdx + 1) % kNumSteps;
                 p = (float)phase;
             }
+
+            if (curStep != prevStepIdx)
+                prevStepIdx = curStep;
 
             const int prevStep = (curStep - 1 + kNumSteps) % kNumSteps;
             const bool prevOn = getPatternStep(mPattern, prevStep);
@@ -973,25 +1107,38 @@ namespace gfx
                 const float targetF2 = kVowels[v][1];
                 const float targetF3 = kVowels[v][2];
 
-                curF1 += (targetF1 - curF1) * 0.01f;
-                curF2 += (targetF2 - curF2) * 0.01f;
-                curF3 += (targetF3 - curF3) * 0.01f;
+                curF1 += (targetF1 - curF1) * vowelGlideCoeff;
+                curF2 += (targetF2 - curF2) * vowelGlideCoeff;
+                curF3 += (targetF3 - curF3) * vowelGlideCoeff;
 
-                float freqs[3] = { curF1, curF2, curF3 };
+                // ステレオ共通のSVF係数をホイスティングし、周波数が動いた時のみ std::tan を計算
+                if (std::abs(curF1 - cachedF1) > 0.25f || std::abs(curF2 - cachedF2) > 0.25f || std::abs(curF3 - cachedF3) > 0.25f || cachedF1 < 0.0f)
+                {
+                    cachedF1 = curF1;
+                    cachedF2 = curF2;
+                    cachedF3 = curF3;
+                    const float freqs[3] = { curF1, curF2, curF3 };
+                    for (int j = 0; j < 3; ++j)
+                    {
+                        const float fc = juce::jlimit(20.0f, (float)sampleRate * 0.45f, freqs[j]) / (float)sampleRate;
+                        bandCoeffs[(size_t)j].update(fc, 6.0f);
+                    }
+                }
+
+                static const float bandWeights[3] = { 1.0f, 0.85f, 0.65f };
                 float wetL = 0.0f, wetR = 0.0f;
 
                 for (int j = 0; j < 3; ++j)
                 {
-                    const float fc = juce::jlimit(20.0f, (float)sampleRate * 0.45f, freqs[j]) / (float)sampleRate;
-                    float lp, bp, hp;
-                    fmtL[(size_t)j].process(l, fc, 6.0f, lp, bp, hp);
-                    wetL += bp;
-                    fmtR[(size_t)j].process(r, fc, 6.0f, lp, bp, hp);
-                    wetR += bp;
+                    float lp, bpNorm, hp;
+                    fmtL[(size_t)j].processWithCoeffs(l, bandCoeffs[(size_t)j], lp, bpNorm, hp);
+                    wetL += bpNorm * bandWeights[j];
+                    fmtR[(size_t)j].processWithCoeffs(r, bandCoeffs[(size_t)j], lp, bpNorm, hp);
+                    wetR += bpNorm * bandWeights[j];
                 }
 
-                l = l * (1.0f - mVowel) + wetL * 2.0f * mVowel;
-                r = r * (1.0f - mVowel) + wetR * 2.0f * mVowel;
+                l = l * (1.0f - mVowel) + wetL * 1.15f * mVowel;
+                r = r * (1.0f - mVowel) + wetR * 1.15f * mVowel;
             }
 
             l = softClip(l * gain);
@@ -1030,10 +1177,13 @@ namespace gfx
         int stepIdx = 0, prevStepIdx = 0;
         float curEnv = 0.0f;
         float slewCoeff = 0.025f;
+        float vowelGlideCoeff = 0.006f;
         int mRate = 4, mPattern = 0;
         float mDepth = 0.8f, mVowel = 0.5f, mDecay = 0.5f;
         std::array<Svf, 3> fmtL, fmtR;
+        std::array<SvfCoeffs, 3> bandCoeffs;
         float curF1 = 700.0f, curF2 = 1100.0f, curF3 = 2400.0f;
+        float cachedF1 = -1.0f, cachedF2 = -1.0f, cachedF3 = -1.0f;
     };
 } // namespace gfx
 
@@ -1123,13 +1273,14 @@ public:
 
     void prepare(double sr)
     {
-        sampleRate = sr;
-        chorus.prepareToPlay(sr);
-        delay.prepareToPlay(sr);
-        freeze.prepareToPlay(sr);
-        reverb.prepareToPlay(sr);
-        formantGate.prepare(sr);
-        dcCoef = std::exp((float)(-1.0 / (0.004523 * sr)));
+        sampleRate = sr > 1000.0 ? sr : 44100.0;
+        chorus.prepareToPlay(sampleRate);
+        delay.prepareToPlay(sampleRate);
+        freeze.prepareToPlay(sampleRate);
+        reverb.prepareToPlay(sampleRate);
+        formantGate.prepare(sampleRate);
+        // Sat DCブロッカーを ~6Hz に最適化（従来の ~35Hz による低域ロールオフを解消）
+        dcCoef = std::exp(-juce::MathConstants<float>::twoPi * 6.0f / (float)sampleRate);
         for (int ch = 0; ch < 2; ++ch) { satState[ch].reset(); dcState[ch] = 0.0f; preX1[ch] = preY1[ch] = 0.0f; }
     }
 
@@ -1165,9 +1316,17 @@ public:
 
         const int satType = satAlgoToType(p.satAlgo);
         const float trimGain = juce::Decibels::decibelsToGain(juce::jlimit(-12.0f, 12.0f, p.satTrimDb));
+        const bool satPreBypass = (p.satPreHz <= 21.0f);
         const float preAlpha = 1.0f / (1.0f + juce::MathConstants<float>::twoPi
                                        * juce::jlimit(20.0f, 2000.0f, p.satPreHz) / (float)sampleRate);
         const float dlyBeats = delayTimeToBeats(p.dlyTime);
+
+        bool hasGate = false;
+        for (int s = 0; s < kNumSlots; ++s)
+            if (p.type[(size_t)s] == Gate) { hasGate = true; break; }
+        if (hasGate)
+            formantGate.setParams(p.gateRate, p.gatePattern,
+                                  p.gateDepth * 0.01f, p.gateDecay * 0.01f, p.gateVowel * 0.01f);
 
         // スロット間ソフトクリップ: 前段FXが異常な振幅を出力しても後段で爆発しない
         auto interSlotClip = [](float x) noexcept -> float
@@ -1197,7 +1356,7 @@ public:
                 {
                 case Saturation:
                     if (amt > 0.0005f)
-                        saturate(l, r, amt, satType, p.satDrive, preAlpha, trimGain);
+                        saturate(l, r, amt, satType, p.satDrive, preAlpha, satPreBypass, trimGain);
                     break;
                 case Chorus:
                     chorus.process(l, r, amt, p.choRate, p.choDepth, p.choWidth);
@@ -1217,8 +1376,6 @@ public:
                     const float inR = r;
                     float procL = l;
                     float procR = r;
-                    formantGate.setParams(p.gateRate, p.gatePattern,
-                                          p.gateDepth * 0.01f, p.gateDecay * 0.01f, p.gateVowel * 0.01f);
                     const double sampleBeats = (p.bpm / 60.0) / sampleRate;
                     const double curPpq = p.ppqPosition + (double)i * sampleBeats;
                     formantGate.process(procL, procR, p.bpm, curPpq, p.isPlaying);
@@ -1243,22 +1400,32 @@ public:
     }
 
 private:
-    // amount=Dry/Wet, drive=1..12, preAlpha=プリHPF係数, trimGain=出力トリム
+    // amount=Dry/Wet, drive=1..12, preAlpha=プリHPF係数, preBypass=HPFバイパス, trimGain=出力トリム
     inline void saturate(float& l, float& r, float amount, int satType,
-                         float drive, float preAlpha, float trimGain) noexcept
+                         float drive, float preAlpha, bool preBypass, float trimGain) noexcept
     {
         const float comp = 1.0f / std::sqrt(juce::jmax(1.0f, drive)); // 音量補償
         const float mix = amount;
 
         auto one = [&](float x, int ch) noexcept
         {
-            // 1次HPFプリフィルター (NextGenKick2と同構成)
-            const float hpfOut = preAlpha * (preY1[ch] + x - preX1[ch]);
-            preX1[ch] = x;
-            preY1[ch] = hpfOut;
+            float hpfOut = x;
+            if (preBypass)
+            {
+                // プリHPFバイパス時も境界切替が滑らかになるよう状態を追従
+                preX1[ch] = x;
+                preY1[ch] = x;
+            }
+            else
+            {
+                // 1次HPFプリフィルター (NextGenKick2と同構成)
+                hpfOut = preAlpha * (preY1[ch] + x - preX1[ch]);
+                preX1[ch] = x;
+                preY1[ch] = hpfOut;
+            }
 
             float sat = gfx::processSaturationSampleADAA(hpfOut, satType, drive, satState[ch]);
-            // DCブロッカー (Triode等の非対称カーブ対策)
+            // 6Hz DCブロッカー (Triode等の非対称カーブ対策)
             dcState[ch] = dcCoef * dcState[ch] + (1.0f - dcCoef) * sat;
             sat -= dcState[ch];
             return x * (1.0f - mix) + sat * comp * trimGain * mix;

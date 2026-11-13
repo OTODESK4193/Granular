@@ -15,10 +15,13 @@ void Arpeggiator::reset()
     seq.clear();
     seqPos = 0;
     walkPos = 0;
+    euclidPos = 0;
     samplesToNextStep = 0.0;
     running = false;
     wasEnabled = false;
+    prevLatch = false;
     active.clear();
+    pendingStrum.clear();
     scratchOut.clear();
     scratchPassthrough.clear();
 }
@@ -358,8 +361,16 @@ void Arpeggiator::buildSequence(const ArpParams& p)
 // ------------------------------------------
 // 1ステップ発火
 // ------------------------------------------
-void Arpeggiator::fireStep(juce::MidiBuffer& out, int offset, int gateSamples, const ArpParams& p)
+void Arpeggiator::fireStep(juce::MidiBuffer& out, int offset, int numSamples, int gateSamples, const ArpParams& p)
 {
+    if (p.euclidEnable)
+    {
+        const int steps = juce::jlimit(1, 16, p.euclidSteps);
+        const bool hit = isEuclideanHit(euclidPos, p.euclidFills, steps, p.euclidRot);
+        euclidPos = (euclidPos + 1) % steps;
+        if (!hit) return;
+    }
+
     buildSequence(p);
     if (seq.empty()) return;
 
@@ -370,8 +381,6 @@ void Arpeggiator::fireStep(juce::MidiBuffer& out, int offset, int gateSamples, c
         const int note = juce::jlimit(0, 127, quantizeNote(pn.note, p));
 
         // 安全リトリガー: 同一ノートがまだ発音中(active)なら、先に noteOff を出す。
-        // noteOffのオフセットを「offset - 1」（最低0）にすることで、同一サンプル内での
-        // noteOff -> noteOn の処理順序を確実に保証し、ボイス詰まりを完全に防ぎます。
         for (auto it = active.begin(); it != active.end(); )
         {
             if (it->note == note) { out.addEvent(juce::MidiMessage::noteOff(1, note), juce::jmax(0, offset - 1)); it = active.erase(it); }
@@ -384,26 +393,36 @@ void Arpeggiator::fireStep(juce::MidiBuffer& out, int offset, int gateSamples, c
 
     if (p.pattern == Chord || p.pattern == Strum)
     {
+        // SRに比例した ~12ms ストラム遅延（ブロック境界を越える場合は次ブロックへキュー予約）
         const int strumDelaySamples = (p.pattern == Strum)
-            ? juce::jlimit(20, 300, (int)(sampleRate * 0.012))
+            ? juce::jlimit(20, 2400, (int)(sampleRate * 0.012))
             : 0;
 
         int lastNote = -1;
+        int strumIdx = 0;
         for (size_t sIdx = 0; sIdx < seq.size(); ++sIdx)
         {
             const auto& pn = seq[sIdx];
             const int q = juce::jlimit(0, 127, quantizeNote(pn.note, p));
             if (q != lastNote)
             {
-                int noteOffset = offset + (int)sIdx * strumDelaySamples;
-                for (auto it = active.begin(); it != active.end(); )
+                const int noteOffset = offset + strumIdx * strumDelaySamples;
+                if (noteOffset < numSamples)
                 {
-                    if (it->note == q) { out.addEvent(juce::MidiMessage::noteOff(1, q), juce::jmax(0, noteOffset - 1)); it = active.erase(it); }
-                    else ++it;
+                    for (auto it = active.begin(); it != active.end(); )
+                    {
+                        if (it->note == q) { out.addEvent(juce::MidiMessage::noteOff(1, q), juce::jmax(0, noteOffset - 1)); it = active.erase(it); }
+                        else ++it;
+                    }
+                    out.addEvent(juce::MidiMessage::noteOn(1, q, pn.vel), noteOffset);
+                    active.push_back({ q, noteOffset + gateSamples });
                 }
-                out.addEvent(juce::MidiMessage::noteOn(1, q, pn.vel), noteOffset);
-                active.push_back({ q, noteOffset + gateSamples });
+                else
+                {
+                    pendingStrum.push_back({ q, pn.vel, noteOffset - numSamples, gateSamples });
+                }
                 lastNote = q;
+                ++strumIdx;
             }
         }
     }
@@ -441,18 +460,19 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
     {
         if (wasEnabled)
         {
-            // OFF切替: 鳴っているアルペジオノートを止めて入力をスルーに戻す
-            // noteOffをブロックの末尾(numSamples-1)に配置することで、同一ブロック内の
-            // 直前の発音（noteOn）が先に処理されることを保証し、ノート詰まりを防止します。
+            // OFF切替: 鳴っているアルペジオノートとStrum予約を止めて入力をスルーに戻す
             auto& out = scratchOut;
             out.clear();
             for (const auto& a : active)
                 out.addEvent(juce::MidiMessage::noteOff(1, a.note), juce::jmax(0, numSamples - 1));
             active.clear();
+            pendingStrum.clear();
             held.clear();
             physical.fill(false);
             physicalCount = 0;
             running = false;
+            prevLatch = false;
+            euclidPos = 0;
             for (const auto& m : midi)
                 out.addEvent(m.getMessage(), m.samplePosition);
             midi.swapWith(out);
@@ -461,6 +481,25 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
         return;
     }
     wasEnabled = true;
+
+    auto& out = scratchOut;
+    out.clear();
+
+    // Latch OFF 遷移時: 物理的に押されていない保持ノートを破棄し、スタックを確実に停止
+    if (!p.latch && prevLatch)
+    {
+        held.erase(std::remove_if(held.begin(), held.end(),
+            [this](const HeldNote& h) { return !physical[(size_t)h.note]; }), held.end());
+        if (held.empty())
+        {
+            pendingStrum.clear();
+            for (const auto& a : active)
+                out.addEvent(juce::MidiMessage::noteOff(1, a.note), 0);
+            active.clear();
+            running = false;
+        }
+    }
+    prevLatch = p.latch;
 
     // 1) 入力を消費して held を更新（ノート以外のCC/ピッチベンド等は素通し）
     auto& passthrough = scratchPassthrough;
@@ -481,14 +520,42 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
         samplesToNextStep = 0.0; // 打鍵直後に即発火
         seqPos = 0;
         walkPos = 0;
+        euclidPos = 0;
         running = true;
     }
     if (held.empty())
+    {
         running = false;
+        pendingStrum.clear();
+    }
 
-    auto& out = scratchOut;
-    out.clear();
     out.addEvents(passthrough, 0, -1, 0); // CC等を先に戻す
+
+    // 1.5) 前ブロックから持ち越されたStrumの遅延発火
+    for (auto it = pendingStrum.begin(); it != pendingStrum.end();)
+    {
+        if (it->samplesLeft < numSamples)
+        {
+            const int fireOff = juce::jmax(0, it->samplesLeft);
+            for (auto ait = active.begin(); ait != active.end();)
+            {
+                if (ait->note == it->note)
+                {
+                    out.addEvent(juce::MidiMessage::noteOff(1, it->note), juce::jmax(0, fireOff - 1));
+                    ait = active.erase(ait);
+                }
+                else ++ait;
+            }
+            out.addEvent(juce::MidiMessage::noteOn(1, it->note, it->vel), fireOff);
+            active.push_back({ it->note, fireOff + it->gateSamples });
+            it = pendingStrum.erase(it);
+        }
+        else
+        {
+            it->samplesLeft -= numSamples;
+            ++it;
+        }
+    }
 
     // 2) ステップ発火（サンプル精度）
     if (running)
@@ -499,7 +566,7 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
         double pos = samplesToNextStep;
         while (pos < (double)numSamples)
         {
-            fireStep(out, (int)pos, gateSamples, p);
+            fireStep(out, (int)pos, numSamples, gateSamples, p);
             pos += stepLen;
         }
         samplesToNextStep = pos - (double)numSamples;

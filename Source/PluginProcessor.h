@@ -20,6 +20,7 @@
 struct IngestedSample
 {
     juce::AudioBuffer<float> buffer;
+    SampleMipLevels mipLevels;
     int validSamples = 0;
     int trimStart = 0;
     int trimEnd = 0;
@@ -75,9 +76,18 @@ public:
     juce::String getFileName() const { const juce::ScopedLock sl(stateLock); return fileToIngest.getFileName(); }
     bool hasSampleFile() const { const juce::ScopedLock sl(stateLock); return fileToIngest.existsAsFile(); }
 
-    // --- Dryサンプル・プレビュー再生 (取り込んだ原音を試聴) ---
-    void startDryPreview() { dryPreviewResetPos.store(true, std::memory_order_release); dryPreviewActive.store(true, std::memory_order_release); }
-    void stopDryPreview()  { dryPreviewActive.store(false, std::memory_order_release); }
+    // --- Dryサンプル・プレビュー再生 (クリックレスフェードイン/アウト付き) ---
+    void startDryPreview()
+    {
+        dryPreviewStopRequested.store(false, std::memory_order_release);
+        dryPreviewResetPos.store(true, std::memory_order_release);
+        dryPreviewActive.store(true, std::memory_order_release);
+    }
+    void stopDryPreview()
+    {
+        dryPreviewStopRequested.store(true, std::memory_order_release);
+        dryPreviewActive.store(false, std::memory_order_release);
+    }
     std::atomic<bool> dryPreviewActive { false };
 
     // --- PANIC: 全発音・残響・エフェクトの即時消音 ---
@@ -237,6 +247,10 @@ private:
         std::atomic<float>* arpDurMode = nullptr;
         std::atomic<float>* arpGate = nullptr;
         std::atomic<float>* arpLatch = nullptr;
+        std::atomic<float>* arpEuclidEnable = nullptr;
+        std::atomic<float>* arpEuclidSteps = nullptr;
+        std::atomic<float>* arpEuclidFills = nullptr;
+        std::atomic<float>* arpEuclidRot = nullptr;
     };
 
     void initParamCache();
@@ -269,7 +283,10 @@ private:
     juce::AudioBuffer<float> fxDryBuffer;   // FX Dry/Wet 用のプリFXコピー
     juce::MidiBuffer quantizedMidi;         // スケール量子化用プリアロケートバッファ
     std::atomic<bool> dryPreviewResetPos { false };
+    std::atomic<bool> dryPreviewStopRequested { false };
     double dryPreviewPos = -1.0;            // Dryプレビューの再生位置 (オーディオ専用)
+    bool   dryPreviewPlaying = false;       // オーディオ専用: フェードアウト中も含む再生状態
+    float  dryPreviewEnv = 0.0f;            // オーディオ専用: クリック防止フェードエンベロープ (0..1)
 
     std::array<std::array<int8_t, 128>, 16> physicalToSnapped {}; // チャネル別NoteOn/NoteOff整合性
     int pendingSnappedCount = 0;

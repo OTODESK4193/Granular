@@ -130,7 +130,13 @@ public:
 
     void reset()
     {
-        for (auto& l : lfoState) l = {};
+        for (int i = 0; i < kNumLfos; ++i)
+        {
+            lfoState[(size_t)i] = {};
+            lfoState[(size_t)i].lx = 1.0 + 0.35 * (double)i;
+            lfoState[(size_t)i].ly = -1.0 - 0.25 * (double)i;
+            lfoState[(size_t)i].lz = 20.0 + 0.5 * (double)i;
+        }
         for (auto& e : envState) e = {};
         velocity = 0.8f;
         noteNorm = 0.5f;
@@ -202,13 +208,51 @@ public:
             // 位相を1ブロック分進める
             const double inc = freq * (double)numSamples / sampleRate;
             st.phase += inc;
-            st.phase2 += inc * 1.41421356; // Chaos用
             while (st.phase >= 1.0)
             {
                 st.phase -= 1.0;
                 st.shValue = rng.nextFloat() * 2.0f - 1.0f; // S&H更新
             }
-            while (st.phase2 >= 1.0) st.phase2 -= 1.0;
+
+            // Chaos波形 (wave==5) は Lorenz アトラクタを RK4 サブステップ積分
+            if (lp.wave == 5)
+            {
+                constexpr double sigma = 10.0;
+                constexpr double rho   = 28.0;
+                constexpr double beta  = 8.0 / 3.0;
+
+                const double totalDt = juce::jlimit(0.0, 0.5, inc * 1.25);
+                const int steps = juce::jlimit(1, 64, (int)std::ceil(totalDt / 0.005));
+                const double h = totalDt / (double)steps;
+
+                auto deriv = [&](double x, double y, double z, double& dx, double& dy, double& dz) noexcept
+                {
+                    dx = sigma * (y - x);
+                    dy = x * (rho - z) - y;
+                    dz = x * y - beta * z;
+                };
+
+                for (int s = 0; s < steps; ++s)
+                {
+                    double k1x, k1y, k1z, k2x, k2y, k2z, k3x, k3y, k3z, k4x, k4y, k4z;
+                    deriv(st.lx, st.ly, st.lz, k1x, k1y, k1z);
+                    deriv(st.lx + 0.5 * h * k1x, st.ly + 0.5 * h * k1y, st.lz + 0.5 * h * k1z, k2x, k2y, k2z);
+                    deriv(st.lx + 0.5 * h * k2x, st.ly + 0.5 * h * k2y, st.lz + 0.5 * h * k2z, k3x, k3y, k3z);
+                    deriv(st.lx + h * k3x, st.ly + h * k3y, st.lz + h * k3z, k4x, k4y, k4z);
+
+                    st.lx += (h / 6.0) * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
+                    st.ly += (h / 6.0) * (k1y + 2.0 * k2y + 2.0 * k3y + k4y);
+                    st.lz += (h / 6.0) * (k1z + 2.0 * k2z + 2.0 * k3z + k4z);
+                }
+
+                if (!std::isfinite(st.lx) || !std::isfinite(st.ly) || !std::isfinite(st.lz)
+                    || std::abs(st.lx) > 60.0 || std::abs(st.ly) > 60.0 || std::abs(st.lz) > 80.0)
+                {
+                    st.lx = 1.0 + 0.35 * (double)i;
+                    st.ly = -1.0 - 0.25 * (double)i;
+                    st.lz = 20.0 + 0.5 * (double)i;
+                }
+            }
         }
 
         // --- ENV (ADSR / ブロックレート、Loop時はA-D循環) ---
@@ -335,7 +379,7 @@ private:
     struct LfoState
     {
         double phase = 0.0;
-        double phase2 = 0.0;   // Chaos用の非整数比セカンド位相
+        double lx = 1.0, ly = -1.0, lz = 20.0; // Lorenzアトラクタ状態 (Chaos用)
         float shValue = 0.0f;
     };
     struct EnvState
@@ -356,8 +400,7 @@ private:
         case 2: return 2.0f * ph - 1.0f;                                              // Saw
         case 3: return ph < 0.5f ? 1.0f : -1.0f;                                      // Square
         case 4: return st.shValue;                                                    // S&H
-        case 5: return (std::sin(ph * juce::MathConstants<float>::twoPi)              // Chaos
-                      + std::sin((float)st.phase2 * juce::MathConstants<float>::twoPi)) * 0.5f;
+        case 5: return std::tanh((float)(st.lx / 16.0));                              // Lorenz Chaos (-1..+1)
         default: return 0.0f;
         }
     }

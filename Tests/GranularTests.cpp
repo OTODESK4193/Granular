@@ -231,12 +231,20 @@ void testMonoBrickLimiterAndModulatedCeiling()
     limA.setReleaseMs(50.0f);
     limB.setReleaseMs(50.0f);
 
-    float monoVal = 1.0f;
-    float aliasedVal = 1.0f;
-    limA.processMono(monoVal, 0.5f);
-    limB.process(aliasedVal, aliasedVal, 0.5f);
-    check(std::abs(monoVal - 0.5f) < 1.0e-4f, "Mono limiter should clamp 1.0 to 0.5");
-    check(std::abs(aliasedVal - monoVal) < 1.0e-5f, "Aliased L==R process() should match processMono() with no double attenuation");
+    const int limLatency = limA.getLatencySamples();
+    float monoOut = 0.0f;
+    float aliasedOut = 0.0f;
+    for (int k = 0; k <= limLatency; ++k)
+    {
+        float m = 1.0f;
+        float a = 1.0f;
+        limA.processMono(m, 0.5f);
+        limB.process(a, a, 0.5f);
+        monoOut = m;
+        aliasedOut = a;
+    }
+    check(std::abs(monoOut - 0.5f) < 1.0e-4f, "Mono limiter should clamp 1.0 to 0.5 after look-ahead latency");
+    check(std::abs(aliasedOut - monoOut) < 1.0e-5f, "Aliased L==R process() should match processMono() with no double attenuation");
 
     // Verify modulated ceiling on actual processor
     juce::File tmpWav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("granular_test_lim.wav");
@@ -913,6 +921,379 @@ void testButterworth24DbCascadeAndCombThiran()
     check(std::abs(mean) < 0.005,
           ("TONE comb DC blocker failed to settle DC offset, mean=" + std::to_string(mean)).c_str());
 }
+
+void testProcessorFootprintAndFxChain192k()
+{
+    std::cout << "Running testProcessorFootprintAndFxChain192k...\n";
+    check(sizeof(GranularAudioProcessor) < 350000,
+          ("GranularAudioProcessor object size too large: " + std::to_string(sizeof(GranularAudioProcessor))).c_str());
+
+    // 1. 192kHz全FX安定性 & Velvet左右非相関確認
+    FxChain fx;
+    fx.prepare(192000.0);
+    FxChain::Params p;
+    p.bpm = 128.0;
+    p.type = { FxChain::Saturation, FxChain::Chorus, FxChain::Delay, FxChain::Freeze, FxChain::Reverb };
+    p.amount = { 0.8f, 0.5f, 0.5f, 0.7f, 0.8f };
+    p.satPreHz = 20.0f; // HPFバイパス境界
+    p.satDrive = 3.0f;
+    p.revDecay = 0.8f;
+    p.revShimmer = 0.5f;
+
+    juce::AudioBuffer<float> buf(2, 512);
+    double diffSum = 0.0;
+    for (int blk = 0; blk < 20; ++blk)
+    {
+        for (int i = 0; i < 512; ++i)
+        {
+            const int n = blk * 512 + i;
+            const float x = (n < 1000) ? 0.4f * std::sin(juce::MathConstants<float>::twoPi * 440.0f * (float)n / 192000.0f) : 0.0f;
+            buf.setSample(0, i, x);
+            buf.setSample(1, i, x); // 完全モノラル入力
+        }
+        fx.process(buf, p);
+        for (int i = 0; i < 512; ++i)
+        {
+            const float l = buf.getSample(0, i);
+            const float r = buf.getSample(1, i);
+            check(isFiniteFloat(l) && isFiniteFloat(r), "192kHz FxChain must remain finite");
+            check(std::abs(l) < 4.0f && std::abs(r) < 4.0f, "192kHz FxChain amplitude bounded");
+            diffSum += std::abs((double)l - (double)r);
+        }
+    }
+    check(diffSum > 0.5, ("Velvet L/R & Stereo FX must decorrelate mono input, diffSum=" + std::to_string(diffSum)).c_str());
+
+    // 2. FormantGate 正規化BP ゲイン & ADAA 6Hz DCブロッカー確認
+    gfx::FormantGate gate;
+    gate.prepare(48000.0);
+    gate.setParams(4, 3, 1.0f, 0.99f, 1.0f); // Legato all-on, full vowel
+    float maxGatePeak = 0.0f;
+    for (int i = 0; i < 4096; ++i)
+    {
+        float l = 0.5f * std::sin(juce::MathConstants<float>::twoPi * 730.0f * (float)i / 48000.0f);
+        float r = l;
+        gate.process(l, r, 120.0, 0.0, false);
+        check(isFiniteFloat(l) && isFiniteFloat(r), "FormantGate output finite");
+        maxGatePeak = juce::jmax(maxGatePeak, std::abs(l));
+    }
+    check(maxGatePeak < 1.2f, ("Normalized FormantGate must not clip explosively at F1 resonance, peak=" + std::to_string(maxGatePeak)).c_str());
+
+    // 3. Pre-HPFバイパス時は20Hz重低音が減衰せずSatを通過する
+    FxChain fxSat;
+    fxSat.prepare(48000.0);
+    FxChain::Params sp;
+    sp.type = { FxChain::Saturation, 0, 0, 0, 0 };
+    sp.amount = { 1.0f, 0, 0, 0, 0 };
+    sp.satAlgo = 0;
+    sp.satDrive = 2.0f;
+    sp.satPreHz = 20.0f; // バイパス!
+    juce::AudioBuffer<float> subBuf(2, 4800);
+    for (int i = 0; i < 4800; ++i)
+    {
+        const float s = 0.4f * std::sin(juce::MathConstants<float>::twoPi * 25.0f * (float)i / 48000.0f);
+        subBuf.setSample(0, i, s);
+        subBuf.setSample(1, i, s);
+    }
+    fxSat.process(subBuf, sp);
+    double rms25Hz = 0.0;
+    for (int i = 2400; i < 4800; ++i) rms25Hz += (double)subBuf.getSample(0, i) * subBuf.getSample(0, i);
+    rms25Hz = std::sqrt(rms25Hz / 2400.0);
+    check(rms25Hz > 0.25, ("6Hz DC blocker + Pre-HPF bypass should preserve 25Hz sub RMS > 0.25, got " + std::to_string(rms25Hz)).c_str());
+}
+
+void testModMatrixLorenzChaosLfo()
+{
+    std::cout << "Running testModMatrixLorenzChaosLfo...\n";
+    ModMatrix mod;
+    mod.prepare(48000.0);
+    ModMatrix::Params mp;
+    mp.lfo[0].wave = 5; // Lorenz Chaos
+    mp.lfo[0].sync = false;
+    mp.lfo[0].rateHz = 4.0f;
+    mp.lfo[1].wave = 5;
+    mp.lfo[1].sync = false;
+    mp.lfo[1].rateHz = 4.0f;
+
+    mp.slot[0].src = ModMatrix::SrcLfo1;
+    mp.slot[0].dst = ModMatrix::DstPosition;
+    mp.slot[0].amt = 1.0f;
+    mp.slot[0].uni = false;
+
+    mp.slot[1].src = ModMatrix::SrcLfo2;
+    mp.slot[1].dst = ModMatrix::DstSize;
+    mp.slot[1].amt = 1.0f;
+    mp.slot[1].uni = false;
+
+    std::vector<float> traj1, traj2;
+    for (int b = 0; b < 240; ++b)
+    {
+        mod.processBlock(256, mp);
+        const float v1 = mod.get(ModMatrix::DstPosition);
+        const float v2 = mod.get(ModMatrix::DstSize);
+        check(isFiniteFloat(v1) && v1 >= -1.0f && v1 <= 1.0f, "Lorenz Chaos LFO1 must stay within [-1, 1]");
+        check(isFiniteFloat(v2) && v2 >= -1.0f && v2 <= 1.0f, "Lorenz Chaos LFO2 must stay within [-1, 1]");
+        traj1.push_back(v1);
+        traj2.push_back(v2);
+    }
+
+    double sum1 = 0.0, sq1 = 0.0, diff12 = 0.0;
+    for (size_t i = 0; i < traj1.size(); ++i)
+    {
+        sum1 += traj1[i];
+        sq1 += (double)traj1[i] * traj1[i];
+        diff12 += std::abs((double)traj1[i] - (double)traj2[i]);
+    }
+    const double mean1 = sum1 / (double)traj1.size();
+    const double std1 = std::sqrt(juce::jmax(0.0, sq1 / (double)traj1.size() - mean1 * mean1));
+    check(std1 > 0.10, ("Lorenz LFO must exhibit real chaotic swing, std=" + std::to_string(std1)).c_str());
+    check(diff12 / (double)traj1.size() > 0.05, "Different LFO indices must follow diverging Lorenz orbits");
+}
+
+void testArpeggiatorLatchOffStrumCrossBlockAndEuclidean()
+{
+    std::cout << "Running testArpeggiatorLatchOffStrumCrossBlockAndEuclidean...\n";
+
+    // 1. Latch OFF transition clears non-physical held notes and emits NoteOff
+    {
+        Arpeggiator arp;
+        arp.prepare(44100.0);
+        ArpParams p;
+        p.enable = true;
+        p.latch = true;
+        p.pattern = Arpeggiator::Up;
+
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 64, 1.0f), 0);
+        arp.process(midi, 256, p);
+
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60, 0.0f), 0);
+        midi.addEvent(juce::MidiMessage::noteOff(1, 64, 0.0f), 0);
+        arp.process(midi, 256, p); // Still latched
+
+        p.latch = false;
+        bool gotNoteOff60 = false, gotNoteOff64 = false, gotLaterNoteOn = false;
+        for (int b = 0; b < 4; ++b)
+        {
+            midi.clear();
+            arp.process(midi, 256, p);
+            for (const auto& m : midi)
+            {
+                const auto msg = m.getMessage();
+                if (msg.isNoteOff() && msg.getNoteNumber() == 60) gotNoteOff60 = true;
+                if (msg.isNoteOff() && msg.getNoteNumber() == 64) gotNoteOff64 = true;
+                if (b > 0 && msg.isNoteOn()) gotLaterNoteOn = true;
+            }
+        }
+        check(gotNoteOff60 || gotNoteOff64, "Latch OFF must stop held latched note");
+        check(!gotLaterNoteOn, "After Latch OFF, no further latched NoteOn should fire");
+    }
+
+    // 2. Strum cross-block delivery with small 64-sample buffer
+    {
+        Arpeggiator arp;
+        arp.prepare(44100.0);
+        ArpParams p;
+        p.enable = true;
+        p.pattern = Arpeggiator::Strum;
+        p.latch = true;
+        p.bpm = 60.0;
+        p.rateSync = 4; // 1/2 note -> slow step
+
+        std::array<bool, 128> firedNotes {};
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 64, 1.0f), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 67, 1.0f), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 71, 1.0f), 0);
+
+        for (int b = 0; b < 45; ++b)
+        {
+            if (b > 0) midi.clear();
+            arp.process(midi, 64, p);
+            for (const auto& m : midi)
+            {
+                check(m.samplePosition >= 0 && m.samplePosition < 64, "Strum MIDI offset must be inside block [0, 64)");
+                if (m.getMessage().isNoteOn())
+                    firedNotes[(size_t)m.getMessage().getNoteNumber()] = true;
+            }
+        }
+        check(firedNotes[60] && firedNotes[64] && firedNotes[67] && firedNotes[71],
+              "Cross-block Strum must emit all 4 chord notes reliably across 64-sample blocks");
+    }
+
+    // 3. Euclidean Rhythm E(3, 8, 0) & step count
+    {
+        const bool expectedTresillo[8] = { true, false, false, true, false, false, true, false };
+        for (int s = 0; s < 8; ++s)
+            check(Arpeggiator::isEuclideanHit(s, 3, 8, 0) == expectedTresillo[s], "E(3,8,0) must match Tresillo");
+
+        Arpeggiator arp;
+        arp.prepare(48000.0);
+        ArpParams p;
+        p.enable = true;
+        p.sync = false;
+        p.rateFree = 10.0f; // 1 step per 4800 samples
+        p.euclidEnable = true;
+        p.euclidSteps = 8;
+        p.euclidFills = 3;
+        p.euclidRot = 0;
+
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        int noteOnCount = 0;
+        // 8 steps * 4800 = 38400 samples -> 75 blocks of 512 = 38400 samples (0..7 steps = 8 steps)
+        for (int b = 0; b < 75; ++b)
+        {
+            if (b > 0) midi.clear();
+            arp.process(midi, 512, p);
+            for (const auto& m : midi)
+                if (m.getMessage().isNoteOn()) ++noteOnCount;
+        }
+        check(noteOnCount == 3, ("Euclidean E(3,8) over 8 steps must trigger 3 notes, got " + std::to_string(noteOnCount)).c_str());
+    }
+}
+
+void testMipMapAntiAliasingPitchUp()
+{
+    std::cout << "Running testMipMapAntiAliasingPitchUp...\n";
+    constexpr double sr = 48000.0;
+    juce::AudioBuffer<float> hiSrc(2, 48000);
+    for (int i = 0; i < 48000; ++i)
+    {
+        // 10kHz 高調波素材 (+2oct再生=40kHz相当でエイリアシング試験)
+        const float v = 0.7f * std::sin(juce::MathConstants<float>::twoPi * 10000.0f * (float)i / (float)sr);
+        hiSrc.setSample(0, i, v);
+        hiSrc.setSample(1, i, v);
+    }
+
+    SampleMipLevels mips;
+    mips.buildFrom(hiSrc);
+    check(mips.numExtraLevels == SampleMipLevels::kExtraLevels, "MipMap must generate 4 extra downsampled levels");
+
+    auto measurePitchUpRms = [&](const SampleMipLevels* mipPtr) -> float
+    {
+        GranularSynth synth;
+        synth.prepareToPlay(sr, 512);
+        GranularParams p;
+        p.attack = 0.001f;
+        p.octave = 2; // +2 octaves -> step = 4.0!
+        p.rootNote = 60;
+        p.outGainDb = 0.0f;
+        p.density = 0.7f;
+        p.grainSize = 0.06f;
+        p.pitchJitter = 0.0f;
+        p.masterHPF = 20.0f;
+        p.masterLPF = 20000.0f;
+
+        juce::AudioBuffer<float> out(2, 512);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+
+        double sq = 0.0;
+        int cnt = 0;
+        for (int blk = 0; blk < 16; ++blk)
+        {
+            out.clear();
+            synth.processBlock(out, midi, &hiSrc, 0, 48000, p, mipPtr);
+            midi.clear();
+            if (blk >= 4)
+            {
+                const float* d = out.getReadPointer(0);
+                for (int i = 0; i < 512; ++i) { sq += (double)d[i] * d[i]; ++cnt; }
+            }
+        }
+        return (float)std::sqrt(sq / (double)juce::jmax(1, cnt));
+    };
+
+    const float unantialiasedRms = measurePitchUpRms(nullptr);
+    const float mipMappedRms     = measurePitchUpRms(&mips);
+    check(unantialiasedRms > 0.15f, "Without MipMap, 10kHz at +2 octaves aliases strongly back into audible band");
+    check(mipMappedRms < unantialiasedRms * 0.08f,
+          ("MipMap must suppress high-pitch foldback by >22dB, raw=" + std::to_string(unantialiasedRms)
+           + " mip=" + std::to_string(mipMappedRms)).c_str());
+}
+
+void testLookAheadLimiterZeroOvershootAndLatency()
+{
+    std::cout << "Running testLookAheadLimiterZeroOvershootAndLatency...\n";
+    BrickLimiter lim;
+    lim.prepare(48000.0);
+    const int latency = lim.getLatencySamples();
+    check(latency == 72, ("Look-Ahead Limiter at 48kHz must have 72-sample (1.5ms) latency, got " + std::to_string(latency)).c_str());
+
+    const float ceil = 0.25f;
+    std::vector<float> outL(512, 0.0f), outR(512, 0.0f);
+    for (int i = 0; i < 512; ++i)
+    {
+        float l = (i == 200) ? 5.0f : ((i >= 180 && i < 200) ? 0.20f : 0.0f);
+        float r = l;
+        lim.process(l, r, ceil);
+        outL[(size_t)i] = l;
+        outR[(size_t)i] = r;
+        check(std::abs(l) <= ceil + 1.0e-6f && std::abs(r) <= ceil + 1.0e-6f,
+              ("Look-Ahead Limiter must never overshoot ceiling, sample=" + std::to_string(i)
+               + " val=" + std::to_string(l)).c_str());
+    }
+    check(std::abs(outL[(size_t)(200 + latency)]) > 0.1f, "Impulse peak must emerge aligned at exact lookahead offset");
+    check(std::abs(outL[(size_t)(200 + latency - 10)]) < 0.20f, "Look-Ahead gain ramp should attenuate quietly before peak arrives");
+
+    auto proc = std::make_unique<GranularAudioProcessor>();
+    proc->prepareToPlay(48000.0, 256);
+    check(proc->getLatencySamples() == latency, "Processor must publish exact Look-Ahead Limiter latency to DAW");
+}
+
+void testClicklessDryPreviewRamp()
+{
+    std::cout << "Running testClicklessDryPreviewRamp...\n";
+    juce::File tmpWav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("granular_test_dry_ramp.wav");
+    {
+        juce::WavAudioFormat wav;
+        juce::AudioBuffer<float> buf(1, 48000);
+        for (int i = 0; i < 48000; ++i) buf.setSample(0, i, 0.5f); // DCステップでクリック検出しやすくする
+        tmpWav.deleteFile();
+        if (auto s = std::unique_ptr<juce::FileOutputStream>(tmpWav.createOutputStream()))
+            if (auto w = std::unique_ptr<juce::AudioFormatWriter>(wav.createWriterFor(s.get(), 48000.0, 1, 24, {}, 0)))
+            { s.release(); w->writeFromAudioSampleBuffer(buf, 0, 48000); }
+    }
+
+    auto proc = std::make_unique<GranularAudioProcessor>();
+    proc->prepareToPlay(48000.0, 256);
+    proc->loadFileForIngest(tmpWav);
+    check(waitForSampleReady(*proc), "Sample ingest timed out for dry preview ramp test");
+
+    proc->resetAllParametersToDefault();
+    juce::AudioBuffer<float> buf(2, 256);
+    juce::MidiBuffer midi;
+
+    proc->startDryPreview();
+    proc->processBlock(buf, midi);
+    check(std::abs(buf.getSample(0, 0)) < 0.02f, "Dry preview start must fade in smoothly from ~0");
+
+    // 立ち上がり完了後、途中停止要求でクリックなくゼロへフェードアウト
+    proc->processBlock(buf, midi);
+    const float midAmp = std::abs(buf.getSample(0, 255));
+    check(midAmp > 0.25f, "Dry preview should reach full level after ~5ms fade-in");
+
+    proc->stopDryPreview();
+    float maxJump = 0.0f;
+    float prev = midAmp;
+    for (int b = 0; b < 2; ++b)
+    {
+        proc->processBlock(buf, midi);
+        for (int i = 0; i < 256; ++i)
+        {
+            const float cur = std::abs(buf.getSample(0, i));
+            maxJump = juce::jmax(maxJump, std::abs(cur - prev));
+            prev = cur;
+        }
+    }
+    check(maxJump < 0.05f, ("Dry preview stop must fade out without sudden step click, maxJump=" + std::to_string(maxJump)).c_str());
+    check(std::abs(buf.getSample(0, 255)) < 0.01f, "Dry preview should complete 5ms fade-out cleanly");
+
+    tmpWav.deleteFile();
+}
 } // namespace
 
 int main()
@@ -942,6 +1323,12 @@ int main()
         testScaleQuantizerBoundaryClamp();
         testSubBlockMidiTimingAndWindowRms();
         testButterworth24DbCascadeAndCombThiran();
+        testProcessorFootprintAndFxChain192k();
+        testModMatrixLorenzChaosLfo();
+        testArpeggiatorLatchOffStrumCrossBlockAndEuclidean();
+        testMipMapAntiAliasingPitchUp();
+        testLookAheadLimiterZeroOvershootAndLatency();
+        testClicklessDryPreviewRamp();
     }
     catch (const std::exception& e)
     {
@@ -959,6 +1346,6 @@ int main()
         std::cerr << "\nTOTAL FAILURES: " << gFailures << "\n";
         return 1;
     }
-    std::cerr << "\nALL GRANULAR PHASE 1 & PHASE 2 TESTS PASSED!\n";
+    std::cerr << "\nALL GRANULAR PHASE 1, 2 & 3 TESTS PASSED!\n";
     return 0;
 }
