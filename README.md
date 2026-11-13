@@ -1,6 +1,6 @@
 # GRANULAR
 
-![Release](https://img.shields.io/badge/release-v1.0.1-blue)
+![Release](https://img.shields.io/badge/release-v1.1.0-blue)
 ![License](https://img.shields.io/badge/license-AGPLv3-green)
 ![JUCE](https://img.shields.io/badge/JUCE-8.0.x-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
@@ -25,7 +25,7 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 
 * **Post-modulation quantization.** The final pitch — note + octave + semi + fine + random jitter + every matrix slot routed to a pitch destination — is snapped to Key + Scale as the last step. Modulation can be extreme without ever going out of key.
 * **SCALE QUANTIZE toggle.** Enable or bypass the quantizer with a single click on the dedicated on/off button.
-* **24 scales:** Free, Chromatic, Major, Natural Minor, Major Pentatonic, Minor Pentatonic, Dorian, Lydian, Mixolydian, Phrygian, Harmonic Minor, Melodic Minor, Whole Tone, Octaves & Fifths, Quartal, Sus2/4 Cloud, Diminished, Blues, Insen, Hirajoshi, Hungarian Minor, Arabian (Bhairav), Prometheus, Enigmatic. Key is Auto (from analysis) or fixed C–B.
+* **82 scales:** Free, Chromatic, Major, Natural Minor, Major & Minor Pentatonic, all church modes, harmonic/melodic/ethnic modes (Hirajoshi, In-Sen, Iwato, Ryukyu, Hungarian, Persian, Indian Ragas, etc.), symmetric & chord arpeggios. Key is Auto (from analysis) or fixed C–B.
 * **ScaleNote real-time preview.** Shows the exact active scale notes (e.g. `C, D, E, F, G, A, B`) directly in the ARP tab.
 * **Nearest-octave snapping.** The quantizer searches adjacent octaves too, so a note at the edge of a scale wraps naturally instead of jumping.
 
@@ -33,8 +33,11 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 
 * **Up to 100 grains per voice**, capped by a global 1200-grain CPU budget with voice stealing, so dense patches degrade gracefully instead of stalling the host.
 * **Exponential density curve** (overlap 0.25–64) with 1/√overlap gain normalisation, keeping perceived level steady as density climbs.
-* **Deterministic scheduler.** Density is treated as an overlap factor with ±25 % jitter, so even sparse settings produce a stable texture rather than random clumping.
-* **4-point Hermite interpolation** on grain readout.
+* **Deterministic scheduler with collision-avoidance.** Density is treated as an overlap factor with ±25 % jitter, while `GrainSwarmScheduler` prevents multi-voice grain bunching at identical `(pos, pitch)` coordinates and distributes optional scale-locked Diatonic Swarm harmonies.
+* **Mip-mapped 4-point Hermite interpolation.** 31-tap Blackman-windowed sinc pyramid (`2×–16×`) eliminates aliasing on extreme upward pitch shifts while keeping readout silky smooth.
+* **Multi-Engine Core (ENGINE tab):** Switch seamlessly between **Granular**, **WSOLA** (normalized cross-correlation phase alignment), and **TD-PSOLA** (pitch-synchronous overlap-add with independent `Formant Shift` ±12 st).
+* **Concatenative Grain Atlas:** Offline frame extraction computes brightness timbre, onset score, local F0 (`hasPitch`), and upward zero-crossing offsets, powering $O(\log N)$ **Timbre Scrubbing**, per-grain pitch locking, and transient-adaptive windows on the audio thread.
+* **Per-Grain Sculpt & SVF:** Each grain carries individual window skew, pitch chirp glide, and a dedicated Zavalishin TPT State-Variable Filter (LP / BP / HP / Notch) with per-grain cutoff jitter.
 * **Graceful voice stealing.** Stolen voices keep their old grains alive to decay through their own windows instead of being cut — the usual source of clicks when polyphony runs out.
 
 ### Making Noise Playable
@@ -60,7 +63,8 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 ### Arpeggiator & Texture
 
 * **13 patterns:** Up, Down, Up-Down, Down-Up, Up-Down (Incl), Converge, Diverge, Pedal Low, Pedal High, As Played, Random, Random Walk, Chord.
-* **Tempo-synced** (1/1 – 1/32 including dotted and triplet) **or free** (0.5–30 Hz), with Octaves (1–4), Duration (Gate % or a fixed note value) and LATCH.
+* **Euclidean Rhythm Generator:** Orthogonal Bjorklund $E(k, n, r)$ gating with configurable Steps (2–16), Fills (1–16), and Rotation (0–15).
+* **Tempo-synced** (1/1 – 1/32 including dotted and triplet) **or free** (0.5–30 Hz), with Octaves (1–4), Duration (Gate % or a fixed note value), cross-block Strum, and LATCH.
 * **Safe retrigger.** If a step would fire a note that is still sounding, a note-off is emitted first — this is what stops stacked voices (and sudden bursts) when you turn the Rate or Gate knob mid-pattern.
 * Arpeggiator output passes through the same Key/Scale quantizer as the grains.
 
@@ -69,11 +73,12 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 ##
 <img src="Source/Assets/Granular_Mod.jpg" width="700">
 
-### Modulation Matrix
+### Polyphonic Modulation Matrix
 
-* **11 sources:** LFO × 4 (Sine / Triangle / Saw / Square / S&H / Chaos, free 0.02–20 Hz or tempo-synced 1/1–1/32), ENV × 3 (loopable ADSR), Velocity, Note, Mod Wheel, Random (per-note S&H).
+* **13 sources:** LFO × 4 (Sine / Triangle / Saw / Square / S&H / RK4 Lorenz Chaos, free 0.02–20 Hz or tempo-synced 1/1–1/32), per-voice ENV × 3 (loopable ADSR), Velocity, Note, Mod Wheel, Random (per-note S&H), and Poly/Channel Aftertouch (including MPE Slide CC74).
 * **16 slots** across two pages, each with Source → Destination, bipolar Amount (double-click to zero) and a **UNI/BI** polarity toggle.
-* **23 destinations** — Position, Grain Size, Density, Spray, Pitch Jitter, Pan Spread, Speed, Pitch, Fine, Tone, HPF, LPF, Sample Start/End, Arp Octaves/Rate/Gate, FX Dry/Wet and all five FX Amounts.
+* **77 modulatable destinations** — Granular/Engine/Atlas/Swarm/Per-Grain SVF/Modal Resonator parameters, Pitch, Master Filter, Sample Start/End, Arp, Limiter, LFO/ENV rates & stages, and all FX rack parameters.
+* **True Per-Voice Isolation:** Each of the 24 voices evaluates its own ADSR envelopes, Velocity, Note, Random S&H, and Aftertouch independently for voice parameters, while global modulation drives FX and Master stages.
 * **Live range display.** Modulated knobs draw a white arc showing the reachable range plus a dot for the current value, computed through the same function the DSP uses. Position, Spray, Start and End are mirrored on the waveform in real time.
 * **Loopable envelopes.** Turn LOOP on and an ENV becomes an A-D cycling generator — a second class of LFO with an arbitrary shape.
 
@@ -155,7 +160,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | Fine | -100 – +100 ct | 0 | Cent fine tune |
 | Scale Quantize | Off / On | Off | Dedicated toggle button |
 | Key | Auto / C – B | Auto | Auto uses the analysed key |
-| Scale | 24 types | Free | Applied after all modulation |
+| Scale | 82 types | Free | Applied after all modulation |
 | ScaleNote | Real-time preview | — | Displays active notes of the selected scale |
 | P-SYNC | Off / On | Off | Locks grain firing to note frequency |
 | TONE | 0.0 – 1.0 | 0.0 | Note-tuned comb resonator |
@@ -174,6 +179,25 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | S-SYNC | Off / On | Off | Scan Start–End over a musical length. In Random mode, jump once per SCAN |
 | Scan | 1 Beat – 8 Bars | 1 Bar | Scan length when S-SYNC is on |
 
+### Engine & Modal Resonator (ENGINE Tab)
+
+| Parameter | Range | Default | Description |
+|---|---|---|---|
+| Engine Mode | Granular / WSOLA / TD-PSOLA | Granular | Playback synthesis engine |
+| Formant Shift | -12 – +12 st | 0.0 st | Spectral formant shift (decoupled from pitch in TD-PSOLA) |
+| Swarm Mix | 0.0 – 1.0 | 0.0 | Scale-locked diatonic harmony layer density |
+| Atlas Pitch | 0.0 – 1.0 | 0.0 | Per-grain F0 flattening from Concatenative Grain Atlas |
+| Timbre | 0.0 – 1.0 | 0.5 | Target spectral brightness in the Grain Atlas |
+| Atlas Amt | 0.0 – 1.0 | 0.0 | Attract grain positions toward matching Atlas timbre |
+| Skew | -1.0 – +1.0 | 0.0 | Envelope skew (negative = percussive snap, positive = swell) |
+| Chirp | -12 – +12 st | 0.0 st | Intra-grain continuous pitch glide |
+| Filter Mode | Off / LP / BP / HP / Notch | Off | Per-grain Zavalishin TPT SVF topology |
+| Cutoff / Res | 20–20000 Hz / 0.1–10.0 | 20000 Hz / 0.7 | Per-grain filter frequency & resonance |
+| Flt Jitter | 0.0 – 1.0 | 0.0 | Per-grain random filter cutoff spread (±3 oct) |
+| Ratio Mode | Scale / Harmonic / Marimba / Bell / Plate | Scale | 8-mode stereo modal resonator bank tuning curve |
+| Modal Mix | 0.0 – 1.0 | 0.0 | Wet blend of physical modal resonator bank |
+| Decay / Damp / Inharm | 0.05–5.0 s / 0–1 / 0–1 | 0.8 s / 0.4 / 0.0 | Modal T60 decay, HF rolloff, & stiffness dispersion |
+
 ### Master
 
 | Parameter | Range | Default | Description |
@@ -182,7 +206,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | LPF | 200 – 20000 Hz | 20000 Hz | TPT SVF, per-sample smoothed |
 | Gain | -36 – +12 dB | 0 dB | Output level, ramped |
 | Dry/Wet | 0.0 – 1.0 | 1.0 | FX rack blend (modulatable) |
-| Ceiling | -6 – 0 dB | -0.1 dB | Brick-wall limiter ceiling |
+| Ceiling | -6 – 0 dB | -0.1 dB | Look-ahead brick-wall limiter ceiling |
 
 ### Arpeggiator
 
@@ -194,17 +218,18 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | Duration | Gate % / 1/32 / 1/16 / 1/8 / 1/4 | Gate % | Note length mode |
 | Gate | 0.05 – 1.0 | 0.8 | Used in Gate % mode |
 | Latch | Off / On | Off | Holds the chord after release |
+| Euclid On / Steps / Fills / Rot | Off/On, 2–16, 1–16, 0–15 | Off, 8, 5, 0 | Bjorklund Euclidean step gating |
 
 ### Modulation
 
 | Parameter | Range | Default | Description |
 |---|---|---|---|
-| Source | 11 sources | None | LFO 1–4, ENV 1–3, Velocity, Note, Mod Wheel, Random |
-| Destination | 23 destinations | None | All primary parameters + FX amounts |
+| Source | 13 sources | None | LFO 1–4, ENV 1–3, Velocity, Note, Mod Wheel, Random, Aftertouch |
+| Destination | 77 destinations | None | All Synth/Engine/Atlas/Modal/Filter/Arp/FX/Mod parameters |
 | Amount | -1.0 – +1.0 | 0.0 | Double-click to reset |
 | UNI | Off (bipolar) / On (unipolar) | Off | Output polarity |
 | LFO Rate | 0.02 – 20 Hz, or 1/1 – 1/32 | 1.0 Hz | SYNC toggles between them |
-| ENV A / D / S / R | 0.001–10 s / 0–1 | 0.05 / 0.5 / 1.0 / 0.3 | LOOP cycles A-D as a complex LFO |
+| ENV A / D / S / R | 0.001–10 s / 0–1 | 0.05 / 0.5 / 1.0 / 0.3 | Per-voice ADSR (LOOP cycles A-D as complex LFO) |
 
 ### FX
 
@@ -237,42 +262,39 @@ MIDI In
 [Arpeggiator] ──► [Scale Quantizer]
    │
    ▼
-┌──────────────────────────────────────────────┐
-│  Voice 1..24   (up to 100 grains each)       │
-│    Position + Spray · Start/End · Edge Fade  │
-│    Grain scheduler (density = overlap)       │
-│    4-point Hermite interpolation             │
-│                                              │
-│    note + oct + semi + fine + jitter + MOD   │
-│                     │                        │
-│                     ▼                        │
-│           [Scale Quantizer]  ← key/scale     │
-│                     │                        │
-│    Window · P-SYNC firing · TONE comb        │
-│    ADSR · Pan Spread                         │
-└──────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│  Voice 1..24   (up to 100 grains each, poly ModMatrix)    │
+│    Concatenative Atlas · Collision-Avoidance Scheduler    │
+│    Engine: Granular / WSOLA / TD-PSOLA (+ Formant Shift)  │
+│    Mip-mapped 4-point Hermite · Per-grain TPT SVF         │
+│                                                           │
+│    note + oct + semi + fine + jitter + swarm + MOD        │
+│                     │                                     │
+│                     ▼                                     │
+│           [Scale Quantizer]  ← key/scale                  │
+│                     │                                     │
+│    Skewed Window · Pitch Chirp · P-SYNC · TONE comb       │
+│    ADSR · Pan Spread                                      │
+└───────────────────────────────────────────────────────────┘
+   │
+   ▼
+[Scale-Tuned Modal Resonator Bank]  (8 stereo TPT modes)
+   │
+   ▼
+[Master HPF] ─► [Master LPF] ─► [Gain]     (12 or 24 dB/oct)
    │
    ▼
 [Safety soft-clip]
    │
    ▼
 [FX Rack]  5 slots in series (exclusive selection, drag to reorder)
-   Saturation / Chorus / Delay / Freeze / Reverb / FormantGate
+   Saturation (ADAA) / Chorus / Delay / Freeze / Velvet Shimmer / FormantGate
    │
    ▼
-[Dry/Wet blend]
-   │
-   ▼
-[Master HPF] ─► [Master LPF] ─► [Gain]     (TPT SVF, 12 or 24 dB/oct)
-   │
-   ▼
-[Brick-wall Limiter  (Ceiling / Release)]
-   │
-   ▼
-Output (Stereo)
+[Dry/Wet blend] ─► [Look-Ahead Brick-wall Limiter (~1.5 ms)] ─► Out
 ```
 
-The quantizer sitting **inside** the voice, after modulation is summed, is what makes extreme pitch movement stay musical. Reported latency is 0 — the limiter has no lookahead.
+The quantizer sitting **inside** the voice, after modulation is summed, is what makes extreme pitch movement stay musical. Look-ahead limiter latency (~1.5 ms, e.g. 72 samples at 48 kHz) is reported cleanly to the host via PDC (`setLatencySamples`).
 
 
 ## Real-Time Safety
@@ -375,6 +397,10 @@ RubberBand is **not** used, so no GPL / commercial licensing restrictions apply 
 - Zavalishin — *"The Art of VA Filter Design"* (TPT/SVF topology)
 - Parker, Zavalishin & Le Bivic — *"Reducing the Aliasing of Nonlinear Waveshaping Using Continuous-Time Convolution"* (ADAA, 2016)
 - Karplus & Strong — *"Digital Synthesis of Plucked-String and Drum Timbres"* (1983)
+- Verhelst & Roelands — *"An overlap-add technique based on waveform similarity (WSOLA)"* (1993)
+- Moulines & Charpentier — *"Pitch-synchronous waveform processing techniques for text-to-speech synthesis using diphones"* (TD-PSOLA, 1990)
+- Toussaint — *"The Euclidean Algorithm Generates Traditional Musical Rhythms"* (2005)
+- Chaigne & Askenfelt — *"Numerical simulations of piano strings / wooden bars"* (Modal inharmonicity & damping)
 
 
 ## Support

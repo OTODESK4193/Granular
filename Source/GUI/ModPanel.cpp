@@ -260,6 +260,21 @@ juce::PopupMenu ModPanel::buildDestMenu(int currentDst)
         for (int d = (int)ModMatrix::DstGateDepth; d <= (int)ModMatrix::DstGateVowel; ++d) addItem(sub, d);
         menu.addSubMenu("Gate", sub);
     }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstFormantShift; d <= (int)ModMatrix::DstSwarmMix; ++d) addItem(sub, d);
+        menu.addSubMenu("Engine & Atlas", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstGrainSkew; d <= (int)ModMatrix::DstGrainFilterJitter; ++d) addItem(sub, d);
+        menu.addSubMenu("Grain Shape & Filter", sub);
+    }
+    {
+        juce::PopupMenu sub;
+        for (int d = (int)ModMatrix::DstModalMix; d <= (int)ModMatrix::DstModalInharm; ++d) addItem(sub, d);
+        menu.addSubMenu("Modal Resonator", sub);
+    }
 
     return menu;
 }

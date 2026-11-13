@@ -21,6 +21,7 @@ struct IngestedSample
 {
     juce::AudioBuffer<float> buffer;
     SampleMipLevels mipLevels;
+    GrainAtlas atlas;
     int validSamples = 0;
     int trimStart = 0;
     int trimEnd = 0;
@@ -251,6 +252,25 @@ private:
         std::atomic<float>* arpEuclidSteps = nullptr;
         std::atomic<float>* arpEuclidFills = nullptr;
         std::atomic<float>* arpEuclidRot = nullptr;
+
+        // --- Phase 4: Engine, Atlas, Per-Grain SVF & Modal Resonator ---
+        std::atomic<float>* engineMode = nullptr;
+        std::atomic<float>* formantShift = nullptr;
+        std::atomic<float>* timbreScrub = nullptr;
+        std::atomic<float>* timbreAmt = nullptr;
+        std::atomic<float>* atlasPitchLock = nullptr;
+        std::atomic<float>* swarmMix = nullptr;
+        std::atomic<float>* grainSkew = nullptr;
+        std::atomic<float>* grainChirp = nullptr;
+        std::atomic<float>* grainFilterMode = nullptr;
+        std::atomic<float>* grainFilterFreq = nullptr;
+        std::atomic<float>* grainFilterRes = nullptr;
+        std::atomic<float>* grainFilterJitter = nullptr;
+        std::atomic<float>* modalMix = nullptr;
+        std::atomic<float>* modalDecay = nullptr;
+        std::atomic<float>* modalDamp = nullptr;
+        std::atomic<float>* modalInharm = nullptr;
+        std::atomic<float>* modalRatioMode = nullptr;
     };
 
     void initParamCache();

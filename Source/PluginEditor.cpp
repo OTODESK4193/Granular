@@ -11,7 +11,7 @@ namespace
 }
 
 GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcessor& p)
-    : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p), arpPanel(p),
+    : AudioProcessorEditor(&p), proc(p), waveDisplay(p), mainPanel(p), enginePanel(p), arpPanel(p),
       configPanel(p), fxPanel(p), modPanel(p), presetBrowser(p.getUserPresetDir())
 {
     // Content Component の設定 (アスペクト比固定スケーリング 75%〜200%)
@@ -35,16 +35,18 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
 
     content.addAndMakeVisible(waveDisplay);
     content.addAndMakeVisible(mainPanel);
-    content.addChildComponent(arpPanel);  // 非表示で追加
+    content.addChildComponent(enginePanel); // 非表示で追加
+    content.addChildComponent(arpPanel);
     content.addChildComponent(modPanel);
     content.addChildComponent(fxPanel);
     content.addChildComponent(configPanel);
 
     // --- タブボタン ---
-    for (auto* b : { &mainTabButton, &arpTabButton, &modTabButton, &fxTabButton, &configTabButton })
+    for (auto* b : { &mainTabButton, &engineTabButton, &arpTabButton, &modTabButton, &fxTabButton, &configTabButton })
         content.addAndMakeVisible(*b);
 
     mainTabButton.onClick   = [this] { setActiveTab(Tab::Main); };
+    engineTabButton.onClick = [this] { setActiveTab(Tab::Engine); };
     arpTabButton.onClick    = [this] { setActiveTab(Tab::Arp); };
     modTabButton.onClick    = [this] { setActiveTab(Tab::Mod); };
     fxTabButton.onClick     = [this] { setActiveTab(Tab::Fx); };
@@ -215,12 +217,14 @@ void GranularAudioProcessorEditor::setActiveTab(Tab t)
         browseButton.setColour(juce::TextButton::textColourOffId, GranularColors::text);
     }
     mainPanel.setVisible(t == Tab::Main);
+    enginePanel.setVisible(t == Tab::Engine);
     arpPanel.setVisible(t == Tab::Arp);
     modPanel.setVisible(t == Tab::Mod);
     fxPanel.setVisible(t == Tab::Fx);
     configPanel.setVisible(t == Tab::Config);
 
     styleTabButton(mainTabButton,   t == Tab::Main);
+    styleTabButton(engineTabButton, t == Tab::Engine);
     styleTabButton(arpTabButton,    t == Tab::Arp);
     styleTabButton(modTabButton,    t == Tab::Mod);
     styleTabButton(fxTabButton,     t == Tab::Fx);
@@ -295,7 +299,7 @@ void GranularAudioProcessorEditor::paintContent(juce::Graphics& g)
 
     g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     g.setColour(GranularColors::mint.withAlpha(0.8f));
-    g.drawText("v1.0.1 B014", 250, 15, 90, 16, juce::Justification::centredLeft);
+    g.drawText("v1.1.0 B015", 250, 15, 90, 16, juce::Justification::centredLeft);
 
     g.setColour(GranularColors::textDim);
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
@@ -320,6 +324,7 @@ void GranularAudioProcessorEditor::paintContent(juce::Graphics& g)
     };
 
     if (activeTab == Tab::Main)   underline(mainTabButton,   GranularColors::mint);
+    if (activeTab == Tab::Engine) underline(engineTabButton, GranularColors::babyBlue);
     if (activeTab == Tab::Arp)    underline(arpTabButton,    GranularColors::peach);
     if (activeTab == Tab::Mod)    underline(modTabButton,    GranularColors::lavender);
     if (activeTab == Tab::Fx)     underline(fxTabButton,     GranularColors::pink);
@@ -361,14 +366,16 @@ void GranularAudioProcessorEditor::layoutContent()
     // テーマ変更バナー (波形上部に重ねて表示)
     themeBanner.setBounds(kBaseW / 2 - 260, 80, 520, 28);
 
-    mainTabButton.setBounds(20,  kTabY, 92, kTabH);
-    arpTabButton.setBounds(118, kTabY, 92, kTabH);
-    modTabButton.setBounds(216, kTabY, 92, kTabH);
-    fxTabButton.setBounds(314, kTabY, 92, kTabH);
-    configTabButton.setBounds(412, kTabY, 92, kTabH);
+    mainTabButton.setBounds(20,   kTabY, 92, kTabH);
+    engineTabButton.setBounds(118, kTabY, 92, kTabH);
+    arpTabButton.setBounds(216,   kTabY, 92, kTabH);
+    modTabButton.setBounds(314,   kTabY, 92, kTabH);
+    fxTabButton.setBounds(412,    kTabY, 92, kTabH);
+    configTabButton.setBounds(510, kTabY, 92, kTabH);
 
     const auto panelBounds = juce::Rectangle<int>(0, kPanelY, kBaseW, kBaseH - kPanelY);
     mainPanel.setBounds(panelBounds);
+    enginePanel.setBounds(panelBounds);
     arpPanel.setBounds(panelBounds);
     modPanel.setBounds(panelBounds);
     fxPanel.setBounds(panelBounds);

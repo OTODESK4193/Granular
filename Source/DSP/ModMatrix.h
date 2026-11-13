@@ -21,9 +21,10 @@
 class ModMatrix
 {
 public:
-    static constexpr int kNumLfos = 4;
-    static constexpr int kNumEnvs = 3;
-    static constexpr int kNumSlots = 16;
+    static constexpr int kNumLfos   = 4;
+    static constexpr int kNumEnvs   = 3;
+    static constexpr int kNumSlots  = 16;
+    static constexpr int kMaxVoices = 24;
 
     enum Src
     {
@@ -31,6 +32,7 @@ public:
         SrcLfo1, SrcLfo2, SrcLfo3, SrcLfo4,
         SrcEnv1, SrcEnv2, SrcEnv3,
         SrcVelocity, SrcNote, SrcModWheel, SrcRandom,
+        SrcAftertouch,
         NumSrcs
     };
 
@@ -67,15 +69,19 @@ public:
         DstEnv1Attack, DstEnv1Decay, DstEnv1Sustain, DstEnv1Release,
         DstEnv2Attack, DstEnv2Decay, DstEnv2Sustain, DstEnv2Release,
         DstEnv3Attack, DstEnv3Decay, DstEnv3Sustain, DstEnv3Release,
-        // Gate (末尾に追加)
+        // Gate
         DstGateDepth, DstGateDecay, DstGateVowel,
+        // Phase 4: Engine, Atlas, Per-Grain Filter/Shape & Modal Resonator
+        DstFormantShift, DstTimbreScrub, DstTimbreAmt, DstAtlasPitchLock, DstSwarmMix,
+        DstGrainSkew, DstGrainChirp, DstGrainFilterFreq, DstGrainFilterRes, DstGrainFilterJitter,
+        DstModalMix, DstModalDecay, DstModalDamp, DstModalInharm,
         NumDsts
     };
 
     static juce::StringArray getSourceNames()
     {
         return { "None", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "ENV 1", "ENV 2", "ENV 3",
-                 "Velocity", "Note", "Mod Wheel", "Random" };
+                 "Velocity", "Note", "Mod Wheel", "Random", "Aftertouch" };
     }
     static juce::StringArray getDestNames()
     {
@@ -97,7 +103,10 @@ public:
             "ENV 1 Attack", "ENV 1 Decay", "ENV 1 Sustain", "ENV 1 Release",
             "ENV 2 Attack", "ENV 2 Decay", "ENV 2 Sustain", "ENV 2 Release",
             "ENV 3 Attack", "ENV 3 Decay", "ENV 3 Sustain", "ENV 3 Release",
-            "Gate Depth", "Gate Decay", "Gate Vowel"
+            "Gate Depth", "Gate Decay", "Gate Vowel",
+            "Formant Shift", "Timbre Scrub", "Timbre Bias", "Atlas Pitch", "Swarm Mix",
+            "Grain Skew", "Grain Chirp", "Grain Filter Cutoff", "Grain Filter Res", "Grain Filter Jitter",
+            "Modal Mix", "Modal Decay", "Modal Damp", "Modal Inharm"
         };
     }
     static juce::StringArray getWaveNames()
@@ -138,12 +147,16 @@ public:
             lfoState[(size_t)i].lz = 20.0 + 0.5 * (double)i;
         }
         for (auto& e : envState) e = {};
+        for (auto& v : voiceStates) v = {};
         velocity = 0.8f;
         noteNorm = 0.5f;
         modWheel = 0.0f;
+        aftertouch = 0.0f;
         randomSH = 0.5f;
         heldNotes = 0;
         gate = false;
+        hasLastParams = false;
+        cachedLfoSrc.fill(0.0f);
         destAccum.fill(0.0f);
         rangeMin.fill(0.0f);
         rangeMax.fill(0.0f);
@@ -155,7 +168,7 @@ public:
         }
     }
 
-    // 入力MIDI(アルペジオ後)からソース値を更新
+    // 入力MIDI(アルペジオ後)からグローバルソース値を更新
     void handleMidi(const juce::MidiBuffer& midi)
     {
         for (const auto& m : midi)
@@ -178,17 +191,77 @@ public:
             {
                 modWheel = (float)msg.getControllerValue() / 127.0f;
             }
+            else if (msg.isAftertouch())
+            {
+                aftertouch = (float)msg.getAfterTouchValue() / 127.0f;
+                const int n = msg.getNoteNumber();
+                for (auto& v : voiceStates)
+                    if (v.active && v.noteNumber == n) v.aftertouch = aftertouch;
+            }
+            else if (msg.isChannelPressure())
+            {
+                aftertouch = (float)msg.getChannelPressureValue() / 127.0f;
+                for (auto& v : voiceStates)
+                    if (v.gate) v.aftertouch = aftertouch;
+            }
+            else if (msg.isControllerOfType(74)) // MPE Slide / CC74
+            {
+                aftertouch = (float)msg.getControllerValue() / 127.0f;
+                for (auto& v : voiceStates)
+                    if (v.gate) v.aftertouch = aftertouch;
+            }
         }
     }
 
-    // ブロック毎: ソース値を確定し、スロットを合成して destAccum に集計
+    /// Per-voice note-on notification (called by GranularSynth voice allocator).
+    void noteOn(int voiceIdx, int midiNote, float vel) noexcept
+    {
+        if (voiceIdx < 0 || voiceIdx >= kMaxVoices) return;
+        auto& v = voiceStates[(size_t)voiceIdx];
+        v.active     = true;
+        v.gate       = true;
+        v.noteNumber = midiNote;
+        v.velocity   = juce::jlimit(0.0f, 1.0f, vel);
+        v.noteNorm   = juce::jlimit(0.0f, 1.0f, (float)midiNote / 127.0f);
+        v.randomSH   = rng.nextFloat();
+        v.aftertouch = aftertouch;
+        for (auto& e : v.envState)
+            e.stage = EnvState::Attack;
+
+        if (hasLastParams)
+            evaluateVoice(v, lastParams);
+    }
+
+    /// Per-voice note-off notification (starts release stage of per-voice mod envelopes).
+    void noteOff(int voiceIdx) noexcept
+    {
+        if (voiceIdx < 0 || voiceIdx >= kMaxVoices) return;
+        auto& v = voiceStates[(size_t)voiceIdx];
+        v.gate = false;
+        if (hasLastParams)
+            evaluateVoice(v, lastParams);
+    }
+
+    /// Clears all per-voice modulation gates immediately.
+    void allNotesOff() noexcept
+    {
+        for (auto& v : voiceStates)
+            v.gate = false;
+        heldNotes = 0;
+        gate = false;
+    }
+
+    // ブロック毎: ソース値を確定し、グローバル＆各ボイスのスロットを合成
     void processBlock(int numSamples, const Params& p)
     {
+        lastParams = p;
+        hasLastParams = true;
+
         static const double beatsTable[16] = {
             32.0, 16.0, 8.0, 4.0, 2.0, 4.0 / 3.0, 1.0, 1.5, 2.0 / 3.0,
             0.5, 0.75, 1.0 / 3.0, 0.25, 0.375, 1.0 / 6.0, 0.125 };
 
-        float src[NumSrcs] = {};
+        std::array<float, NumSrcs> src {};
 
         // --- LFO ---
         for (int i = 0; i < kNumLfos; ++i)
@@ -203,7 +276,9 @@ public:
                 freq = bpm / (60.0 * beatsTable[juce::jlimit(0, 15, lp.rateSync)]);
             }
 
-            src[SrcLfo1 + i] = lfoValue(st, lp.wave);
+            const float lfoOut = lfoValue(st, lp.wave);
+            src[(size_t)(SrcLfo1 + i)] = lfoOut;
+            cachedLfoSrc[(size_t)i]    = lfoOut;
 
             // 位相を1ブロック分進める
             const double inc = freq * (double)numSamples / sampleRate;
@@ -255,91 +330,46 @@ public:
             }
         }
 
-        // --- ENV (ADSR / ブロックレート、Loop時はA-D循環) ---
-        for (int i = 0; i < kNumEnvs; ++i)
+        const float blockSec = (float)((double)numSamples / juce::jmax(1.0, sampleRate));
+
+        // --- グローバル ENV ---
+        advanceEnvs(blockSec, p, envState, gate, src);
+
+        // --- グローバル MIDI ---
+        src[SrcVelocity]   = velocity;
+        src[SrcNote]       = noteNorm;
+        src[SrcModWheel]   = modWheel;
+        src[SrcRandom]     = randomSH;
+        src[SrcAftertouch] = aftertouch;
+
+        // --- グローバル スロット合成 + GUIレンジ算出 ---
+        evaluateSlots(p, src, destAccum, &rangeMin, &rangeMax);
+
+        // --- ポリフォニック・パーボイス ENV & スロット合成 ---
+        for (auto& v : voiceStates)
         {
-            const auto& ep = p.env[(size_t)i];
-            auto& st = envState[(size_t)i];
-            const float sus = juce::jlimit(0.0f, 1.0f, ep.sustain);
+            if (!v.active) continue;
 
-            src[SrcEnv1 + i] = st.value;
+            std::array<float, NumSrcs> vSrc {};
+            for (int i = 0; i < kNumLfos; ++i)
+                vSrc[(size_t)(SrcLfo1 + i)] = cachedLfoSrc[(size_t)i];
 
-            const float blockSec = (float)((double)numSamples / sampleRate);
+            advanceEnvs(blockSec, p, v.envState, v.gate, vSrc);
+            vSrc[SrcVelocity]   = v.velocity;
+            vSrc[SrcNote]       = v.noteNorm;
+            vSrc[SrcModWheel]   = modWheel;
+            vSrc[SrcRandom]     = v.randomSH;
+            vSrc[SrcAftertouch] = v.aftertouch;
 
-            // ゲートOFFかつ非Loop → Releaseへ移行（Idle/Release以外から）
-            if (!ep.loop && !gate
-                && st.stage != EnvState::Idle && st.stage != EnvState::Release)
+            evaluateSlots(p, vSrc, v.voiceAccum, nullptr, nullptr);
+
+            if (!v.gate)
             {
-                st.stage = EnvState::Release;
-                st.releaseStart = juce::jmax(0.0001f, st.value);
+                bool anyBusy = false;
+                for (const auto& e : v.envState)
+                    if (e.stage != EnvState::Idle) { anyBusy = true; break; }
+                if (!anyBusy) v.active = false;
             }
-
-            switch (st.stage)
-            {
-            case EnvState::Attack:
-                st.value += blockSec / juce::jmax(0.001f, ep.attack);
-                if (st.value >= 1.0f) { st.value = 1.0f; st.stage = EnvState::Decay; }
-                break;
-
-            case EnvState::Decay:
-                if (ep.loop)
-                {
-                    // Loop: 1→0 まで下げてAttackへ循環（複雑LFO）
-                    st.value -= blockSec / juce::jmax(0.001f, ep.decay);
-                    if (st.value <= 0.0f) { st.value = 0.0f; st.stage = EnvState::Attack; }
-                }
-                else
-                {
-                    // ADSR: 1→Sustainレベルまで下げてSustainへ
-                    st.value -= (1.0f - sus) * blockSec / juce::jmax(0.001f, ep.decay);
-                    if (st.value <= sus) { st.value = sus; st.stage = EnvState::Sustain; }
-                }
-                break;
-
-            case EnvState::Sustain:
-                st.value = sus;   // ゲート保持中はSustainレベルを維持
-                break;
-
-            case EnvState::Release:
-                st.value -= st.releaseStart * blockSec / juce::jmax(0.001f, ep.release);
-                if (st.value <= 0.0f) { st.value = 0.0f; st.stage = EnvState::Idle; }
-                break;
-
-            default: // Idle
-                st.value = 0.0f;
-                break;
-            }
-        }
-
-        // --- MIDI ---
-        src[SrcVelocity] = velocity;
-        src[SrcNote] = noteNorm;
-        src[SrcModWheel] = modWheel;
-        src[SrcRandom] = randomSH;
-
-        // --- スロット合成 (Uni/Bipolar極性変換 + レンジ算出) ---
-        destAccum.fill(0.0f);
-        rangeMin.fill(0.0f);
-        rangeMax.fill(0.0f);
-        for (const auto& s : p.slot)
-        {
-            if (s.src <= 0 || s.src >= NumSrcs || s.dst <= 0 || s.dst >= NumDsts) continue;
-            if (std::abs(s.amt) < 0.0001f) continue;
-
-            const bool srcBip = isBipolarSource(s.src);
-
-            // ソース値を、スロットが選んだ出力極性に合わせて変換
-            float v = src[s.src];
-            if (s.uni) { if (srcBip) v = (v + 1.0f) * 0.5f; }        // 出力 0..1
-            else       { if (!srcBip) v = v * 2.0f - 1.0f; }         // 出力 -1..+1
-            destAccum[(size_t)s.dst] += v * s.amt;
-
-            // GUIアーク用: この行き先が取りうるオフセット範囲を集計
-            const float lo = s.uni ? 0.0f : -1.0f;
-            const float hi = 1.0f;
-            const float c1 = lo * s.amt, c2 = hi * s.amt;
-            rangeMin[(size_t)s.dst] += juce::jmin(c1, c2);
-            rangeMax[(size_t)s.dst] += juce::jmax(c1, c2);
         }
 
         for (size_t i = 0; i < (size_t)NumDsts; ++i)
@@ -350,10 +380,28 @@ public:
         }
     }
 
-    // 合成済み変調値 (オーディオスレッド用)
+    // 合成済み変調値 (オーディオスレッド・グローバル用)
     float get(int dst) const noexcept
     {
         return destAccum[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)];
+    }
+
+    /// Returns the polyphonic per-voice modulation sum for `voiceIdx`, falling back to global if inactive.
+    float getForVoice(int voiceIdx, int dst) const noexcept
+    {
+        const int d = juce::jlimit(0, (int)NumDsts - 1, dst);
+        if (voiceIdx >= 0 && voiceIdx < kMaxVoices)
+        {
+            const auto& v = voiceStates[(size_t)voiceIdx];
+            if (v.active)
+                return v.voiceAccum[(size_t)d];
+        }
+        return destAccum[(size_t)d];
+    }
+
+    bool isVoiceActive(int voiceIdx) const noexcept
+    {
+        return (voiceIdx >= 0 && voiceIdx < kMaxVoices) && voiceStates[(size_t)voiceIdx].active;
     }
 
     // GUIスレッド用: スレッドセーフなアトミックスナップショット
@@ -390,6 +438,122 @@ private:
         float releaseStart = 1.0f;   // Release開始時のレベル
     };
 
+    struct VoiceModState
+    {
+        bool  active = false;
+        bool  gate   = false;
+        int   noteNumber = -1;
+        float velocity   = 0.8f;
+        float noteNorm   = 0.5f;
+        float randomSH   = 0.5f;
+        float aftertouch = 0.0f;
+        std::array<EnvState, kNumEnvs> envState {};
+        std::array<float, NumDsts> voiceAccum {};
+    };
+
+    static void advanceEnvs(float blockSec, const Params& p,
+                            std::array<EnvState, kNumEnvs>& envs,
+                            bool gateState,
+                            std::array<float, NumSrcs>& outSrc) noexcept
+    {
+        for (int i = 0; i < kNumEnvs; ++i)
+        {
+            const auto& ep = p.env[(size_t)i];
+            auto& st = envs[(size_t)i];
+            const float sus = juce::jlimit(0.0f, 1.0f, ep.sustain);
+
+            outSrc[(size_t)(SrcEnv1 + i)] = st.value;
+
+            if (!ep.loop && !gateState
+                && st.stage != EnvState::Idle && st.stage != EnvState::Release)
+            {
+                st.stage = EnvState::Release;
+                st.releaseStart = juce::jmax(0.0001f, st.value);
+            }
+
+            switch (st.stage)
+            {
+            case EnvState::Attack:
+                st.value += blockSec / juce::jmax(0.001f, ep.attack);
+                if (st.value >= 1.0f) { st.value = 1.0f; st.stage = EnvState::Decay; }
+                break;
+
+            case EnvState::Decay:
+                if (ep.loop)
+                {
+                    st.value -= blockSec / juce::jmax(0.001f, ep.decay);
+                    if (st.value <= 0.0f) { st.value = 0.0f; st.stage = EnvState::Attack; }
+                }
+                else
+                {
+                    st.value -= (1.0f - sus) * blockSec / juce::jmax(0.001f, ep.decay);
+                    if (st.value <= sus) { st.value = sus; st.stage = EnvState::Sustain; }
+                }
+                break;
+
+            case EnvState::Sustain:
+                st.value = sus;
+                break;
+
+            case EnvState::Release:
+                st.value -= st.releaseStart * blockSec / juce::jmax(0.001f, ep.release);
+                if (st.value <= 0.0f) { st.value = 0.0f; st.stage = EnvState::Idle; }
+                break;
+
+            default:
+                st.value = 0.0f;
+                break;
+            }
+        }
+    }
+
+    static void evaluateSlots(const Params& p,
+                              const std::array<float, NumSrcs>& src,
+                              std::array<float, NumDsts>& outAccum,
+                              std::array<float, NumDsts>* outMin,
+                              std::array<float, NumDsts>* outMax) noexcept
+    {
+        outAccum.fill(0.0f);
+        if (outMin) outMin->fill(0.0f);
+        if (outMax) outMax->fill(0.0f);
+
+        for (const auto& s : p.slot)
+        {
+            if (s.src <= 0 || s.src >= NumSrcs || s.dst <= 0 || s.dst >= NumDsts) continue;
+            if (std::abs(s.amt) < 0.0001f) continue;
+
+            const bool srcBip = isBipolarSource(s.src);
+            float v = src[(size_t)s.src];
+            if (s.uni) { if (srcBip) v = (v + 1.0f) * 0.5f; }
+            else       { if (!srcBip) v = v * 2.0f - 1.0f; }
+            outAccum[(size_t)s.dst] += v * s.amt;
+
+            if (outMin && outMax)
+            {
+                const float lo = s.uni ? 0.0f : -1.0f;
+                const float hi = 1.0f;
+                const float c1 = lo * s.amt, c2 = hi * s.amt;
+                (*outMin)[(size_t)s.dst] += juce::jmin(c1, c2);
+                (*outMax)[(size_t)s.dst] += juce::jmax(c1, c2);
+            }
+        }
+    }
+
+    void evaluateVoice(VoiceModState& v, const Params& p) noexcept
+    {
+        std::array<float, NumSrcs> vSrc {};
+        for (int i = 0; i < kNumLfos; ++i)
+            vSrc[(size_t)(SrcLfo1 + i)] = cachedLfoSrc[(size_t)i];
+        for (int i = 0; i < kNumEnvs; ++i)
+            vSrc[(size_t)(SrcEnv1 + i)] = v.envState[(size_t)i].value;
+        vSrc[SrcVelocity]   = v.velocity;
+        vSrc[SrcNote]       = v.noteNorm;
+        vSrc[SrcModWheel]   = modWheel;
+        vSrc[SrcRandom]     = v.randomSH;
+        vSrc[SrcAftertouch] = v.aftertouch;
+        evaluateSlots(p, vSrc, v.voiceAccum, nullptr, nullptr);
+    }
+
     float lfoValue(const LfoState& st, int wave) const noexcept
     {
         const float ph = (float)st.phase;
@@ -408,10 +572,15 @@ private:
     double sampleRate = 44100.0;
     std::array<LfoState, kNumLfos> lfoState;
     std::array<EnvState, kNumEnvs> envState;
+    std::array<VoiceModState, kMaxVoices> voiceStates;
+    std::array<float, kNumLfos> cachedLfoSrc {};
+    Params lastParams;
+    bool hasLastParams = false;
 
     float velocity = 0.8f;
     float noteNorm = 0.5f;
     float modWheel = 0.0f;
+    float aftertouch = 0.0f;
     float randomSH = 0.5f;
     int   heldNotes = 0;      // 押下中ノート数 (ゲート判定)
     bool  gate = false;       // heldNotes > 0

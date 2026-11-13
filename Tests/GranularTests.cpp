@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 #include "Presets/PresetData.h"
 #include "DSP/ScaleQuantizer.h"
 
@@ -1294,6 +1295,407 @@ void testClicklessDryPreviewRamp()
 
     tmpWav.deleteFile();
 }
+
+void testGrainAtlasTimbreScrubAndZeroCrossAndLocalPitch()
+{
+    std::cout << "Running testGrainAtlasTimbreScrubAndZeroCrossAndLocalPitch...\n";
+    constexpr double sr = 44100.0;
+    constexpr int halfLen = 22050;
+    constexpr int totalLen = halfLen * 2;
+    juce::AudioBuffer<float> buf(2, totalLen);
+
+    // First half: pure 220 Hz sine (A3 = MIDI 57), dark timbre
+    // Second half: rich 3200 Hz harmonic + transient step, bright timbre
+    for (int i = 0; i < totalLen; ++i)
+    {
+        float v = 0.0f;
+        if (i < halfLen)
+        {
+            v = 0.5f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * (float)i / (float)sr);
+        }
+        else
+        {
+            const float ph = juce::MathConstants<float>::twoPi * 3200.0f * (float)(i - halfLen) / (float)sr;
+            v = 0.45f * std::sin(ph) + 0.25f * std::sin(ph * 2.0f);
+        }
+        buf.setSample(0, i, v);
+        buf.setSample(1, i, v);
+    }
+
+    GrainAtlas atlas;
+    atlas.buildFrom(buf, sr, 0, totalLen);
+    check(atlas.valid, "GrainAtlas must be marked valid after buildFrom");
+    check(atlas.frames.size() >= 10 && atlas.frames.size() <= 2048, "GrainAtlas frame count should stay bounded");
+
+    const auto* dark = atlas.findBestFrame(0.05f, 0, totalLen, 1u);
+    const auto* bright = atlas.findBestFrame(0.95f, 0, totalLen, 1u);
+    check(dark != nullptr && bright != nullptr, "Atlas findBestFrame must return valid frames");
+    if (dark && bright)
+    {
+        check(dark->samplePos < halfLen, "Target timbre 0.05 should land in low-frequency first half");
+        check(bright->samplePos >= halfLen - 1024, "Target timbre 0.95 should land in high-frequency second half");
+        check(dark->timbre < bright->timbre, "Dark timbre frame must score lower than bright frame");
+        check(dark->hasPitch, "220Hz sine frame should detect local pitch");
+        check(std::abs(dark->localMidi - 57.0f) < 1.0f,
+              ("Local F0 in 220Hz region should match A3 (57), got " + std::to_string(dark->localMidi)).c_str());
+
+        // Verify zero-crossing point accuracy on 220Hz sine region
+        const int zc = dark->zeroCrossPos;
+        if (zc > 0 && zc < totalLen)
+        {
+            const float cur  = buf.getSample(0, zc);
+            const float prev = buf.getSample(0, zc - 1);
+            check(prev <= 0.001f && cur >= -0.001f, "ZeroCrossPos should sit at an upward zero crossing");
+        }
+    }
+
+    // End-to-end GranularSynth timbre scrub test
+    auto measureZcr = [&](float targetTimbre) -> float
+    {
+        GranularSynth synth;
+        synth.prepareToPlay(sr, 512);
+        GranularParams p;
+        p.grainSize = 0.08f;
+        p.density = 0.4f;
+        p.timbreAmt = 1.0f;
+        p.timbreScrub = targetTimbre;
+        p.attack = 0.001f;
+        p.rootNote = 57;
+
+        juce::AudioBuffer<float> out(2, 512);
+        int zcCount = 0;
+        float prevS = 0.0f;
+        for (int blk = 0; blk < 12; ++blk)
+        {
+            out.clear();
+            juce::MidiBuffer midi;
+            if (blk == 0) midi.addEvent(juce::MidiMessage::noteOn(1, 57, 1.0f), 0);
+            synth.processBlock(out, midi, &buf, 0, totalLen, p, nullptr, &atlas, nullptr);
+            if (blk >= 3)
+            {
+                const float* ch0 = out.getReadPointer(0);
+                for (int s = 0; s < 512; ++s)
+                {
+                    if ((prevS <= 0.0f && ch0[s] > 0.0f) || (prevS >= 0.0f && ch0[s] < 0.0f))
+                        ++zcCount;
+                    prevS = ch0[s];
+                }
+            }
+        }
+        return (float)zcCount;
+    };
+
+    const float zcrDark = measureZcr(0.05f);
+    const float zcrBright = measureZcr(0.95f);
+    check(zcrBright > zcrDark * 2.5f,
+          ("Timbre scrub 0.95 ZCR (" + std::to_string(zcrBright) + ") must far exceed dark 0.05 ZCR (" + std::to_string(zcrDark) + ")").c_str());
+}
+
+void testWsolaPhaseAlignmentAndPsolaFormantPreservation()
+{
+    std::cout << "Running testWsolaPhaseAlignmentAndPsolaFormantPreservation...\n";
+    constexpr double sr = 48000.0;
+    constexpr int len = 48000;
+    juce::AudioBuffer<float> src(2, len);
+
+    // Rich harmonic signal shaped around ~1200 Hz formant @ F0 = 130.81 Hz (C3 = MIDI 48)
+    for (int i = 0; i < len; ++i)
+    {
+        float v = 0.0f;
+        for (int h = 6; h <= 14; ++h)
+            v += std::sin(juce::MathConstants<float>::twoPi * (130.8128f * (float)h) * (float)i / (float)sr);
+        v *= 0.08f;
+        src.setSample(0, i, v);
+        src.setSample(1, i, v);
+    }
+
+    GrainAtlas atlas;
+    atlas.buildFrom(src, sr, 0, len);
+
+    // WSOLA render stability & energy
+    {
+        GranularSynth synth;
+        synth.prepareToPlay(sr, 512);
+        GranularParams p;
+        p.engineMode = 1; // WSOLA
+        p.rootNote = 48;
+        p.grainSize = 0.08f;
+        p.density = 0.5f;
+        p.attack = 0.002f;
+
+        juce::AudioBuffer<float> out(2, 512);
+        double energy = 0.0;
+        for (int blk = 0; blk < 12; ++blk)
+        {
+            out.clear();
+            juce::MidiBuffer midi;
+            if (blk == 0) midi.addEvent(juce::MidiMessage::noteOn(1, 55, 1.0f), 0); // G3
+            synth.processBlock(out, midi, &src, 0, len, p, nullptr, &atlas, nullptr);
+            for (int s = 0; s < 512; ++s)
+                energy += (double)out.getSample(0, s) * (double)out.getSample(0, s);
+            check(isFiniteFloat(out.getSample(0, 256)), "WSOLA output must stay finite");
+        }
+        check(energy > 0.1, "WSOLA engine must output solid audible energy");
+    }
+
+    // TD-PSOLA Formant Shift independence test
+    auto measurePsolaZcr = [&](float formantShiftSt) -> float
+    {
+        GranularSynth synth;
+        synth.prepareToPlay(sr, 512);
+        GranularParams p;
+        p.engineMode = 2; // TD-PSOLA
+        p.formantShift = formantShiftSt;
+        p.rootNote = 48;
+        p.attack = 0.002f;
+
+        juce::AudioBuffer<float> out(2, 512);
+        int zc = 0;
+        float prevS = 0.0f;
+        for (int blk = 0; blk < 14; ++blk)
+        {
+            out.clear();
+            juce::MidiBuffer midi;
+            if (blk == 0) midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0); // +12st trigger rate
+            synth.processBlock(out, midi, &src, 0, len, p, nullptr, &atlas, nullptr);
+            if (blk >= 4)
+            {
+                const float* d = out.getReadPointer(0);
+                for (int s = 0; s < 512; ++s)
+                {
+                    if ((prevS <= 0.0f && d[s] > 0.0f) || (prevS >= 0.0f && d[s] < 0.0f)) ++zc;
+                    prevS = d[s];
+                }
+            }
+        }
+        return (float)zc;
+    };
+
+    const float zcrDown = measurePsolaZcr(-10.0f);
+    const float zcrUp   = measurePsolaZcr(+10.0f);
+    check(zcrUp > zcrDown * 1.4f,
+          ("TD-PSOLA formant shift +10st ZCR (" + std::to_string(zcrUp) + ") should exceed -10st ZCR (" + std::to_string(zcrDown) + ")").c_str());
+}
+
+void testDiatonicSwarmAndCollisionAvoidance()
+{
+    std::cout << "Running testDiatonicSwarmAndCollisionAvoidance...\n";
+    GrainSwarmScheduler sched;
+    sched.reset();
+
+    // Collision repulsion test
+    const float first  = sched.resolveCollisionAndRecord(0.500f, 60.0f, 0.004f, true);
+    const float second = sched.resolveCollisionAndRecord(0.500f, 60.0f, 0.004f, true);
+    check(std::abs(first - 0.500f) < 1.0e-5f, "First grain at empty slot should not be repelled");
+    check(std::abs(second - 0.500f) >= 0.004f, "Colliding (pos, pitch) grain must be repelled");
+
+    // Diatonic Swarm interval compliance test (C Major: {0, 2, 4, 5, 7, 9, 11})
+    FastRandom rng;
+    rng.setSeed(42u);
+    auto isCMajor = [](int midi)
+    {
+        const int pc = ((midi % 12) + 12) % 12;
+        return pc == 0 || pc == 2 || pc == 4 || pc == 5 || pc == 7 || pc == 9 || pc == 11;
+    };
+    int harmonicCount = 0;
+    for (int i = 0; i < 400; ++i)
+    {
+        bool isHarm = false;
+        const float off = GrainSwarmScheduler::computeSwarmInterval(1.0f, 0, 1, 60.0f, rng, isHarm); // C Major
+        if (isHarm) ++harmonicCount;
+        const int resulting = juce::roundToInt(60.0f + off);
+        check(isCMajor(resulting), ("Swarm pitch " + std::to_string(resulting) + " must stay strictly inside C Major").c_str());
+    }
+    check(harmonicCount > 150 && harmonicCount < 380, "Swarm at Mix=1.0 should generate balanced harmonic layers");
+}
+
+void testPerGrainSvfSkewChirpAndPolyModMatrix()
+{
+    std::cout << "Running testPerGrainSvfSkewChirpAndPolyModMatrix...\n";
+    // 1. Polyphonic ModMatrix isolation test
+    ModMatrix mod;
+    mod.prepare(48000.0);
+    ModMatrix::Params mp;
+    mp.env[0].attack = 0.02f;
+    mp.env[0].decay = 0.2f;
+    mp.env[0].sustain = 0.8f;
+    mp.env[0].release = 0.1f;
+    mp.slot[0].src = ModMatrix::SrcVelocity;
+    mp.slot[0].dst = ModMatrix::DstGrainFilterFreq;
+    mp.slot[0].amt = 1.0f;
+    mp.slot[0].uni = true;
+    mp.slot[1].src = ModMatrix::SrcEnv1;
+    mp.slot[1].dst = ModMatrix::DstPosition;
+    mp.slot[1].amt = 1.0f;
+    mp.slot[1].uni = true;
+
+    mod.processBlock(256, mp);
+    mod.noteOn(0, 48, 0.2f);
+    mod.noteOn(1, 72, 1.0f);
+    for (int b = 0; b < 6; ++b)
+        mod.processBlock(256, mp);
+
+    check(mod.getForVoice(1, ModMatrix::DstGrainFilterFreq) > mod.getForVoice(0, ModMatrix::DstGrainFilterFreq) + 0.5f,
+          "Polyphonic Velocity mod must isolate Voice 1 (vel 1.0) vs Voice 0 (vel 0.2)");
+
+    // Release voice 0 while holding voice 1: voice 0 Env1 must drop while voice 1 stays rising/held
+    mod.noteOff(0);
+    for (int b = 0; b < 30; ++b)
+        mod.processBlock(256, mp);
+    check(mod.getForVoice(0, ModMatrix::DstPosition) < mod.getForVoice(1, ModMatrix::DstPosition) - 0.2f,
+          "Released Voice 0 per-voice Env1 must decay independently of held Voice 1");
+
+    // 2. Per-Grain SVF (LP vs HP) + Skew + Chirp test
+    constexpr double sr = 48000.0;
+    juce::AudioBuffer<float> src(2, 24000);
+    for (int i = 0; i < 24000; ++i)
+    {
+        // Multi-frequency source (120 Hz + 3600 Hz)
+        const float v = 0.4f * std::sin(juce::MathConstants<float>::twoPi * 120.0f * (float)i / (float)sr)
+                      + 0.4f * std::sin(juce::MathConstants<float>::twoPi * 3600.0f * (float)i / (float)sr);
+        src.setSample(0, i, v);
+        src.setSample(1, i, v);
+    }
+
+    auto measureFilterModeZcr = [&](int filterMode, float cutoffHz, float skewVal, float chirpSt) -> float
+    {
+        GranularSynth synth;
+        synth.prepareToPlay(sr, 512);
+        GranularParams p;
+        p.grainSize = 0.1f;
+        p.density = 0.4f;
+        p.grainFilterMode = filterMode;
+        p.grainFilterFreq = cutoffHz;
+        p.grainFilterRes = 1.2f;
+        p.grainSkew = skewVal;
+        p.grainChirp = chirpSt;
+        p.attack = 0.001f;
+
+        juce::AudioBuffer<float> out(2, 512);
+        int zc = 0;
+        float prevS = 0.0f;
+        for (int blk = 0; blk < 10; ++blk)
+        {
+            out.clear();
+            juce::MidiBuffer midi;
+            if (blk == 0) midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+            synth.processBlock(out, midi, &src, 0, 24000, p);
+            if (blk >= 3)
+            {
+                const float* d = out.getReadPointer(0);
+                for (int s = 0; s < 512; ++s)
+                {
+                    if ((prevS <= 0.0f && d[s] > 0.0f) || (prevS >= 0.0f && d[s] < 0.0f)) ++zc;
+                    prevS = d[s];
+                }
+            }
+        }
+        return (float)zc;
+    };
+
+    const float zcrLP = measureFilterModeZcr(1, 280.0f, -0.7f, 0.0f);   // LP @ 280 Hz
+    const float zcrHP = measureFilterModeZcr(3, 1800.0f, 0.7f, 6.0f);  // HP @ 1800 Hz + Chirp +6st
+    check(zcrHP > zcrLP * 2.5f,
+          ("Per-Grain SVF HP ZCR (" + std::to_string(zcrHP) + ") must exceed LP ZCR (" + std::to_string(zcrLP) + ")").c_str());
+}
+
+void testModalResonatorScaleTuningAndDamping()
+{
+    std::cout << "Running testModalResonatorScaleTuningAndDamping...\n";
+    ModalResonatorBank bank;
+    bank.prepare(48000.0);
+
+    // 1. Verify Scale Mode tunes all 8 modes strictly to C Major scale notes
+    ModalResonatorBank::Params mp;
+    mp.mix = 1.0f;
+    mp.decaySec = 2.0f;
+    mp.damp = 0.1f;
+    mp.inharm = 0.0f;
+    mp.ratioMode = ModalResonatorBank::ModeScale;
+    mp.baseMidi = 48.0f; // C2
+    mp.scaleRoot = 0;    // C
+    mp.scaleIdx = 1;     // Major (Ionian)
+
+    juce::AudioBuffer<float> buf(2, 512);
+    buf.clear();
+    buf.setSample(0, 0, 1.0f);
+    buf.setSample(1, 0, 1.0f);
+    bank.processBlock(buf, mp);
+
+    const auto freqs = bank.getCurrentModeFreqsHz();
+    for (int m = 0; m < ModalResonatorBank::kNumModes; ++m)
+    {
+        const float midi = 69.0f + 12.0f * std::log2(freqs[(size_t)m] / 440.0f);
+        const int noteInt = juce::roundToInt(midi);
+        const int pc = ((noteInt % 12) + 12) % 12;
+        const bool inMaj = (pc == 0 || pc == 2 || pc == 4 || pc == 5 || pc == 7 || pc == 9 || pc == 11);
+        check(inMaj && std::abs(midi - (float)noteInt) < 0.05f,
+              ("Modal mode " + std::to_string(m) + " (" + std::to_string(freqs[(size_t)m]) + " Hz) must lock to C Major").c_str());
+    }
+
+    // 2. Verify Inharmonicity dispersion pushes upper modes sharp
+    mp.ratioMode = ModalResonatorBank::ModeHarmonic;
+    mp.inharm = 1.0f;
+    buf.clear();
+    bank.processBlock(buf, mp);
+    const auto freqsInharm = bank.getCurrentModeFreqsHz();
+    check(freqsInharm[7] > freqsInharm[0] * 8.05f,
+          "Modal inharmonicity must stretch high mode frequency above strict harmonic multiple");
+
+    // 3. Verify T60 decay ring-out vs fast damp
+    auto runDecayMeasure = [](float decaySec) -> float
+    {
+        ModalResonatorBank b;
+        b.prepare(48000.0);
+        ModalResonatorBank::Params p;
+        p.mix = 1.0f;
+        p.decaySec = decaySec;
+        p.damp = 0.2f;
+        p.ratioMode = ModalResonatorBank::ModeHarmonic;
+        p.baseMidi = 57.0f;
+
+        juce::AudioBuffer<float> blk(2, 512);
+        blk.clear();
+        blk.setSample(0, 0, 1.0f);
+        blk.setSample(1, 0, 1.0f);
+        b.processBlock(blk, p);
+
+        double tailE = 0.0;
+        for (int n = 1; n <= 40; ++n) // ~425 ms
+        {
+            blk.clear();
+            b.processBlock(blk, p);
+            if (n >= 35)
+            {
+                for (int s = 0; s < 512; ++s)
+                    tailE += (double)blk.getSample(0, s) * (double)blk.getSample(0, s);
+            }
+        }
+        return (float)tailE;
+    };
+
+    const float tailShort = runDecayMeasure(0.08f);
+    const float tailLong  = runDecayMeasure(2.50f);
+    check(tailLong > tailShort * 10.0f && tailLong > 1.0e-4f,
+          "Long modal T60 decay must sustain resonant tail far longer than short decay");
+}
+
+void testEditorPhase4EnginePanelRendersWithoutError()
+{
+    std::cout << "Running testEditorPhase4EnginePanelRendersWithoutError...\n";
+    auto proc = std::make_unique<GranularAudioProcessor>();
+    proc->prepareToPlay(48000.0, 256);
+
+    check(proc->apvts.getRawParameterValue("engineMode") != nullptr, "APVTS must contain engineMode");
+    check(proc->apvts.getRawParameterValue("formantShift") != nullptr, "APVTS must contain formantShift");
+    check(proc->apvts.getRawParameterValue("modalMix") != nullptr, "APVTS must contain modalMix");
+    check(proc->apvts.getRawParameterValue("grainFilterMode") != nullptr, "APVTS must contain grainFilterMode");
+
+    std::unique_ptr<juce::AudioProcessorEditor> ed(proc->createEditor());
+    check(ed != nullptr, "PluginEditor including EnginePanel must construct cleanly");
+    if (ed != nullptr)
+        ed->setSize(1080, 640);
+}
 } // namespace
 
 int main()
@@ -1329,6 +1731,12 @@ int main()
         testMipMapAntiAliasingPitchUp();
         testLookAheadLimiterZeroOvershootAndLatency();
         testClicklessDryPreviewRamp();
+        testGrainAtlasTimbreScrubAndZeroCrossAndLocalPitch();
+        testWsolaPhaseAlignmentAndPsolaFormantPreservation();
+        testDiatonicSwarmAndCollisionAvoidance();
+        testPerGrainSvfSkewChirpAndPolyModMatrix();
+        testModalResonatorScaleTuningAndDamping();
+        testEditorPhase4EnginePanelRendersWithoutError();
     }
     catch (const std::exception& e)
     {
@@ -1346,6 +1754,6 @@ int main()
         std::cerr << "\nTOTAL FAILURES: " << gFailures << "\n";
         return 1;
     }
-    std::cerr << "\nALL GRANULAR PHASE 1, 2 & 3 TESTS PASSED!\n";
+    std::cerr << "\nALL GRANULAR PHASE 1, 2, 3 & 4 TESTS PASSED!\n";
     return 0;
 }

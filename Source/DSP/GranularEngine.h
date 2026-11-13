@@ -22,6 +22,9 @@
 
 #include "ScaleQuantizer.h"
 #include "GrainVisualizerData.h"
+#include "ModalResonator.h"
+
+class ModMatrix;
 
 // IEEE-754 ビットパターン判定で /fp:fast 環境下でも確実に NaN / Inf を検出
 inline bool isFiniteFloat(float x) noexcept
@@ -110,6 +113,29 @@ struct GranularParams
     // SR補償: バッファ作成時SR / ホストSR。
     // DAWのSR変更時(44.1k-192k)でもピッチと速度を不変に保つ
     float srComp = 1.0f;
+
+    // --- Phase 4: Commercial-Surpassing Engine & Sculpting ---
+    int   engineMode = 0;           // 0=Granular, 1=WSOLA, 2=TD-PSOLA
+    float formantShift = 0.0f;      // -12..+12 semitones (PSOLA spectral envelope shift)
+
+    float timbreScrub = 0.5f;       // 0..1 Concatenative Atlas target brightness
+    float timbreAmt = 0.0f;         // 0..1 Attract position to Atlas timbre match
+    float atlasPitchLock = 0.0f;    // 0..1 Per-grain F0 flattening/tracking from Atlas
+
+    float swarmMix = 0.0f;          // 0..1 Diatonic harmonic swarm blend
+
+    float grainSkew = 0.0f;         // -1..+1 Window skew (percussive vs reverse swell)
+    float grainChirp = 0.0f;        // -12..+12 semitones pitch glide per grain
+    int   grainFilterMode = 0;      // 0=Off, 1=LP, 2=BP, 3=HP, 4=Notch
+    float grainFilterFreq = 20000.0f; // Hz
+    float grainFilterRes = 0.7f;    // Q 0.1..10
+    float grainFilterJitter = 0.0f; // 0..1 per-grain random cutoff spread
+
+    float modalMix = 0.0f;          // 0..1 Modal Resonator Bank mix
+    float modalDecay = 0.8f;        // 0.05..5.0 sec T60
+    float modalDamp = 0.4f;         // 0..1 High-mode damping
+    float modalInharm = 0.0f;       // 0..1 Stiffness dispersion
+    int   modalRatioMode = 0;       // 0=Scale, 1=Harmonic, 2=Marimba, 3=Bell, 4=Plate
 };
 
 // ==========================================
@@ -448,6 +474,117 @@ struct SampleMipLevels
 };
 
 // ==========================================
+// Concatenative Grain Atlas (Breakthrough 1)
+//  Ingestスレッドで音色・トランジェント・局所ピッチ・ゼロクロス位置を解析し、
+//  Audioスレッドでは O(log N) 二分探索でゼロアロケーション検索する。
+// ==========================================
+struct AtlasFrame
+{
+    int   samplePos = 0;      // 解析フレーム中心 (サンプル)
+    int   zeroCrossPos = 0;   // 近傍の上向きゼロクロス点
+    float timbre = 0.5f;      // 正規化スペクトル明度 [0..1]
+    float rms = 0.0f;         // 局所RMS [0..1]
+    float onsetScore = 0.0f;  // 過渡スコア [0..1]
+    float localMidi = 60.0f;  // 局所F0 (連続MIDI値)
+    bool  hasPitch = false;   // 有効な周期性が検出されたか
+};
+
+struct GrainAtlas
+{
+    std::vector<AtlasFrame> frames;
+    std::vector<int>        timbreOrder; // `frames` の timbre 昇順インデックス
+    int  hopSamples = 512;
+    int  trimStartRef = 0;
+    bool valid = false;
+
+    void clear()
+    {
+        frames.clear();
+        timbreOrder.clear();
+        hopSamples = 512;
+        trimStartRef = 0;
+        valid = false;
+    }
+
+    void buildFrom(const juce::AudioBuffer<float>& buf, double sr, int trimStart, int trimEnd);
+
+    /// O(log N) binary search + bounded local window matching `[trimStart, trimEnd)`.
+    const AtlasFrame* findBestFrame(float targetTimbre, int trimStart, int trimEnd, uint32_t seed) const noexcept;
+
+    /// O(1) positional lookup in monotonically ordered `frames`.
+    const AtlasFrame* findNearestPosFrame(double pos, int trimStart, int trimEnd) const noexcept;
+};
+
+// ==========================================
+// Diatonic Swarm & Collision-Avoidance Scheduler (Breakthrough 3)
+// ==========================================
+class GrainSwarmScheduler
+{
+public:
+    static constexpr int kRingCap = 128;
+
+    void reset() noexcept
+    {
+        for (auto& e : ring) e = {};
+        writeSeq = 0;
+    }
+
+    /// Nudges `(normPos)` away from recently spawned identical `(pos, pitch)` grains and records the spawn.
+    float resolveCollisionAndRecord(float normPos, float midiPitch, float minDist, bool allowRepel) noexcept
+    {
+        float resolvedPos = juce::jlimit(0.0f, 1.0f, normPos);
+        if (allowRepel && writeSeq > 0)
+        {
+            const uint32_t window = juce::jmin<uint32_t>(16u, writeSeq);
+            for (int attempt = 0; attempt < 3; ++attempt)
+            {
+                bool collided = false;
+                for (uint32_t k = 1; k <= window; ++k)
+                {
+                    const auto& prev = ring[(size_t)((writeSeq - k) & (uint32_t)(kRingCap - 1))];
+                    if (std::abs(resolvedPos - prev.normPos) < minDist
+                        && std::abs(midiPitch - prev.midiPitch) < 0.35f)
+                    {
+                        collided = true;
+                        break;
+                    }
+                }
+                if (!collided) break;
+                resolvedPos += ((attempt & 1) == 0 ? 1.35f : -2.1f) * minDist;
+                resolvedPos -= std::floor(resolvedPos); // wrap cleanly into [0, 1)
+            }
+        }
+
+        ring[(size_t)(writeSeq & (uint32_t)(kRingCap - 1))] = { resolvedPos, midiPitch, writeSeq };
+        ++writeSeq;
+        return resolvedPos;
+    }
+
+    /// Returns a strictly scale-locked diatonic interval shift (semitones) for swarm grains.
+    static float computeSwarmInterval(float swarmMix, int rootNote, int scaleIdx,
+                                      float baseSemis, FastRandom& rng, bool& isHarmonic) noexcept
+    {
+        isHarmonic = false;
+        if (swarmMix <= 0.001f) return 0.0f;
+
+        if (rng.nextFloat() < 0.72f * swarmMix)
+        {
+            static constexpr float kIntervals[6] = { 7.0f, 12.0f, 4.0f, -12.0f, 19.0f, -5.0f };
+            const float rawOff = kIntervals[rng.nextInt(6)];
+            const float quantized = ScaleQuantizer::quantize(baseSemis + rawOff, rootNote, scaleIdx);
+            isHarmonic = true;
+            return quantized - baseSemis;
+        }
+        return 0.0f;
+    }
+
+private:
+    struct Entry { float normPos = 0.0f; float midiPitch = 60.0f; uint32_t seq = 0; };
+    std::array<Entry, kRingCap> ring {};
+    uint32_t writeSeq = 0;
+};
+
+// ==========================================
 // グレイン
 // ==========================================
 struct Grain
@@ -455,6 +592,8 @@ struct Grain
     bool   isActive = false;
     double position = 0.0;        // ソース内の読み出し位置（サンプル）
     double step = 1.0;            // 1出力サンプルあたりの前進量（符号込み）
+    double stepStart = 1.0;       // Chirp 開始速度
+    double stepEnd = 1.0;         // Chirp 終了速度
     int    age = 0;
     int    life = 0;
     float  panL = 0.7f;
@@ -463,6 +602,12 @@ struct Grain
     double trimStart = 0.0;       // スポーン時のStart位置
     double trimEnd = 0.0;         // スポーン時のEnd位置
     float  mipLevel = 0.0f;       // 再生速度比に応じたMip-Mapレベル (0=1x .. 4=16x)
+    float  skew = 0.0f;           // -1..+1 窓スキュー
+
+    // Per-grain TPT SVF (coef precomputed in spawnGrain)
+    int   svfMode = 0;
+    float svfK = 1.0f, svfA1 = 0.0f, svfA2 = 0.0f, svfA3 = 0.0f;
+    float ic1L = 0.0f, ic2L = 0.0f, ic1R = 0.0f, ic2R = 0.0f;
 };
 
 // ==========================================
@@ -472,6 +617,9 @@ class GranularVoice
 {
 public:
     GranularVoice() = default;
+
+    void setVoiceIndex(int idx) noexcept { voiceIndex = idx; }
+    int  getVoiceIndex() const noexcept { return voiceIndex; }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock);
     void releaseResources();
@@ -493,7 +641,9 @@ public:
                          const std::array<std::array<float, 4096>, 4>& windowTables,
                          const GranularParams& p,
                          GrainVisualizerData* visualizer,
-                         int& spawnBudget);
+                         int& spawnBudget,
+                         const GrainAtlas* atlas = nullptr,
+                         GrainSwarmScheduler* swarm = nullptr);
 
     int getActiveGrainCount() const noexcept
     {
@@ -508,10 +658,13 @@ public:
 private:
     void spawnGrain(int trimStart, int trimEnd,
                     double currentPlayhead, const GranularParams& p,
-                    float overlap, int baseLife,
-                    GrainVisualizerData* visualizer, int& spawnBudget);
+                    float overlap, int baseLife, double expectedInterval,
+                    const juce::AudioBuffer<float>* sharedSourceBuffer,
+                    GrainVisualizerData* visualizer, int& spawnBudget,
+                    const GrainAtlas* atlas, GrainSwarmScheduler* swarm);
 
     double currentSampleRate = 44100.0;
+    int    voiceIndex = 0;
     int    currentMidiNote = -1;
     bool   playing = false;
     bool   heldDown = false;
@@ -527,11 +680,12 @@ private:
     double smoothedPos01 = 0.0;     // Position のサンプル単位グライド（急ジャンプ→バースト防止）
     double currentSprayTarget = 0.0;
     double currentSprayValue = 0.0;
+    double wsolaExpectedNextPos = -1.0; // WSOLA 位相整列用リファレンス位置
 
     PadEnvelope env;
 
     static constexpr int MAX_GRAINS = 100;   // Quanta 2 同等の1ボイス上限
-    std::array<Grain, MAX_GRAINS> grains;
+    std::vector<Grain> grains { (size_t) MAX_GRAINS };
 
     FastRandom random;
     juce::AudioBuffer<float> voiceInternalBuffer;
@@ -565,7 +719,9 @@ public:
                       const juce::AudioBuffer<float>* sharedSourceBuffer,
                       int trimStart, int trimEnd,
                       const GranularParams& p,
-                      const SampleMipLevels* mipLevels = nullptr);
+                      const SampleMipLevels* mipLevels = nullptr,
+                      const GrainAtlas* atlas = nullptr,
+                      ModMatrix* modMatrix = nullptr);
 
     void allNotesOff()
     {
@@ -581,10 +737,15 @@ public:
                 svfHP[ch][st].reset();
                 svfLP[ch][st].reset();
             }
+        swarmScheduler.reset();
+        modalResonator.reset();
         prevOutGain = 0.0f;
         hasPrevParams = false;
+        lastTriggeredNote = 60;
         playheadDisplay.store(-1.0f);
     }
+
+    const ModalResonatorBank& getModalResonator() const noexcept { return modalResonator; }
 
     GrainVisualizerData visualizer;
     std::atomic<float> playheadDisplay { -1.0f }; // 最新ボイスの実プレイヘッド (GUI用)
@@ -593,16 +754,22 @@ public:
     static constexpr int MAX_TOTAL_GRAINS = 1200; // 全ボイス合計のCPUバジェット
 
 private:
-    void handleMidiMessage(const juce::MidiMessage& msg, const GranularParams& p);
+    void handleMidiMessage(const juce::MidiMessage& msg, const GranularParams& p, ModMatrix* modMatrix);
     void renderVoicesRange(juce::AudioBuffer<float>& subBuf,
                            const juce::AudioBuffer<float>* src,
                            const SampleMipLevels* mipLevels,
+                           const GrainAtlas* atlas,
+                           ModMatrix* modMatrix,
                            int trimStart, int trimEnd,
-                           const GranularParams& p);
+                           const GranularParams& baseP,
+                           const GranularParams& subP);
     void generateWindowTables();
 
     std::array<GranularVoice, NUM_VOICES> voices;
     std::array<std::array<float, 4096>, 4> windowTables;
+
+    GrainSwarmScheduler swarmScheduler;
+    ModalResonatorBank  modalResonator;
 
     // マスターフィルタ: [ch][stage] (stage1は24dB/oct Butterworth Q2=1.30656296)
     TptSvf svfHP[2][2];
@@ -611,6 +778,7 @@ private:
     GranularParams prevParams;
     bool  hasPrevParams = false;
     float prevOutGain = 0.0f;   // 出力ゲインのランプ用
+    int   lastTriggeredNote = 60;
 
     double currentSampleRate = 44100.0;
     uint64_t noteCounter = 0;

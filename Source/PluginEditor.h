@@ -10,6 +10,7 @@
 #include "GUI/ArcDial.h"
 #include "GUI/DotWaveformDisplay.h"
 #include "GUI/MainPanel.h"
+#include "GUI/EnginePanel.h"
 #include "GUI/ArpPanel.h"
 #include "GUI/ConfigPanel.h"
 #include "GUI/FxPanel.h"
@@ -28,7 +29,7 @@ public:
     void resized() override;
 
 private:
-    enum class Tab { Main, Arp, Mod, Fx, Config };
+    enum class Tab { Main, Engine, Arp, Mod, Fx, Config };
 
     void timerCallback() override;
     void setActiveTab(Tab t);
@@ -59,6 +60,7 @@ private:
 
     // --- タブ ---
     juce::TextButton mainTabButton   { "MAIN" };
+    juce::TextButton engineTabButton { "ENGINE" };
     juce::TextButton arpTabButton    { "ARP" };
     juce::TextButton modTabButton    { "MOD" };
     juce::TextButton fxTabButton     { "FX" };
@@ -66,6 +68,7 @@ private:
     Tab activeTab = Tab::Main;
 
     MainPanel mainPanel;
+    EnginePanel enginePanel;
     ArpPanel arpPanel;
     ConfigPanel configPanel;
     FxPanel fxPanel;

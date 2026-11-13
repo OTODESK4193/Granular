@@ -9,19 +9,20 @@
 1. [Make a sound](#1-make-a-sound)
 2. [Layout & Operations](#2-layout--operations)
 3. [MAIN tab](#3-main-tab)
-4. [ARP tab (Arpeggiator & Scale Quantizer)](#4-arp-tab-arpeggiator--scale-quantizer)
-5. [MOD tab (Modulation Matrix)](#5-mod-tab-modulation-matrix)
-6. [FX tab (Effect Rack)](#6-fx-tab-effect-rack)
-7. [CONFIG tab](#7-config-tab)
-8. [Preset Browser](#8-preset-browser)
-9. [Tips & Troubleshooting](#9-tips--troubleshooting)
+4. [ENGINE tab (Phase 4 Engine & Modal Resonator)](#4-engine-tab-phase-4-engine--modal-resonator)
+5. [ARP tab (Arpeggiator & Euclidean Rhythm)](#5-arp-tab-arpeggiator--euclidean-rhythm)
+6. [MOD tab (Polyphonic Modulation Matrix)](#6-mod-tab-polyphonic-modulation-matrix)
+7. [FX tab (Effect Rack)](#7-fx-tab-effect-rack)
+8. [CONFIG tab](#8-config-tab)
+9. [Preset Browser](#9-preset-browser)
+10. [Tips & Troubleshooting](#10-tips--troubleshooting)
 
 ---
 
 ## 1. Make a sound
 
 **OTODESK / 24-voice Scale-Quantized Granular Synth (VST3 / Standalone)**  
-**Version:** v1.0.1 (Build 011)
+**Version:** v1.1.0 (Build 015)
 
 GRANULAR breaks incoming audio into tiny "grains" and reconstructs them into new musical forms. Even noise or raw field recordings become fully playable instruments in perfect key, powered by a post-modulation scale quantizer, a 16-slot modulation matrix, an arpeggiator, a 5-slot FX rack, and 120 factory presets.
 
@@ -50,15 +51,16 @@ GRANULAR breaks incoming audio into tiny "grains" and reconstructs them into new
 ## 2. Layout & Operations
 
 The **dot waveform display** is permanently visible at the top (frequencies are mapped to color: warm = bass, cool = treble; grain firings dance on it in real time).  
-Below are **5 tabs** that switch the lower panel:
+Below are **6 tabs** that switch the lower panel:
 
 | Tab | Contents |
 |-----|----------|
-| **MAIN** | Grain generator, Pitch, ADSR envelope, SAMPLE (Position/Start/End), MOTION, Master |
-| **ARP** | Arpeggiator + Scale Quantizer (Key/Scale/ScaleNote preview) + Texture |
-| **MOD** | Modulation sources (LFO ×4, Env ×3) and 16-slot matrix |
+| **MAIN** | Grain generator, Pitch, ADSR envelope, SAMPLE (Position/Start/End), MOTION, Master, Look-Ahead Limiter |
+| **ENGINE** | Engine Mode (Granular/WSOLA/TD-PSOLA), Concatenative Atlas, Diatonic Swarm, Per-Grain SVF, Modal Resonator |
+| **ARP** | Arpeggiator + Euclidean Rhythm ($E(k,n,r)$) + 82-scale Quantizer |
+| **MOD** | Polyphonic Modulation sources (LFO ×4, Per-Voice Env ×3) and 16-slot matrix (77 destinations) |
 | **FX** | 5-slot drag-and-drop effect rack (exclusive selection) |
-| **CONFIG** | Material analysis mode, Limiter, Polyphony, Filter slope, Color themes |
+| **CONFIG** | Material analysis mode, Look-ahead Limiter, Polyphony, Filter slope, Color themes, GUI scaling |
 
 ### Handy Operations
 - **Window Resizing**: Drag the resize handle at the bottom-right corner to scale the plugin between **75% and 200%** with a locked aspect ratio. Window size is preserved in your DAW project.
@@ -92,7 +94,26 @@ Below are **5 tabs** that switch the lower panel:
 
 ---
 
-## 4. ARP tab (Arpeggiator & Scale Quantizer)
+## 4. ENGINE tab (Phase 4 Engine & Modal Resonator)
+
+Advanced synthesis and physical modeling modules that push beyond conventional granular synths:
+
+- **ENGINE & SWARM**:
+  - **ENGINE MODE**: Switch between `Granular`, `WSOLA` (normalized cross-correlation phase alignment), and `TD-PSOLA` (decoupled pitch & formants).
+  - **FORMANT**: Shifts spectral formants (-12 to +12 st) independently of note pitch in TD-PSOLA mode.
+  - **SWARM MIX**: Generates scale-locked harmonic grain layers with cross-voice collision avoidance.
+  - **ATLAS PITCH**: Reads per-frame local F0 from the Grain Atlas so melodic samples play chromatically in tune.
+- **CONCATENATIVE ATLAS**:
+  - **TIMBRE / ATLAS AMT**: Uses O(log N) binary search over pre-analyzed grain timbre features (plus zero-crossing snap and adaptive onset skew).
+- **GRAIN SHAPE & PER-GRAIN SVF**:
+  - **SKEW / CHIRP**: Skews grain windows continuously from percussive snap to reverse swell, and applies intra-grain pitch glides (±12 st).
+  - **FILTER MODE / CUTOFF / RESONANCE / FLT JITTER**: Per-grain Zavalishin TPT SVF (Off/LP/BP/HP/Notch) with random cutoff jitter.
+- **SCALE-TUNED MODAL RESONATOR BANK**:
+  - **RATIO MODE / MODAL MIX / DECAY / DAMPING / INHARM**: 8 stereo damped TPT modal resonators tuned to `Scale`, `Harmonic`, `Marimba`, `Bell`, or `Plate` modes with T60 damping and stiffness dispersion.
+
+---
+
+## 5. ARP tab (Arpeggiator & Euclidean Rhythm)
 
 ### Arpeggiator
 - **Pattern**: 13 patterns (Up, Down, Up-Down, Down-Up, Up-Down (Incl), Converge, Diverge, Pedal Low, Pedal High, As Played, Random, Random Walk, Chord).
@@ -100,35 +121,34 @@ Below are **5 tabs** that switch the lower panel:
 - **Octaves**: Range across 1 to 4 octaves.
 - **Duration / Gate**: Note length mode (Gate % or fixed 1/32 to 1/4 note length).
 - **Latch**: Holds the arpeggiated sequence after keys are released.
+- **Euclidean Rhythm (EUCLID / STEPS / FILLS / ROT)**: Orthogonal Bjorklund step gating (2–16 steps, 1–16 fills, 0–15 rotation).
 
 ### Scale Quantizer
 Controls the unique post-modulation scale snapping engine:
 - **SCALE QUANTIZE (Toggle)**: Enables or bypasses scale snapping.
 - **Key**: Root key (Auto from audio analysis, or fixed C to B).
-- **Scale**: **24 musical scales**:
-  > Free, Chromatic, Major, Natural Minor, Major Pentatonic, Minor Pentatonic, Dorian, Lydian, Mixolydian, Phrygian, Harmonic Minor, Melodic Minor, Whole Tone, Octaves & Fifths, Quartal, Sus2/4 Cloud, Diminished, Blues, Insen, Hirajoshi, Hungarian Minor, Arabian (Bhairav), Prometheus, Enigmatic.
+- **Scale**: **82 musical scales** across curated categories.
 - **ScaleNote Display**: Displays active scale notes in real time (e.g. `C, D, E, F, G, A, B`) based on selected Key and Scale.
 
 ---
 
-## 5. MOD tab (Modulation Matrix)
+## 6. MOD tab (Polyphonic Modulation Matrix)
 
 Configure sources on the left sub-tabs and route them via the **16-slot matrix** on the right (Page 1 / Page 2).
 
-### Sources
-- **LFO ×4**: 6 shapes (Sine / Triangle / Saw / Square / S&H / Chaos). Free (0.02–20 Hz) or tempo-synced (1/1–1/32).
-- **Env ×3**: ADSR envelopes. Enable **LOOP** to cycle Attack-Decay as a complex custom LFO.
-- **MIDI Sources**: Velocity / Note / Mod Wheel / Random (per-note random S&H).
+### Sources (13 total)
+- **LFO ×4**: 6 shapes (Sine / Triangle / Saw / Square / S&H / RK4 Lorenz Chaos). Free (0.02–20 Hz) or tempo-synced (1/1–1/32).
+- **Env ×3 (Polyphonic)**: Each of the 24 voices advances its own ADSR state independently. Enable **LOOP** to cycle Attack-Decay as a complex custom LFO.
+- **MIDI Sources**: Velocity / Note / Mod Wheel / Random / Aftertouch (Poly Pressure & MPE CC74).
 
-### 16-Slot Matrix
+### 16-Slot Matrix (77 destinations)
 - Each row sets: **Source × Amount → Destination**.
-- **UNI/BI toggle**: Switch between Unipolar (0 to +1) and Bipolar (-1 to +1).
-- **Visual Feedback**: Modulated knobs display their reachable modulation range via a **white arc**, and waveform markers (Position, Spray, Start, End) update dynamically.
+- **True Polyphonic Evaluation**: Per-voice Velocity, Note, Env, Random, and Aftertouch independently modulate voice parameters per note!
 - **Quantization Safety**: Pitch destinations (Octave, Semi, Fine, Jitter) are summed *before* the scale quantizer, guaranteeing that even extreme modulation remains consonant.
 
 ---
 
-## 6. FX tab (Effect Rack)
+## 7. FX tab (Effect Rack)
 
 5-slot serial effect chain. Drag slot headers to reorder the signal chain.
 
@@ -145,17 +165,17 @@ Configure sources on the left sub-tabs and route them via the **16-slot matrix**
 
 ---
 
-## 7. CONFIG tab
+## 8. CONFIG tab
 
 - **MATERIAL**: Audio analysis profile (Auto / Percussive / Melodic / Vocal). Click **ANALYZE** in the header after changing.
-- **LIMITER RELEASE**: Output limiter release time (1 to 500 ms).
+- **LIMITER RELEASE**: Look-ahead brick-wall limiter (~1.5 ms, reported via host PDC) release time (1 to 500 ms).
 - **POLY**: Maximum polyphony (1 to 24 voices).
 - **FILTER SLOPE**: Master filter steepness (12 dB/oct or 24 dB/oct).
 - **COLOR THEME**: 10 color themes (Midnight, Sakura, Ocean, Forest, Sunset, Mono, Neon, Vaporwave, Amber, Arctic).
 
 ---
 
-## 8. Preset Browser
+## 9. Preset Browser
 
 Click **BROWSE** in the header to open the **3-column hierarchical browser**:
 
@@ -198,7 +218,7 @@ Completely revised in B011 with extensive MOD matrix routing (LFO/ENV/Velocity/R
 
 ---
 
-## 9. Tips & Troubleshooting
+## 10. Tips & Troubleshooting
 
 - **Turn noise into lush pads**: Load ambient noise, set TONE to ~0.5, Size to 0.2s, Density to 0.7, enable SCALE QUANTIZE, and pick a scale.
 - **Wild pitch modulation in tune**: Route LFO 1 to `Semi` or `Fine` at full Amount. Extreme pitch sweeps will remain locked to the selected scale.

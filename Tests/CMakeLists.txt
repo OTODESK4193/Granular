@@ -14,6 +14,7 @@ target_sources(GranularTests PRIVATE
     ${CMAKE_SOURCE_DIR}/Source/GUI/ArcDial.cpp
     ${CMAKE_SOURCE_DIR}/Source/GUI/DotWaveformDisplay.cpp
     ${CMAKE_SOURCE_DIR}/Source/GUI/MainPanel.cpp
+    ${CMAKE_SOURCE_DIR}/Source/GUI/EnginePanel.cpp
     ${CMAKE_SOURCE_DIR}/Source/GUI/ArpPanel.cpp
     ${CMAKE_SOURCE_DIR}/Source/GUI/ConfigPanel.cpp
     ${CMAKE_SOURCE_DIR}/Source/GUI/FxPanel.cpp
@@ -33,7 +34,7 @@ target_compile_definitions(GranularTests PRIVATE
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1
-    GRANULAR_VERSION="1.0.1"
+    GRANULAR_VERSION="1.1.0"
     JucePlugin_Name="Granular"
 )
 

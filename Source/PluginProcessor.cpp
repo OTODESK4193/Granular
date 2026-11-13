@@ -480,6 +480,42 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterFloat>("masterLPF", "LPF (Hz)", juce::NormalisableRange<float>(200.0f, 20000.0f, 1.0f, 0.3f), 20000.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("outGain",   "Out Gain", -36.0f, 12.0f, 0.0f));
 
+    // --- Phase 4: Engine / Concatenative Atlas / Swarm / Per-Grain SVF / Modal Resonator ---
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("engineMode", "Engine Mode",
+        juce::StringArray{ "Granular", "WSOLA", "TD-PSOLA" }, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("formantShift", "Formant Shift",
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.05f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("timbreScrub", "Timbre Scrub",
+        0.0f, 1.0f, 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("timbreAmt", "Timbre Bias",
+        0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("atlasPitchLock", "Atlas Pitch Lock",
+        0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("swarmMix", "Swarm Mix",
+        0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("grainSkew", "Grain Skew",
+        -1.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("grainChirp", "Grain Chirp",
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.05f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("grainFilterMode", "Grain Filter Mode",
+        juce::StringArray{ "Off", "LP", "BP", "HP", "Notch" }, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("grainFilterFreq", "Grain Filter Cutoff",
+        juce::NormalisableRange<float>(20.0f, 20000.0f, 1.0f, 0.25f), 20000.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("grainFilterRes", "Grain Filter Res",
+        juce::NormalisableRange<float>(0.1f, 10.0f, 0.01f, 0.5f), 0.7f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("grainFilterJitter", "Grain Filter Jitter",
+        0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("modalMix", "Modal Mix",
+        0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("modalDecay", "Modal Decay",
+        juce::NormalisableRange<float>(0.05f, 5.0f, 0.01f, 0.4f), 0.8f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("modalDamp", "Modal Damp",
+        0.0f, 1.0f, 0.4f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("modalInharm", "Modal Inharm",
+        0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>("modalRatioMode", "Modal Ratio Mode",
+        ModalResonatorBank::getRatioModeNames(), 0));
+
     return { params.begin(), params.end() };
 }
 
@@ -619,6 +655,24 @@ void GranularAudioProcessor::initParamCache()
     cp.arpEuclidSteps  = getPtr("arpEuclidSteps");
     cp.arpEuclidFills  = getPtr("arpEuclidFills");
     cp.arpEuclidRot    = getPtr("arpEuclidRot");
+
+    cp.engineMode        = getPtr("engineMode");
+    cp.formantShift      = getPtr("formantShift");
+    cp.timbreScrub       = getPtr("timbreScrub");
+    cp.timbreAmt         = getPtr("timbreAmt");
+    cp.atlasPitchLock    = getPtr("atlasPitchLock");
+    cp.swarmMix          = getPtr("swarmMix");
+    cp.grainSkew         = getPtr("grainSkew");
+    cp.grainChirp        = getPtr("grainChirp");
+    cp.grainFilterMode   = getPtr("grainFilterMode");
+    cp.grainFilterFreq   = getPtr("grainFilterFreq");
+    cp.grainFilterRes    = getPtr("grainFilterRes");
+    cp.grainFilterJitter = getPtr("grainFilterJitter");
+    cp.modalMix          = getPtr("modalMix");
+    cp.modalDecay        = getPtr("modalDecay");
+    cp.modalDamp         = getPtr("modalDamp");
+    cp.modalInharm       = getPtr("modalInharm");
+    cp.modalRatioMode    = getPtr("modalRatioMode");
 }
 
 void GranularAudioProcessor::resetPhysicalToSnapped() noexcept
@@ -1052,6 +1106,25 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     p.rootNote      = activeSample->rootMidiNote;
     p.srComp        = (float)(activeSample->sampleRate / (sr > 1.0 ? sr : 44100.0)); // SR補償
 
+    // Phase 4 parameters
+    p.engineMode        = (int)cp.engineMode->load();
+    p.formantShift      = cp.formantShift->load();
+    p.timbreScrub       = cp.timbreScrub->load();
+    p.timbreAmt         = cp.timbreAmt->load();
+    p.atlasPitchLock    = cp.atlasPitchLock->load();
+    p.swarmMix          = cp.swarmMix->load();
+    p.grainSkew         = cp.grainSkew->load();
+    p.grainChirp        = cp.grainChirp->load();
+    p.grainFilterMode   = (int)cp.grainFilterMode->load();
+    p.grainFilterFreq   = cp.grainFilterFreq->load();
+    p.grainFilterRes    = cp.grainFilterRes->load();
+    p.grainFilterJitter = cp.grainFilterJitter->load();
+    p.modalMix          = cp.modalMix->load();
+    p.modalDecay        = cp.modalDecay->load();
+    p.modalDamp         = cp.modalDamp->load();
+    p.modalInharm       = cp.modalInharm->load();
+    p.modalRatioMode    = (int)cp.modalRatioMode->load();
+
     // --- MOD変調の適用 (Pitch系は量子化前に加算されるためスケールに乗る) ---
     {
         using D = ModMatrix;
@@ -1068,6 +1141,22 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         p.pitchMod      = juce::jlimit(-48.0f, 48.0f,   mod(D::DstOctave) * 24.0f + mod(D::DstSemi) * 12.0f);
         p.fineTune      = juce::jlimit(-100.0f, 100.0f, p.fineTune      + mod(D::DstFine) * 100.0f);
         p.tone          = juce::jlimit(0.0f, 1.0f,      p.tone          + mod(D::DstTone));
+
+        // Phase 4 mod targets
+        p.formantShift      = juce::jlimit(-12.0f, 12.0f,   p.formantShift      + mod(D::DstFormantShift) * 12.0f);
+        p.timbreScrub       = juce::jlimit(0.0f, 1.0f,      p.timbreScrub       + mod(D::DstTimbreScrub));
+        p.timbreAmt         = juce::jlimit(0.0f, 1.0f,      p.timbreAmt         + mod(D::DstTimbreAmt));
+        p.atlasPitchLock    = juce::jlimit(0.0f, 1.0f,      p.atlasPitchLock    + mod(D::DstAtlasPitchLock));
+        p.swarmMix          = juce::jlimit(0.0f, 1.0f,      p.swarmMix          + mod(D::DstSwarmMix));
+        p.grainSkew         = juce::jlimit(-1.0f, 1.0f,     p.grainSkew         + mod(D::DstGrainSkew));
+        p.grainChirp        = juce::jlimit(-12.0f, 12.0f,   p.grainChirp        + mod(D::DstGrainChirp) * 12.0f);
+        p.grainFilterFreq   = juce::jlimit(20.0f, 20000.0f, p.grainFilterFreq   * std::pow(2.0f, mod(D::DstGrainFilterFreq) * 5.0f));
+        p.grainFilterRes    = juce::jlimit(0.1f, 10.0f,     p.grainFilterRes    + mod(D::DstGrainFilterRes) * 5.0f);
+        p.grainFilterJitter = juce::jlimit(0.0f, 1.0f,      p.grainFilterJitter + mod(D::DstGrainFilterJitter));
+        p.modalMix          = juce::jlimit(0.0f, 1.0f,      p.modalMix          + mod(D::DstModalMix));
+        p.modalDecay        = juce::jlimit(0.05f, 5.0f,     p.modalDecay        + mod(D::DstModalDecay) * 2.5f);
+        p.modalDamp         = juce::jlimit(0.0f, 1.0f,      p.modalDamp         + mod(D::DstModalDamp));
+        p.modalInharm       = juce::jlimit(0.0f, 1.0f,      p.modalInharm       + mod(D::DstModalInharm));
 
         // フィルターは指数(オクターブ)スケールで音楽的に
         p.masterHPF = juce::jlimit(20.0f, 2000.0f,   p.masterHPF * std::pow(2.0f, mod(D::DstMasterHpf) * 5.0f));
@@ -1096,7 +1185,8 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         effS = juce::jmax(autoS, effE - minSpan);
     }
 
-    synth.processBlock(buffer, midiMessages, &activeSample->buffer, effS, effE, p, &activeSample->mipLevels);
+    synth.processBlock(buffer, midiMessages, &activeSample->buffer, effS, effE, p,
+                       &activeSample->mipLevels, &activeSample->atlas, &modMatrix);
 
     // --- FX前の安全ソフトクリップ ---
     {
@@ -1691,6 +1781,7 @@ void GranularAudioProcessor::run()
     nextSample->isMajor      = currentPitch.isMajor;
     nextSample->rootMidiNote = foldedRoot;
     nextSample->mipLevels.buildFrom(nextSample->buffer);
+    nextSample->atlas.buildFrom(nextSample->buffer, targetSR, s, e + 1);
 
     std::array<float, 1000> peaksLocal {};
     std::array<float, 1000> brightLocal {};

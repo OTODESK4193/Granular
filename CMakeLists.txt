@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.22)
 #  24-voice granular engine / Key & Scale grain-pitch quantization
 #  最適化: AVX2 SIMD, /fp:precise
 # ============================================================================
-project(Granular VERSION 1.0.1 LANGUAGES C CXX)
+project(Granular VERSION 1.1.0 LANGUAGES C CXX)
 
 # ----------------------------------------------------------------------------
 #  C++20
@@ -37,7 +37,7 @@ juce_add_plugin(Granular
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_AUTO_MANIFEST       FALSE
     COPY_PLUGIN_AFTER_BUILD  TRUE
-    VERSION                  "1.0.1"
+    VERSION                  "1.1.0"
 )
 
 # ----------------------------------------------------------------------------
@@ -61,6 +61,7 @@ target_sources(Granular PRIVATE
     Source/DSP/Arpeggiator.cpp
     Source/DSP/FxChain.h
     Source/DSP/ModMatrix.h
+    Source/DSP/ModalResonator.h
 
     # --- GUI モジュール ---
     Source/GUI/ColorPalette.h
@@ -70,6 +71,8 @@ target_sources(Granular PRIVATE
     Source/GUI/DotWaveformDisplay.cpp
     Source/GUI/MainPanel.h
     Source/GUI/MainPanel.cpp
+    Source/GUI/EnginePanel.h
+    Source/GUI/EnginePanel.cpp
     Source/GUI/ValueKnob.h
     Source/GUI/GlowToggle.h
     Source/GUI/ArpPanel.h
@@ -137,7 +140,7 @@ target_compile_definitions(Granular PRIVATE
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1
-    GRANULAR_VERSION="1.0.1"
+    GRANULAR_VERSION="1.1.0"
 )
 
 # ----------------------------------------------------------------------------
