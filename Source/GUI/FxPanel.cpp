@@ -145,7 +145,7 @@ void FxSlotCard::applyModRing(juce::Slider& s, int dst, ModKind kind, float scal
 {
     const float rMin = proc.modMatrix.getRangeMin(dst);
     const float rMax = proc.modMatrix.getRangeMax(dst);
-    const float live = proc.modMatrix.get(dst);
+    const float live = proc.modMatrix.getGui(dst);
 
     auto& props = s.getProperties();
     const bool active = std::abs(rMax - rMin) > 1.0e-4f;
@@ -388,7 +388,7 @@ void FxPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
 {
     const float rMin = proc.modMatrix.getRangeMin(dst);
     const float rMax = proc.modMatrix.getRangeMax(dst);
-    const float live = proc.modMatrix.get(dst);
+    const float live = proc.modMatrix.getGui(dst);
 
     auto& props = s.getProperties();
     const bool active = std::abs(rMax - rMin) > 1.0e-4f;

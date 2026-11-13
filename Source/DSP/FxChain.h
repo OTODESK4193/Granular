@@ -82,6 +82,12 @@ namespace gfx
         int writeIdx = 0;
         float phase = 0.0f;
     public:
+        void clearState() noexcept
+        {
+            buffer.fill(0.0f);
+            writeIdx = 0;
+            phase = 0.0f;
+        }
         float process(float in) noexcept
         {
             buffer[(size_t)writeIdx] = in;
@@ -153,6 +159,11 @@ namespace gfx
             }
         }
         void setAmount(float a) { amount = a; }
+        void clearState() noexcept
+        {
+            std::fill(buffer.begin(), buffer.end(), 0.0f);
+            writePos = 0;
+        }
         inline float process(float in) noexcept
         {
             if (buffer.empty()) return in;
@@ -210,6 +221,22 @@ namespace gfx
     public:
         ShimmerReverb() { delayBuffers.resize(NUM_CHANNELS); }
 
+        void clearState() noexcept
+        {
+            velvetL.clearState();
+            velvetR.clearState();
+            shifter.clearState();
+            for (int i = 0; i < NUM_CHANNELS; ++i)
+            {
+                std::fill(delayBuffers[(size_t)i].begin(), delayBuffers[(size_t)i].end(), 0.0f);
+                writePos[(size_t)i] = 0;
+                dampStates[(size_t)i] = 0.0f;
+                dcX1[(size_t)i] = dcY1[(size_t)i] = 0.0f;
+                lfos[(size_t)i].setPhase((float)i / (float)NUM_CHANNELS);
+            }
+            curAmount = 0.0f;
+        }
+
         void prepareToPlay(double sr)
         {
             velvetL.prepare((float)sr);
@@ -230,13 +257,9 @@ namespace gfx
                 const float targetSamps = baseDelaysMs[i] * 0.001f * (float)sr;
                 delayLengths[(size_t)i] = findNearestPrime((int)targetSamps);
                 if (delayLengths[(size_t)i] > maxDelaySamples - 100) delayLengths[(size_t)i] = maxDelaySamples - 100;
-                writePos[(size_t)i] = 0;
-                dampStates[(size_t)i] = 0.0f;
-                dcX1[(size_t)i] = dcY1[(size_t)i] = 0.0f;
-                curAmount = 0.0f;
                 lfos[(size_t)i].setFrequency(0.5f * LFO_RATIOS[i], (float)sr);
-                lfos[(size_t)i].setPhase((float)i / (float)NUM_CHANNELS);
             }
+            clearState();
         }
 
         // amount=Wet量, decay=残響の長さ, shimmer=オクターブ上成分,
@@ -347,6 +370,10 @@ namespace gfx
         void prepareToPlay(double sr)
         {
             sampleRate = sr;
+            clearState();
+        }
+        void clearState() noexcept
+        {
             delayBuffer.fill(0.0f);
             writeIndex = 0;
             lfoPhase1 = lfoPhase2 = 0.0f;
@@ -455,6 +482,10 @@ namespace gfx
         void prepareToPlay(double sr)
         {
             sampleRate = sr;
+            clearState();
+        }
+        void clearState() noexcept
+        {
             delayBuffer.fill(0.0f);
             writeIndex = 0;
             envelope = 0.0f;
@@ -557,8 +588,13 @@ namespace gfx
         void prepareToPlay(double sr)
         {
             sampleRate = sr;
+            clearState();
+        }
+        void clearState() noexcept
+        {
             buffer.fill(0.0f);
             writeIndex = 0;
+            lpStateL = lpStateR = 0.0f;
         }
 
         // amount=Wet量, sizeMs=ループ長(20..1000ms), feedback=0..0.99, damp=高域減衰
@@ -1094,17 +1130,18 @@ public:
         reverb.prepareToPlay(sr);
         formantGate.prepare(sr);
         dcCoef = std::exp((float)(-1.0 / (0.004523 * sr)));
-        for (int ch = 0; ch < 2; ++ch) { satState[ch].reset(); dcState[ch] = 0.0f; }
+        for (int ch = 0; ch < 2; ++ch) { satState[ch].reset(); dcState[ch] = 0.0f; preX1[ch] = preY1[ch] = 0.0f; }
     }
 
-    void reset()
+    // オーディオ・スレッド安全: メモリ再確保を行わずに状態のみ消去
+    void reset() noexcept
     {
-        chorus.prepareToPlay(sampleRate);
-        delay.prepareToPlay(sampleRate);
-        freeze.prepareToPlay(sampleRate);
-        reverb.prepareToPlay(sampleRate);
+        chorus.clearState();
+        delay.clearState();
+        freeze.clearState();
+        reverb.clearState();
         formantGate.reset();
-        for (int ch = 0; ch < 2; ++ch) { satState[ch].reset(); dcState[ch] = 0.0f; }
+        for (int ch = 0; ch < 2; ++ch) { satState[ch].reset(); dcState[ch] = 0.0f; preX1[ch] = preY1[ch] = 0.0f; }
     }
 
     void process(juce::AudioBuffer<float>& buf, const Params& p) noexcept

@@ -169,9 +169,9 @@ namespace ScaleQuantizer
         addItems(basicMenu, { 0, 1, 2, 3, 4, 9, 10, 19, 20 });
         rootMenu.addSubMenu("Basic / Western", basicMenu);
 
-        // 2. Church Modes
+        // 2. Church Modes (Major=1 / Natural Minor=2 は Basic に掲載のため重複除外)
         juce::PopupMenu churchMenu;
-        addItems(churchMenu, { 1, 5, 8, 6, 7, 2, 16 });
+        addItems(churchMenu, { 5, 8, 6, 7, 16 });
         rootMenu.addSubMenu("Church Modes", churchMenu);
 
         // 3. Jazz & Modern

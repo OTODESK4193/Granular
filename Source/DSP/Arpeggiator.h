@@ -77,11 +77,13 @@ public:
         sampleRate = sr;
         // オーディオスレッドでの再アロケーションを避けるため事前確保
         held.reserve(32);
-        seq.reserve(256);
-        active.reserve(256);
+        seq.reserve(1024);
+        active.reserve(512);
         scratchSorted.reserve(32);
-        scratchAsc.reserve(160);
-        scratchConv.reserve(160);
+        scratchAsc.reserve(512);
+        scratchConv.reserve(512);
+        scratchOut.ensureSize(2048);
+        scratchPassthrough.ensureSize(512);
         reset();
     }
 
@@ -120,8 +122,10 @@ private:
     std::vector<ActiveNote> active;          // noteOff待ち
     juce::Random random;
 
-    // buildSequence用スクラッチ（アロケーション回避）
+    // buildSequence/process用スクラッチ（アロケーション回避）
     std::vector<HeldNote> scratchSorted;
     std::vector<PoolNote> scratchAsc;
     std::vector<PoolNote> scratchConv;
+    juce::MidiBuffer scratchOut;
+    juce::MidiBuffer scratchPassthrough;
 };

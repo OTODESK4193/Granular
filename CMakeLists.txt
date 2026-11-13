@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.22)
 #  Granular  -  Pastel Dot-Matrix Granular Synth (OTODESK)
 #  JUCE 8.0 系 / VST3 + Standalone
 #  24-voice granular engine / Key & Scale grain-pitch quantization
-#  最適化: AVX2 SIMD, /fp:fast
+#  最適化: AVX2 SIMD, /fp:precise
 # ============================================================================
 project(Granular VERSION 1.0.1 LANGUAGES C CXX)
 
@@ -80,10 +80,15 @@ target_sources(Granular PRIVATE
     Source/GUI/FxPanel.cpp
     Source/GUI/ModPanel.h
     Source/GUI/ModPanel.cpp
+    Source/GUI/ModDestSelector.h
+    Source/GUI/PredicateComboBox.h
     Source/GUI/PresetBrowser.h
+    Source/GUI/ScaleSelector.h
 
     Source/Presets/PresetData.h
 )
+
+add_subdirectory(Tests)
 
 # ----------------------------------------------------------------------------
 #  インクルードパス
@@ -132,7 +137,7 @@ target_compile_definitions(Granular PRIVATE
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1
-    GRANULAR_VERSION="1.0.0"
+    GRANULAR_VERSION="1.0.1"
 )
 
 # ----------------------------------------------------------------------------
@@ -146,7 +151,7 @@ juce_generate_juce_header(Granular)
 if(MSVC)
     target_compile_options(Granular PRIVATE
         /arch:AVX2
-        /fp:fast
+        /fp:precise
         /utf-8
         /W3
         /wd4819

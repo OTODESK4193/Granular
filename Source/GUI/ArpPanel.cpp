@@ -118,7 +118,7 @@ void ArpPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
 {
     const float rMin = proc.modMatrix.getRangeMin(dst);
     const float rMax = proc.modMatrix.getRangeMax(dst);
-    const float live = proc.modMatrix.get(dst);
+    const float live = proc.modMatrix.getGui(dst);
 
     auto& props = s.getProperties();
     const bool active = std::abs(rMax - rMin) > 1.0e-4f;
@@ -173,6 +173,13 @@ void ArpPanel::timerCallback()
     applyModRing(gateKnob,       D::DstArpGate,     LinearAdd, 1.0f);
     applyModRing(toneKnob,       D::DstTone,        LinearAdd, 1.0f);
     applyModRing(spraySpeedKnob, D::DstSpraySpeed,  LinearAdd, 0.99f);
+
+    // Sync ON時も Rate(Sync) に DstArpRateFree 変調が掛かるためラベル色で可視化
+    const bool arpSyncOn = proc.apvts.getRawParameterValue("arpSync")->load() > 0.5f;
+    const bool rateModActive = std::abs(proc.modMatrix.getRangeMax(D::DstArpRateFree)
+                                        - proc.modMatrix.getRangeMin(D::DstArpRateFree)) > 1.0e-4f;
+    rateLabel.setColour(juce::Label::textColourId,
+                        (arpSyncOn && rateModActive) ? GranularColors::accentEnv : GranularColors::textDim);
 
     // 選択中 Key/Scale の構成音表示更新
     const int keyIdx   = (int)proc.apvts.getRawParameterValue("key")->load();

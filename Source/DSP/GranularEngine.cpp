@@ -105,6 +105,12 @@ void GranularVoice::reset()
     std::fill(combBufL.begin(), combBufL.end(), 0.0f);
     std::fill(combBufR.begin(), combBufR.end(), 0.0f);
     combLpL = combLpR = 0.0f;
+    currentCombDelay = 0.0f;
+    playheadOffset = 0.0;
+    samplesToNextSpawn = 0;
+    randomJumpCountdown = 0.0;
+    currentSprayTarget = 0.0;
+    currentSprayValue = 0.0;
     lastRelNorm = -1.0f;
 }
 
@@ -113,14 +119,13 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
                                float overlap, int baseLife,
                                GrainVisualizerData* visualizer, int& spawnBudget)
 {
-    if (spawnBudget <= 0) return; // 全体バジェット超過（CPU保護）
+    const int validLength = trimEnd - trimStart;
+    if (spawnBudget <= 0 || validLength <= 0) return; // 全体バジェット超過・無効領域ガード
 
     Grain* slot = nullptr;
     for (auto& g : grains)
         if (!g.isActive) { slot = &g; break; }
     if (slot == nullptr) return; // 全スロット使用中
-
-    const int validLength = trimEnd - trimStart;
 
     Grain& grain = *slot;
     grain.isActive = true;
@@ -205,7 +210,8 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
         // P-Sync時はグレイン寿命が periods * notePeriod、発火間隔が notePeriod なので
         // 実効オーバーラップ数は常に periods (2..16)。
         // 周期整列による同位相加算を考慮し、実効エネルギー加算を適正化
-        const double noteFreq = 440.0 * std::pow(2.0, ((double)currentMidiNote + (double)p.octave * 12.0 + (double)p.pitchSt - 69.0) / 12.0);
+        const double noteSemis = (double)currentMidiNote + (double)globalSemis;
+        const double noteFreq = 440.0 * std::pow(2.0, (noteSemis - 69.0) / 12.0);
         const double notePeriod = currentSampleRate / juce::jlimit(15.0, 8000.0, noteFreq);
         const int periods = juce::jlimit(2, 16, juce::roundToInt((double)baseLife / notePeriod));
         effOverlap = juce::jmax(1.0f, (float)periods * 1.5f);
@@ -681,7 +687,7 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
         const int lastIdx = buf.getNumSamples() - 1;
         const float checkL = buf.getSample(0, lastIdx);
         const float checkR = channels > 1 ? buf.getSample(1, lastIdx) : checkL;
-        if (std::isnan(checkL) || std::isinf(checkL) || std::isnan(checkR) || std::isinf(checkR))
+        if (!isFiniteFloat(checkL) || !isFiniteFloat(checkR))
             buf.clear(); // 破損ブロックを即ミュート
     }
 }

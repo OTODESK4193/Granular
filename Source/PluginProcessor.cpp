@@ -16,6 +16,7 @@
  #pragma warning(pop)
 #endif
 
+#include <algorithm>
 #include <fstream>
 #include <cstring>
 #include <cmath>
@@ -59,7 +60,7 @@ static uint16_t readBigEndian16(const uint8_t* b) noexcept
 
 // Ableton Live が内部結合 (Ctrl+J) やファクトリー Pack 等で使用する 32-bit float / 16-bit / 24-bit AIFF-C (able / fl32) ファイルを、
 // JUCE の組み込み AiffAudioFormat に代わって独自に解析・ロードするフォールバック・デコーダー
-static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& destBuffer, double& sampleRate)
+bool GranularAudioProcessor::readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& destBuffer, double& sampleRate)
 {
     std::ifstream fs(file.getFullPathName().toWideCharPointer(), std::ios::binary);
     if (!fs.is_open()) return false;
@@ -86,24 +87,26 @@ static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& des
         if (!fs.read(chunkId, 4) || !fs.read(chunkSizeBuf, 4)) break;
 
         uint32_t chunkSize = readBigEndian32((const uint8_t*)chunkSizeBuf);
-        std::streampos nextChunk = fs.tellg() + (std::streamoff)chunkSize;
+        const std::streampos chunkDataPos = fs.tellg();
+        std::streampos nextChunk = chunkDataPos + (std::streamoff)chunkSize;
         if (chunkSize % 2 != 0) nextChunk += 1; // 奇数サイズ時のアライメント
+        if (nextChunk <= chunkDataPos) break;   // 破損チャンクサイズによる無限ループ防止
 
         if (std::memcmp(chunkId, "COMM", 4) == 0)
         {
-            commOffset = (uint32_t)fs.tellg();
+            commOffset = (uint32_t)chunkDataPos;
             commSize = chunkSize;
         }
         else if (std::memcmp(chunkId, "SSND", 4) == 0)
         {
-            ssndOffset = (uint32_t)fs.tellg();
+            ssndOffset = (uint32_t)chunkDataPos;
             ssndSize = chunkSize;
         }
 
         fs.seekg(nextChunk);
     }
 
-    if (commOffset == 0 || ssndOffset == 0) return false;
+    if (commOffset == 0 || ssndOffset == 0 || commSize < 22 || ssndSize < 8) return false;
 
     // COMM チャンク解析
     fs.seekg(commOffset);
@@ -114,6 +117,9 @@ static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& des
     uint32_t numSampleFrames = readBigEndian32(commData + 2);
     uint16_t sampleSize = readBigEndian16(commData + 6);
     double sr = readExtendedFloat(commData + 8);
+
+    if (numChannels == 0 || numChannels > 8 || numSampleFrames == 0) return false;
+    if (!std::isfinite(sr) || sr < 8000.0 || sr > 384000.0) return false;
 
     // 圧縮タイプの判定
     char compType[4] = {0};
@@ -138,16 +144,23 @@ static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& des
     if (!fs.read((char*)ssndHeader, 8)) return false;
 
     uint32_t offset = readBigEndian32(ssndHeader);
+    if (offset > ssndSize - 8) return false;
+
+    const int bytesPerSample = sampleSize / 8;
+    if (bytesPerSample < 2 || bytesPerSample > 4 || (sampleSize % 8) != 0) return false; // 安全ガード
+
+    const uint32_t bytesPerFrame = (uint32_t)numChannels * (uint32_t)bytesPerSample;
+    const uint32_t availAudioBytes = ssndSize - 8u - offset;
+    const uint32_t maxChunkFrames = availAudioBytes / juce::jmax(1u, bytesPerFrame);
+    const uint32_t maxSixtySecFrames = (uint32_t)(sr * 60.0) + 1u;
+    numSampleFrames = juce::jmin(numSampleFrames, juce::jmin(maxChunkFrames, maxSixtySecFrames));
+    if (numSampleFrames == 0) return false;
+
     fs.seekg(ssndOffset + 8 + offset);
 
     // バッファにデータを展開
     destBuffer.setSize((int)numChannels, (int)numSampleFrames);
     sampleRate = sr;
-
-    const int bytesPerSample = sampleSize / 8;
-    if (bytesPerSample <= 0 || bytesPerSample > 4) return false; // 安全ガード
-
-    const int bytesPerFrame = numChannels * bytesPerSample;
 
     // --- エンディアンの自動判定ロジック ---
     bool useLittleEndian = false;
@@ -260,8 +273,7 @@ static bool readAbletonAif(const juce::File& file, juce::AudioBuffer<float>& des
     for (int ch = 0; ch < destBuffer.getNumChannels(); ++ch)
     {
         auto range = destBuffer.findMinMax(ch, 0, destBuffer.getNumSamples());
-        if (std::isnan(range.getStart()) || std::isnan(range.getEnd())
-            || std::isinf(range.getStart()) || std::isinf(range.getEnd())
+        if (!isFiniteFloat(range.getStart()) || !isFiniteFloat(range.getEnd())
             || range.getStart() < -4.0f || range.getEnd() > 4.0f)
         {
             destBuffer.clear();
@@ -470,26 +482,247 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
 // ------------------------------------------
 // コンストラクタほか
 // ------------------------------------------
+void GranularAudioProcessor::initParamCache()
+{
+    auto getPtr = [this](const char* id)
+    {
+        auto* p = apvts.getRawParameterValue(id);
+        jassert(p != nullptr);
+        return p;
+    };
+
+    cp.attack  = getPtr("attack");
+    cp.decay   = getPtr("decay");
+    cp.sustain = getPtr("sustain");
+    cp.release = getPtr("release");
+
+    cp.grainSize     = getPtr("grainSize");
+    cp.density       = getPtr("density");
+    cp.position      = getPtr("position");
+    cp.positionSpray = getPtr("positionSpray");
+    cp.pitchJitter   = getPtr("pitchJitter");
+    cp.panSpread     = getPtr("panSpread");
+    cp.speed         = getPtr("speed");
+
+    cp.playMode     = getPtr("playMode");
+    cp.speedSync    = getPtr("speedSync");
+    cp.speedSyncDiv = getPtr("speedSyncDiv");
+    cp.reverseGrain = getPtr("reverseGrain");
+    cp.windowShape  = getPtr("windowShape");
+
+    cp.octave   = getPtr("octave");
+    cp.pitchSt  = getPtr("pitchSt");
+    cp.fineTune = getPtr("fineTune");
+
+    cp.scaleOn = getPtr("scaleOn");
+    cp.key     = getPtr("key");
+    cp.scale   = getPtr("scale");
+
+    cp.pitchSync  = getPtr("pitchSync");
+    cp.spraySpeed = getPtr("spraySpeed");
+    cp.tone       = getPtr("tone");
+
+    cp.materialMode = getPtr("materialMode");
+    cp.sampleStart  = getPtr("sampleStart");
+    cp.sampleEnd    = getPtr("sampleEnd");
+
+    cp.ceiling     = getPtr("ceiling");
+    cp.limRelease  = getPtr("limRelease");
+    cp.filterSlope = getPtr("filterSlope");
+    cp.poly        = getPtr("poly");
+    cp.fxMix       = getPtr("fxMix");
+    cp.colorTheme  = getPtr("colorTheme");
+
+    cp.masterHPF = getPtr("masterHPF");
+    cp.masterLPF = getPtr("masterLPF");
+    cp.outGain   = getPtr("outGain");
+
+    for (int i = 0; i < FxChain::kNumSlots; ++i)
+    {
+        const juce::String idx(i + 1);
+        cp.fxType[(size_t)i]   = apvts.getRawParameterValue("fx" + idx + "Type");
+        cp.fxAmount[(size_t)i] = apvts.getRawParameterValue("fx" + idx + "Amount");
+        jassert(cp.fxType[(size_t)i] != nullptr && cp.fxAmount[(size_t)i] != nullptr);
+    }
+
+    cp.satAlgo  = getPtr("satAlgo");
+    cp.satDrive = getPtr("satDrive");
+    cp.satPreHz = getPtr("satPreHz");
+    cp.satTrim  = getPtr("satTrim");
+
+    cp.choRate  = getPtr("choRate");
+    cp.choDepth = getPtr("choDepth");
+    cp.choWidth = getPtr("choWidth");
+
+    cp.dlyTime     = getPtr("dlyTime");
+    cp.dlyFeedback = getPtr("dlyFeedback");
+    cp.dlyDuck     = getPtr("dlyDuck");
+    cp.dlyDamp     = getPtr("dlyDamp");
+
+    cp.frzSize     = getPtr("frzSize");
+    cp.frzFeedback = getPtr("frzFeedback");
+    cp.frzDamp     = getPtr("frzDamp");
+
+    cp.revDecay   = getPtr("revDecay");
+    cp.revShimmer = getPtr("revShimmer");
+    cp.revDamp    = getPtr("revDamp");
+    cp.revMod     = getPtr("revMod");
+
+    cp.gateRate    = getPtr("gateRate");
+    cp.gatePattern = getPtr("gatePattern");
+    cp.gateDepth   = getPtr("gateDepth");
+    cp.gateDecay   = getPtr("gateDecay");
+    cp.gateVowel   = getPtr("gateVowel");
+
+    for (int i = 0; i < ModMatrix::kNumLfos; ++i)
+    {
+        const juce::String idx(i + 1);
+        cp.lfoRate[(size_t)i]     = apvts.getRawParameterValue("lfo" + idx + "Rate");
+        cp.lfoSync[(size_t)i]     = apvts.getRawParameterValue("lfo" + idx + "Sync");
+        cp.lfoSyncRate[(size_t)i] = apvts.getRawParameterValue("lfo" + idx + "SyncRate");
+        cp.lfoWave[(size_t)i]     = apvts.getRawParameterValue("lfo" + idx + "Wave");
+    }
+
+    for (int i = 0; i < ModMatrix::kNumEnvs; ++i)
+    {
+        const juce::String idx(i + 1);
+        cp.envAttack[(size_t)i]  = apvts.getRawParameterValue("env" + idx + "Attack");
+        cp.envDecay[(size_t)i]   = apvts.getRawParameterValue("env" + idx + "Decay");
+        cp.envSustain[(size_t)i] = apvts.getRawParameterValue("env" + idx + "Sustain");
+        cp.envRelease[(size_t)i] = apvts.getRawParameterValue("env" + idx + "Release");
+        cp.envLoop[(size_t)i]    = apvts.getRawParameterValue("env" + idx + "Loop");
+    }
+
+    for (int i = 0; i < ModMatrix::kNumSlots; ++i)
+    {
+        const juce::String idx(i + 1);
+        cp.modSrc[(size_t)i] = apvts.getRawParameterValue("mod" + idx + "Src");
+        cp.modDst[(size_t)i] = apvts.getRawParameterValue("mod" + idx + "Dst");
+        cp.modAmt[(size_t)i] = apvts.getRawParameterValue("mod" + idx + "Amt");
+        cp.modUni[(size_t)i] = apvts.getRawParameterValue("mod" + idx + "Uni");
+    }
+
+    cp.arpEnable   = getPtr("arpEnable");
+    cp.arpPattern  = getPtr("arpPattern");
+    cp.arpOctaves  = getPtr("arpOctaves");
+    cp.arpSync     = getPtr("arpSync");
+    cp.arpRateSync = getPtr("arpRateSync");
+    cp.arpRateFree = getPtr("arpRateFree");
+    cp.arpDurMode  = getPtr("arpDurMode");
+    cp.arpGate     = getPtr("arpGate");
+    cp.arpLatch    = getPtr("arpLatch");
+}
+
+void GranularAudioProcessor::resetPhysicalToSnapped() noexcept
+{
+    for (auto& chArr : physicalToSnapped)
+        chArr.fill(-1);
+    pendingSnappedCount = 0;
+}
+
+juce::File GranularAudioProcessor::getFileToIngestCopy() const
+{
+    const juce::ScopedLock sl(stateLock);
+    return fileToIngest;
+}
+
+void GranularAudioProcessor::reclaimRetiredSamplesLocked()
+{
+    const int inFlight = audioCallbacksInFlight.load(std::memory_order_seq_cst);
+    const uint64_t curEpoch = audioCompletedEpoch.load(std::memory_order_seq_cst);
+    retiredSamples.erase(
+        std::remove_if(retiredSamples.begin(), retiredSamples.end(),
+                       [inFlight, curEpoch](const RetiredSample& r)
+                       {
+                           return inFlight == 0 || curEpoch >= r.minSafeEpoch;
+                       }),
+        retiredSamples.end());
+}
+
+void GranularAudioProcessor::retireCurrentSample()
+{
+    const juce::ScopedLock sl(sampleOwnerLock);
+    publishedSample.store(nullptr, std::memory_order_seq_cst);
+    if (currentOwnedSample)
+    {
+        const int inFlight = audioCallbacksInFlight.load(std::memory_order_seq_cst);
+        const uint64_t curEpoch = audioCompletedEpoch.load(std::memory_order_seq_cst);
+        if (inFlight == 0)
+            currentOwnedSample.reset();
+        else
+            retiredSamples.push_back({ std::move(currentOwnedSample), curEpoch + (uint64_t)inFlight });
+    }
+    reclaimRetiredSamplesLocked();
+}
+
+void GranularAudioProcessor::publishIngestedSample(std::shared_ptr<const IngestedSample> next)
+{
+    const juce::ScopedLock sl(sampleOwnerLock);
+    publishedSample.store(next.get(), std::memory_order_seq_cst);
+    if (currentOwnedSample)
+    {
+        const int inFlight = audioCallbacksInFlight.load(std::memory_order_seq_cst);
+        const uint64_t curEpoch = audioCompletedEpoch.load(std::memory_order_seq_cst);
+        if (inFlight == 0)
+            currentOwnedSample.reset();
+        else
+            retiredSamples.push_back({ std::move(currentOwnedSample), curEpoch + (uint64_t)inFlight });
+    }
+    currentOwnedSample = std::move(next);
+    reclaimRetiredSamplesLocked();
+}
+
 GranularAudioProcessor::GranularAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       juce::Thread("SampleIngestThread"),
       apvts(*this, nullptr, "Parameters", createParameterLayout())
 {
+    initParamCache();
     formatManager.registerBasicFormats();
     waveformPeaks.fill(0.0f);
-    physicalToSnapped.fill(-1);
+    waveformBright.fill(0.0f);
+    resetPhysicalToSnapped();
 
     // 保存済みカラーテーマをUI構築前に適用（ノブ等のアクセント色を正しくキャッシュ）
-    GranularColors::setTheme((int)apvts.getRawParameterValue("colorTheme")->load());
+    GranularColors::setTheme((int)cp.colorTheme->load());
 }
 
-GranularAudioProcessor::~GranularAudioProcessor() { stopThread(4000); }
+GranularAudioProcessor::~GranularAudioProcessor()
+{
+    stopThread(4000);
+    const juce::ScopedLock sl(sampleOwnerLock);
+    publishedSample.store(nullptr, std::memory_order_seq_cst);
+    currentOwnedSample.reset();
+    retiredSamples.clear();
+}
 
 const juce::String GranularAudioProcessor::getName() const { return juce::String(JucePlugin_Name); }
 bool GranularAudioProcessor::acceptsMidi() const { return true; }
 bool GranularAudioProcessor::producesMidi() const { return false; }
 bool GranularAudioProcessor::isMidiEffect() const { return false; }
-double GranularAudioProcessor::getTailLengthSeconds() const { return 0.0; }
+
+double GranularAudioProcessor::getTailLengthSeconds() const
+{
+    double tail = (double)cp.release->load();
+    const float fxMix = cp.fxMix->load();
+    if (fxMix > 0.001f)
+    {
+        for (int i = 0; i < FxChain::kNumSlots; ++i)
+        {
+            const int t = (int)cp.fxType[(size_t)i]->load();
+            const float amt = cp.fxAmount[(size_t)i]->load();
+            if (amt <= 0.01f) continue;
+            if (t == FxChain::Reverb)
+                tail = juce::jmax(tail, 1.5 + 6.5 * (double)cp.revDecay->load());
+            else if (t == FxChain::Delay)
+                tail = juce::jmax(tail, 1.0 + 4.0 * (double)cp.dlyFeedback->load());
+            else if (t == FxChain::Freeze)
+                tail = juce::jmax(tail, 1.0 + 5.0 * (double)cp.frzFeedback->load());
+        }
+    }
+    return tail;
+}
+
 int GranularAudioProcessor::getNumPrograms() { return 1; }
 int GranularAudioProcessor::getCurrentProgram() { return 0; }
 void GranularAudioProcessor::setCurrentProgram(int) {}
@@ -498,13 +731,14 @@ void GranularAudioProcessor::changeProgramName(int, const juce::String&) {}
 
 void GranularAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    currentSampleRate = sampleRate;
+    currentSampleRate.store(sampleRate, std::memory_order_relaxed);
     synth.prepareToPlay(sampleRate, samplesPerBlock);
     arp.prepare(sampleRate);
     fxChain.prepare(sampleRate);
     masterLimiter.prepare(sampleRate);
     modMatrix.prepare(sampleRate);
     fxDryBuffer.setSize(2, samplesPerBlock, false, false, true);
+    quantizedMidi.ensureSize(2048);
 
     // ルックアヘッド等の遅延は無いためレイテンシ0を明示的にDAWへ報告
     setLatencySamples(0);
@@ -534,8 +768,46 @@ bool GranularAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) 
 void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
-    for (int i = 0; i < getTotalNumOutputChannels(); ++i)
-        buffer.clear(i, 0, buffer.getNumSamples());
+    const int numCh = buffer.getNumChannels();
+    const int numSm = buffer.getNumSamples();
+    for (int i = 0; i < numCh; ++i)
+        buffer.clear(i, 0, numSm);
+
+    if (numCh <= 0 || numSm <= 0)
+        return;
+
+    struct AudioFlightGuard
+    {
+        std::atomic<int>& inFlight;
+        std::atomic<uint64_t>& epoch;
+        explicit AudioFlightGuard(std::atomic<int>& f, std::atomic<uint64_t>& e) noexcept
+            : inFlight(f), epoch(e)
+        {
+            inFlight.fetch_add(1, std::memory_order_seq_cst);
+        }
+        ~AudioFlightGuard() noexcept
+        {
+            epoch.fetch_add(1, std::memory_order_seq_cst);
+            inFlight.fetch_sub(1, std::memory_order_seq_cst);
+        }
+    } flightGuard(audioCallbacksInFlight, audioCompletedEpoch);
+
+    // 非同期 PANIC 要求をオーディオブロック冒頭でゼロアロケーション実行
+    if (panicRequested.exchange(false, std::memory_order_acquire))
+    {
+        midiMessages.clear();
+        resetPhysicalToSnapped();
+        synth.reset();
+        fxChain.reset();
+        arp.reset();
+        modMatrix.reset();
+        masterLimiter.reset();
+        dryPreviewActive.store(false, std::memory_order_release);
+        dryPreviewResetPos.store(false, std::memory_order_release);
+        dryPreviewPos = -1.0;
+        prevArpEnabled = false;
+        return;
+    }
 
     // --- ホストBPM / 再生情報取得 ---
     double bpm = 120.0;
@@ -551,26 +823,29 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         }
     }
 
-    const bool scaleOn = apvts.getRawParameterValue("scaleOn")->load() > 0.5f;
-    const int scaleIdx = (int)apvts.getRawParameterValue("scale")->load();
-    const int keyIdx   = (int)apvts.getRawParameterValue("key")->load();
-    const int rootNote = (keyIdx == 0) ? currentDetectedRoot.load() : (keyIdx - 1);
+    const IngestedSample* activeSample = publishedSample.load(std::memory_order_seq_cst);
+    const int detRoot = activeSample != nullptr ? activeSample->detectedRoot : currentDetectedRoot.load();
+
+    const bool scaleOn = cp.scaleOn->load() > 0.5f;
+    const int scaleIdx = (int)cp.scale->load();
+    const int keyIdx   = (int)cp.key->load();
+    const int rootNote = (keyIdx == 0) ? detRoot : (keyIdx - 1);
 
     // --- アルペジエイター (MIDIを置き換え) ---
     ArpParams arpP;
-    arpP.enable       = apvts.getRawParameterValue("arpEnable")->load() > 0.5f;
-    arpP.pattern      = (int)apvts.getRawParameterValue("arpPattern")->load();
-    arpP.octaves      = (int)apvts.getRawParameterValue("arpOctaves")->load();
-    arpP.sync         = apvts.getRawParameterValue("arpSync")->load() > 0.5f;
-    arpP.rateSync     = (int)apvts.getRawParameterValue("arpRateSync")->load();
-    arpP.rateFree     = apvts.getRawParameterValue("arpRateFree")->load();
-    arpP.durMode      = (int)apvts.getRawParameterValue("arpDurMode")->load();
-    arpP.gate         = apvts.getRawParameterValue("arpGate")->load();
-    arpP.latch        = apvts.getRawParameterValue("arpLatch")->load() > 0.5f;
+    arpP.enable       = cp.arpEnable->load() > 0.5f;
+    arpP.pattern      = (int)cp.arpPattern->load();
+    arpP.octaves      = (int)cp.arpOctaves->load();
+    arpP.sync         = cp.arpSync->load() > 0.5f;
+    arpP.rateSync     = (int)cp.arpRateSync->load();
+    arpP.rateFree     = cp.arpRateFree->load();
+    arpP.durMode      = (int)cp.arpDurMode->load();
+    arpP.gate         = cp.arpGate->load();
+    arpP.latch        = cp.arpLatch->load() > 0.5f;
     arpP.scaleEnable  = scaleOn;
     arpP.key          = keyIdx;
     arpP.scale        = scaleIdx;
-    arpP.detectedRoot = currentDetectedRoot.load();
+    arpP.detectedRoot = detRoot;
     arpP.bpm          = bpm;
 
     // Arp系への変調（modMatrixは1ブロック前の値。アルペジオはmodより前段のため）
@@ -581,128 +856,179 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             arpP.gate + modMatrix.get(ModMatrix::DstArpGate));
         const float rateMod = modMatrix.get(ModMatrix::DstArpRateFree);
         if (arpP.sync)
-            arpP.rateSync = juce::jlimit(0, 12, arpP.rateSync + (int)std::round(rateMod * 6.0f));
+            arpP.rateSync = juce::jlimit(0, 15, arpP.rateSync + (int)std::round(rateMod * 7.5f));
         else
-            arpP.rateFree = juce::jlimit(0.1f, 40.0f, arpP.rateFree * std::pow(2.0f, rateMod * 2.0f));
+            arpP.rateFree = juce::jlimit(0.5f, 30.0f, arpP.rateFree * std::pow(2.0f, rateMod * 2.0f));
     }
 
     if (arpP.enable)
     {
-        physicalToSnapped.fill(-1);
-        arp.process(midiMessages, buffer.getNumSamples(), arpP);
-    }
-    else if (scaleOn)
-    {
-        // ARP Off の通常演奏時でも、入力NoteOn/NoteOffをScaleにスナップ
-        // physicalToSnapped で NoteOn 時のスナップ先を記憶し、NoteOff 時に確実に同一ノートへ送る
-        juce::MidiBuffer quantizedMidi;
-        for (const auto metadata : midiMessages)
+        quantizedMidi.clear();
+        if (pendingSnappedCount > 0)
         {
-            auto msg = metadata.getMessage();
-            if (msg.isNoteOn())
+            for (int ch = 0; ch < 16; ++ch)
             {
-                const int origNote = msg.getNoteNumber();
-                const int snapped  = juce::jlimit(0, 127, juce::roundToInt(ScaleQuantizer::quantize((float)origNote, rootNote, scaleIdx)));
-                physicalToSnapped[(size_t)origNote] = snapped;
-                quantizedMidi.addEvent(juce::MidiMessage::noteOn(msg.getChannel(), snapped, msg.getVelocity()), metadata.samplePosition);
+                for (int n = 0; n < 128; ++n)
+                {
+                    const int snapped = (int)physicalToSnapped[(size_t)ch][(size_t)n];
+                    if (snapped >= 0)
+                        quantizedMidi.addEvent(juce::MidiMessage::noteOff(ch + 1, snapped, (uint8_t)0), 0);
+                }
             }
-            else if (msg.isNoteOff())
-            {
-                const int origNote = msg.getNoteNumber();
-                int snapped = physicalToSnapped[(size_t)origNote];
-                if (snapped < 0)
-                    snapped = juce::jlimit(0, 127, juce::roundToInt(ScaleQuantizer::quantize((float)origNote, rootNote, scaleIdx)));
-                physicalToSnapped[(size_t)origNote] = -1;
-                quantizedMidi.addEvent(juce::MidiMessage::noteOff(msg.getChannel(), snapped, msg.getVelocity()), metadata.samplePosition);
-            }
-            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
-            {
-                physicalToSnapped.fill(-1);
-                quantizedMidi.addEvent(msg, metadata.samplePosition);
-            }
-            else
-            {
-                quantizedMidi.addEvent(msg, metadata.samplePosition);
-            }
+            resetPhysicalToSnapped();
         }
-        midiMessages.swapWith(quantizedMidi);
+        arp.process(midiMessages, numSm, arpP);
+        if (!quantizedMidi.isEmpty())
+            midiMessages.addEvents(quantizedMidi, 0, numSm, 0);
     }
+    else
+    {
+        if (scaleOn || pendingSnappedCount > 0)
+        {
+            // ARP Off の通常演奏時でも、入力NoteOn/NoteOffをScaleにスナップ
+            // physicalToSnapped で NoteOn 時のスナップ先を記憶し、scaleOn切替後もNoteOff 時に同一ノートへ送る
+            quantizedMidi.clear();
+            for (const auto metadata : midiMessages)
+            {
+                const auto msg = metadata.getMessage();
+                if (msg.isNoteOn())
+                {
+                    const int ch = juce::jlimit(0, 15, msg.getChannel() - 1);
+                    const int origNote = juce::jlimit(0, 127, msg.getNoteNumber());
+                    if (physicalToSnapped[(size_t)ch][(size_t)origNote] >= 0)
+                    {
+                        quantizedMidi.addEvent(
+                            juce::MidiMessage::noteOff(msg.getChannel(), (int)physicalToSnapped[(size_t)ch][(size_t)origNote], (uint8_t)0),
+                            metadata.samplePosition);
+                        physicalToSnapped[(size_t)ch][(size_t)origNote] = -1;
+                        --pendingSnappedCount;
+                    }
+                    if (scaleOn)
+                    {
+                        const int snapped = juce::jlimit(0, 127, juce::roundToInt(ScaleQuantizer::quantize((float)origNote, rootNote, scaleIdx)));
+                        physicalToSnapped[(size_t)ch][(size_t)origNote] = (int8_t)snapped;
+                        ++pendingSnappedCount;
+                        quantizedMidi.addEvent(juce::MidiMessage::noteOn(msg.getChannel(), snapped, msg.getVelocity()), metadata.samplePosition);
+                    }
+                    else
+                    {
+                        quantizedMidi.addEvent(msg, metadata.samplePosition);
+                    }
+                }
+                else if (msg.isNoteOff())
+                {
+                    const int ch = juce::jlimit(0, 15, msg.getChannel() - 1);
+                    const int origNote = juce::jlimit(0, 127, msg.getNoteNumber());
+                    int snapped = (int)physicalToSnapped[(size_t)ch][(size_t)origNote];
+                    if (snapped >= 0)
+                    {
+                        physicalToSnapped[(size_t)ch][(size_t)origNote] = -1;
+                        --pendingSnappedCount;
+                        quantizedMidi.addEvent(juce::MidiMessage::noteOff(msg.getChannel(), snapped, msg.getVelocity()), metadata.samplePosition);
+                    }
+                    else if (scaleOn)
+                    {
+                        snapped = juce::jlimit(0, 127, juce::roundToInt(ScaleQuantizer::quantize((float)origNote, rootNote, scaleIdx)));
+                        quantizedMidi.addEvent(juce::MidiMessage::noteOff(msg.getChannel(), snapped, msg.getVelocity()), metadata.samplePosition);
+                    }
+                    else
+                    {
+                        quantizedMidi.addEvent(msg, metadata.samplePosition);
+                    }
+                }
+                else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+                {
+                    resetPhysicalToSnapped();
+                    quantizedMidi.addEvent(msg, metadata.samplePosition);
+                }
+                else
+                {
+                    quantizedMidi.addEvent(msg, metadata.samplePosition);
+                }
+            }
+            midiMessages.swapWith(quantizedMidi);
+        }
+
+        // ArpがON→OFFへ遷移した場合、ここでArp内部の残存ノートに対するNoteOffが放出される
+        arp.process(midiMessages, numSm, arpP);
+    }
+    prevArpEnabled = arpP.enable;
 
     // --- MODマトリクス (アルペジオ後のMIDIでトリガー) ---
     ModMatrix::Params mp;
     for (int i = 0; i < ModMatrix::kNumLfos; ++i)
     {
-        const juce::String idx(i + 1);
-        mp.lfo[(size_t)i].rateHz   = juce::jlimit(0.02f, 20.0f, apvts.getRawParameterValue("lfo" + idx + "Rate")->load() + modMatrix.get(ModMatrix::DstLfo1Rate + i) * 10.0f);
-        mp.lfo[(size_t)i].sync     = apvts.getRawParameterValue("lfo" + idx + "Sync")->load() > 0.5f;
-        mp.lfo[(size_t)i].rateSync = (int)apvts.getRawParameterValue("lfo" + idx + "SyncRate")->load();
-        mp.lfo[(size_t)i].wave     = (int)apvts.getRawParameterValue("lfo" + idx + "Wave")->load();
+        mp.lfo[(size_t)i].rateHz   = juce::jlimit(0.02f, 20.0f, cp.lfoRate[(size_t)i]->load() + modMatrix.get(ModMatrix::DstLfo1Rate + i) * 10.0f);
+        mp.lfo[(size_t)i].sync     = cp.lfoSync[(size_t)i]->load() > 0.5f;
+        mp.lfo[(size_t)i].rateSync = (int)cp.lfoSyncRate[(size_t)i]->load();
+        mp.lfo[(size_t)i].wave     = (int)cp.lfoWave[(size_t)i]->load();
     }
     for (int i = 0; i < ModMatrix::kNumEnvs; ++i)
     {
-        const juce::String idx(i + 1);
-        mp.env[(size_t)i].attack  = juce::jlimit(0.001f, 10.0f, apvts.getRawParameterValue("env" + idx + "Attack")->load() + modMatrix.get(ModMatrix::DstEnv1Attack + i * 4) * 2.5f);
-        mp.env[(size_t)i].decay   = juce::jlimit(0.001f, 10.0f, apvts.getRawParameterValue("env" + idx + "Decay")->load() + modMatrix.get(ModMatrix::DstEnv1Decay + i * 4) * 2.5f);
-        mp.env[(size_t)i].sustain = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("env" + idx + "Sustain")->load() + modMatrix.get(ModMatrix::DstEnv1Sustain + i * 4));
-        mp.env[(size_t)i].release = juce::jlimit(0.001f, 10.0f, apvts.getRawParameterValue("env" + idx + "Release")->load() + modMatrix.get(ModMatrix::DstEnv1Release + i * 4) * 2.5f);
-        mp.env[(size_t)i].loop    = apvts.getRawParameterValue("env" + idx + "Loop")->load() > 0.5f;
+        mp.env[(size_t)i].attack  = juce::jlimit(0.001f, 10.0f, cp.envAttack[(size_t)i]->load()  + modMatrix.get(ModMatrix::DstEnv1Attack  + i * 4) * 2.5f);
+        mp.env[(size_t)i].decay   = juce::jlimit(0.001f, 10.0f, cp.envDecay[(size_t)i]->load()   + modMatrix.get(ModMatrix::DstEnv1Decay   + i * 4) * 2.5f);
+        mp.env[(size_t)i].sustain = juce::jlimit(0.0f, 1.0f,    cp.envSustain[(size_t)i]->load() + modMatrix.get(ModMatrix::DstEnv1Sustain + i * 4));
+        mp.env[(size_t)i].release = juce::jlimit(0.001f, 10.0f, cp.envRelease[(size_t)i]->load() + modMatrix.get(ModMatrix::DstEnv1Release + i * 4) * 2.5f);
+        mp.env[(size_t)i].loop    = cp.envLoop[(size_t)i]->load() > 0.5f;
     }
     for (int i = 0; i < ModMatrix::kNumSlots; ++i)
     {
-        const juce::String idx(i + 1);
-        mp.slot[(size_t)i].src = (int)apvts.getRawParameterValue("mod" + idx + "Src")->load();
-        mp.slot[(size_t)i].dst = (int)apvts.getRawParameterValue("mod" + idx + "Dst")->load();
-        mp.slot[(size_t)i].amt = apvts.getRawParameterValue("mod" + idx + "Amt")->load();
-        mp.slot[(size_t)i].uni = apvts.getRawParameterValue("mod" + idx + "Uni")->load() > 0.5f;
+        mp.slot[(size_t)i].src = (int)cp.modSrc[(size_t)i]->load();
+        mp.slot[(size_t)i].dst = (int)cp.modDst[(size_t)i]->load();
+        mp.slot[(size_t)i].amt = cp.modAmt[(size_t)i]->load();
+        mp.slot[(size_t)i].uni = cp.modUni[(size_t)i]->load() > 0.5f;
     }
     mp.bpm = bpm;
 
     modMatrix.handleMidi(midiMessages);
-    modMatrix.processBlock(buffer.getNumSamples(), mp);
+    modMatrix.processBlock(numSm, mp);
 
-    if (ingestState.load() != IngestState::Ready)
+    if (ingestState.load(std::memory_order_acquire) != IngestState::Ready
+        || activeSample == nullptr
+        || activeSample->validSamples <= 0)
     {
         synth.allNotesOff(); // サンプル未ロード/削除時は発音を止める
         return;
     }
 
+    const double sr = currentSampleRate.load(std::memory_order_relaxed);
     GranularParams p;
-    p.attack        = apvts.getRawParameterValue("attack")->load();
-    p.decay         = apvts.getRawParameterValue("decay")->load();
-    p.sustain       = apvts.getRawParameterValue("sustain")->load();
-    p.release       = apvts.getRawParameterValue("release")->load();
-    p.grainSize     = apvts.getRawParameterValue("grainSize")->load();
-    p.density       = apvts.getRawParameterValue("density")->load();
-    p.position      = apvts.getRawParameterValue("position")->load();
-    p.positionSpray = apvts.getRawParameterValue("positionSpray")->load();
-    p.pitchJitter   = apvts.getRawParameterValue("pitchJitter")->load();
-    p.panSpread     = apvts.getRawParameterValue("panSpread")->load();
-    p.speed         = apvts.getRawParameterValue("speed")->load();
-    p.octave        = (int)apvts.getRawParameterValue("octave")->load();
-    p.pitchSt       = (int)apvts.getRawParameterValue("pitchSt")->load();
-    p.fineTune      = apvts.getRawParameterValue("fineTune")->load();
-    p.outGainDb     = apvts.getRawParameterValue("outGain")->load();
-    p.reverseGrain  = apvts.getRawParameterValue("reverseGrain")->load() > 0.5f;
-    p.windowShape   = (int)apvts.getRawParameterValue("windowShape")->load();
-    p.key           = (int)apvts.getRawParameterValue("key")->load();
-    p.scale         = (int)apvts.getRawParameterValue("scale")->load();
+    p.attack        = cp.attack->load();
+    p.decay         = cp.decay->load();
+    p.sustain       = cp.sustain->load();
+    p.release       = cp.release->load();
+    p.grainSize     = cp.grainSize->load();
+    p.density       = cp.density->load();
+    p.position      = cp.position->load();
+    p.positionSpray = cp.positionSpray->load();
+    p.pitchJitter   = cp.pitchJitter->load();
+    p.panSpread     = cp.panSpread->load();
+    p.speed         = cp.speed->load();
+    p.octave        = (int)cp.octave->load();
+    p.pitchSt       = (int)cp.pitchSt->load();
+    p.fineTune      = cp.fineTune->load();
+    p.outGainDb     = cp.outGain->load();
+    p.reverseGrain  = cp.reverseGrain->load() > 0.5f;
+    p.windowShape   = (int)cp.windowShape->load();
+    p.key           = keyIdx;
+    p.scale         = scaleIdx;
     p.scaleOn       = scaleOn;
-    p.pitchSync     = apvts.getRawParameterValue("pitchSync")->load() > 0.5f;
-    p.spraySpeed    = apvts.getRawParameterValue("spraySpeed")->load();
-    p.tone          = apvts.getRawParameterValue("tone")->load();
-    p.masterHPF     = apvts.getRawParameterValue("masterHPF")->load();
-    p.masterLPF     = apvts.getRawParameterValue("masterLPF")->load();
-    p.filterSlope   = (int)apvts.getRawParameterValue("filterSlope")->load();
-    p.ceiling       = apvts.getRawParameterValue("ceiling")->load();
-    p.limRelease    = apvts.getRawParameterValue("limRelease")->load();
-    p.poly          = (int)apvts.getRawParameterValue("poly")->load();
-    p.playMode      = (int)apvts.getRawParameterValue("playMode")->load();
-    p.speedSync     = apvts.getRawParameterValue("speedSync")->load() > 0.5f;
-    p.speedSyncDiv  = (int)apvts.getRawParameterValue("speedSyncDiv")->load();
+    p.pitchSync     = cp.pitchSync->load() > 0.5f;
+    p.spraySpeed    = cp.spraySpeed->load();
+    p.tone          = cp.tone->load();
+    p.masterHPF     = cp.masterHPF->load();
+    p.masterLPF     = cp.masterLPF->load();
+    p.filterSlope   = (int)cp.filterSlope->load();
+    p.ceiling       = cp.ceiling->load();
+    p.limRelease    = cp.limRelease->load();
+    p.poly          = (int)cp.poly->load();
+    p.playMode      = (int)cp.playMode->load();
+    p.speedSync     = cp.speedSync->load() > 0.5f;
+    p.speedSyncDiv  = (int)cp.speedSyncDiv->load();
     p.bpm           = bpm;
-    p.detectedRoot  = currentDetectedRoot.load();
-    p.rootNote      = rootMidiNote.load();
-    p.srComp        = (float)(bufferSampleRate.load() / currentSampleRate); // SR補償
+    p.detectedRoot  = activeSample->detectedRoot;
+    p.rootNote      = activeSample->rootMidiNote;
+    p.srComp        = (float)(activeSample->sampleRate / (sr > 1.0 ? sr : 44100.0)); // SR補償
 
     // --- MOD変調の適用 (Pitch系は量子化前に加算されるためスケールに乗る) ---
     {
@@ -724,7 +1050,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         // フィルターは指数(オクターブ)スケールで音楽的に
         p.masterHPF = juce::jlimit(20.0f, 2000.0f,   p.masterHPF * std::pow(2.0f, mod(D::DstMasterHpf) * 5.0f));
         p.masterLPF = juce::jlimit(200.0f, 20000.0f, p.masterLPF * std::pow(2.0f, mod(D::DstMasterLpf) * 6.0f));
-        
+
         // マスター
         p.outGainDb  = juce::jlimit(-36.0f, 12.0f, p.outGainDb  + mod(D::DstOutGain) * 24.0f);
         p.ceiling    = juce::jlimit(-6.0f, 0.0f,   p.ceiling    + mod(D::DstLimCeiling) * 6.0f);
@@ -732,28 +1058,25 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     }
 
     // ユーザーStart/End: 自動トリム領域内の相対指定 → 実効トリムを算出
-    const int autoS = trimStartSample.load();
-    const int autoE = trimEndSample.load();
-    const int span = juce::jmax(0, autoE - autoS);
-    const float s01 = juce::jlimit(0.0f, 1.0f,
-        apvts.getRawParameterValue("sampleStart")->load() + modMatrix.get(ModMatrix::DstSampleStart));
-    const float e01 = juce::jlimit(0.0f, 1.0f,
-        apvts.getRawParameterValue("sampleEnd")->load() + modMatrix.get(ModMatrix::DstSampleEnd));
+    const int totalSamples = activeSample->validSamples;
+    const int autoS = juce::jlimit(0, juce::jmax(0, totalSamples - 1), activeSample->trimStart);
+    const int autoE = juce::jlimit(autoS + 1, totalSamples, juce::jmax(autoS + 1, activeSample->trimEnd));
+    const int span  = juce::jmax(0, autoE - autoS);
+    const float s01 = juce::jlimit(0.0f, 1.0f, cp.sampleStart->load() + modMatrix.get(ModMatrix::DstSampleStart));
+    const float e01 = juce::jlimit(0.0f, 1.0f, cp.sampleEnd->load()   + modMatrix.get(ModMatrix::DstSampleEnd));
 
     int effS = autoS + (int)(s01 * (float)span);
     int effE = autoS + (int)(e01 * (float)span);
-    if (effE - effS < 1000) // 最低1000サンプルは確保
+    const int minSpan = juce::jmin(1000, span);
+    if (effE - effS < minSpan)
     {
-        effE = juce::jmin(autoE, effS + 1000);
-        effS = juce::jmax(autoS, effE - 1000);
+        effE = juce::jmin(autoE, effS + minSpan);
+        effS = juce::jmax(autoS, effE - minSpan);
     }
 
-    synth.processBlock(buffer, midiMessages, &sharedAudioBuffer, effS, effE, p);
+    synth.processBlock(buffer, midiMessages, &activeSample->buffer, effS, effE, p);
 
     // --- FX前の安全ソフトクリップ ---
-    // グレインの位相整列(pitchSync×高密度)やTONEコム共鳴などで稀に生じる突発ピークが、
-    // 高フィードバックのReverb/Delayを過励起して「バシャーン」(大音量の減衰ノイズ)になるのを防ぐ。
-    // 通常レベル(|x|<0.9)はそのまま素通しし、0.9超のみ~1.0付近へ滑らかに制限する。
     {
         auto softClipHi = [](float x) noexcept
         {
@@ -763,10 +1086,10 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             const float s = x < 0.0f ? -1.0f : 1.0f;
             return s * (t + (1.0f - t) * std::tanh((a - t) / (1.0f - t)));
         };
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        for (int ch = 0; ch < numCh; ++ch)
         {
             float* d = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            for (int i = 0; i < numSm; ++i)
                 d[i] = softClipHi(d[i]);
         }
     }
@@ -775,53 +1098,50 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     FxChain::Params fxP;
     for (int i = 0; i < FxChain::kNumSlots; ++i)
     {
-        const juce::String idx(i + 1);
-        fxP.type[(size_t)i]   = (int)apvts.getRawParameterValue("fx" + idx + "Type")->load();
+        fxP.type[(size_t)i]   = (int)cp.fxType[(size_t)i]->load();
         fxP.amount[(size_t)i] = juce::jlimit(0.0f, 1.0f,
-            apvts.getRawParameterValue("fx" + idx + "Amount")->load() / 100.0f
-            + modMatrix.get(ModMatrix::DstFx1Amount + i)); // MOD変調
+            cp.fxAmount[(size_t)i]->load() / 100.0f
+            + modMatrix.get(ModMatrix::DstFx1Amount + i));
     }
     fxP.bpm = bpm;
-    fxP.satAlgo     = (int)apvts.getRawParameterValue("satAlgo")->load();
-    fxP.satDrive    = juce::jlimit(1.0f, 12.0f, apvts.getRawParameterValue("satDrive")->load() + modMatrix.get(ModMatrix::DstSatDrive) * 5.5f);
-    fxP.satPreHz    = juce::jlimit(20.0f, 2000.0f, apvts.getRawParameterValue("satPreHz")->load() * std::pow(2.0f, modMatrix.get(ModMatrix::DstSatPreHpf) * 5.0f));
-    fxP.satTrimDb   = juce::jlimit(-12.0f, 12.0f, apvts.getRawParameterValue("satTrim")->load() + modMatrix.get(ModMatrix::DstSatTrim) * 12.0f);
-    
-    fxP.choRate     = juce::jlimit(0.05f, 4.0f, apvts.getRawParameterValue("choRate")->load() + modMatrix.get(ModMatrix::DstChoRate) * 2.0f);
-    fxP.choDepth    = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("choDepth")->load() + modMatrix.get(ModMatrix::DstChoDepth));
-    fxP.choWidth    = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("choWidth")->load() + modMatrix.get(ModMatrix::DstChoWidth));
-    
-    fxP.dlyTime     = (int)apvts.getRawParameterValue("dlyTime")->load();
-    fxP.dlyFeedback = juce::jlimit(0.0f, 0.95f, apvts.getRawParameterValue("dlyFeedback")->load() + modMatrix.get(ModMatrix::DstDlyFeedback));
-    fxP.dlyDuck     = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("dlyDuck")->load() + modMatrix.get(ModMatrix::DstDlyDuck));
-    fxP.dlyDamp     = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("dlyDamp")->load() + modMatrix.get(ModMatrix::DstDlyDamp));
-    
-    fxP.frzSize     = juce::jlimit(20.0f, 1000.0f, apvts.getRawParameterValue("frzSize")->load() + modMatrix.get(ModMatrix::DstFrzSize) * 500.0f);
-    fxP.frzFeedback = juce::jlimit(0.0f, 0.99f, apvts.getRawParameterValue("frzFeedback")->load() + modMatrix.get(ModMatrix::DstFrzFeedback));
-    fxP.frzDamp     = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("frzDamp")->load() + modMatrix.get(ModMatrix::DstFrzDamp));
-    
-    fxP.revDecay    = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revDecay")->load() + modMatrix.get(ModMatrix::DstRevDecay));
-    fxP.revShimmer  = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revShimmer")->load() + modMatrix.get(ModMatrix::DstRevShimmer));
-    fxP.revDamp     = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revDamp")->load() + modMatrix.get(ModMatrix::DstRevDamp));
-    fxP.revMod      = juce::jlimit(0.0f, 1.0f, apvts.getRawParameterValue("revMod")->load() + modMatrix.get(ModMatrix::DstRevMod));
+    fxP.satAlgo     = (int)cp.satAlgo->load();
+    fxP.satDrive    = juce::jlimit(1.0f, 12.0f,     cp.satDrive->load() + modMatrix.get(ModMatrix::DstSatDrive) * 5.5f);
+    fxP.satPreHz    = juce::jlimit(20.0f, 2000.0f,  cp.satPreHz->load() * std::pow(2.0f, modMatrix.get(ModMatrix::DstSatPreHpf) * 5.0f));
+    fxP.satTrimDb   = juce::jlimit(-12.0f, 12.0f,   cp.satTrim->load()  + modMatrix.get(ModMatrix::DstSatTrim) * 12.0f);
+
+    fxP.choRate     = juce::jlimit(0.05f, 4.0f,     cp.choRate->load()  + modMatrix.get(ModMatrix::DstChoRate) * 2.0f);
+    fxP.choDepth    = juce::jlimit(0.0f, 1.0f,      cp.choDepth->load() + modMatrix.get(ModMatrix::DstChoDepth));
+    fxP.choWidth    = juce::jlimit(0.0f, 1.0f,      cp.choWidth->load() + modMatrix.get(ModMatrix::DstChoWidth));
+
+    fxP.dlyTime     = (int)cp.dlyTime->load();
+    fxP.dlyFeedback = juce::jlimit(0.0f, 0.95f,     cp.dlyFeedback->load() + modMatrix.get(ModMatrix::DstDlyFeedback));
+    fxP.dlyDuck     = juce::jlimit(0.0f, 1.0f,      cp.dlyDuck->load()     + modMatrix.get(ModMatrix::DstDlyDuck));
+    fxP.dlyDamp     = juce::jlimit(0.0f, 1.0f,      cp.dlyDamp->load()     + modMatrix.get(ModMatrix::DstDlyDamp));
+
+    fxP.frzSize     = juce::jlimit(20.0f, 1000.0f,  cp.frzSize->load()     + modMatrix.get(ModMatrix::DstFrzSize) * 500.0f);
+    fxP.frzFeedback = juce::jlimit(0.0f, 0.99f,     cp.frzFeedback->load() + modMatrix.get(ModMatrix::DstFrzFeedback));
+    fxP.frzDamp     = juce::jlimit(0.0f, 1.0f,      cp.frzDamp->load()     + modMatrix.get(ModMatrix::DstFrzDamp));
+
+    fxP.revDecay    = juce::jlimit(0.0f, 1.0f,      cp.revDecay->load()   + modMatrix.get(ModMatrix::DstRevDecay));
+    fxP.revShimmer  = juce::jlimit(0.0f, 1.0f,      cp.revShimmer->load() + modMatrix.get(ModMatrix::DstRevShimmer));
+    fxP.revDamp     = juce::jlimit(0.0f, 1.0f,      cp.revDamp->load()    + modMatrix.get(ModMatrix::DstRevDamp));
+    fxP.revMod      = juce::jlimit(0.0f, 1.0f,      cp.revMod->load()     + modMatrix.get(ModMatrix::DstRevMod));
 
     fxP.ppqPosition = ppqPos;
     fxP.isPlaying   = isPlaying;
-    fxP.gateRate    = (int)apvts.getRawParameterValue("gateRate")->load();
-    fxP.gatePattern = (int)apvts.getRawParameterValue("gatePattern")->load();
-    fxP.gateDepth   = juce::jlimit(0.0f, 100.0f, apvts.getRawParameterValue("gateDepth")->load() + modMatrix.get(ModMatrix::DstGateDepth) * 100.0f);
-    fxP.gateDecay   = juce::jlimit(10.0f, 100.0f, apvts.getRawParameterValue("gateDecay")->load() + modMatrix.get(ModMatrix::DstGateDecay) * 100.0f);
-    fxP.gateVowel   = juce::jlimit(0.0f, 100.0f, apvts.getRawParameterValue("gateVowel")->load() + modMatrix.get(ModMatrix::DstGateVowel) * 100.0f);
+    fxP.gateRate    = (int)cp.gateRate->load();
+    fxP.gatePattern = (int)cp.gatePattern->load();
+    fxP.gateDepth   = juce::jlimit(0.0f, 100.0f,    cp.gateDepth->load() + modMatrix.get(ModMatrix::DstGateDepth) * 100.0f);
+    fxP.gateDecay   = juce::jlimit(10.0f, 100.0f,   cp.gateDecay->load() + modMatrix.get(ModMatrix::DstGateDecay) * 100.0f);
+    fxP.gateVowel   = juce::jlimit(0.0f, 100.0f,    cp.gateVowel->load() + modMatrix.get(ModMatrix::DstGateVowel) * 100.0f);
 
     // --- FX Dry/Wet (MOD対象): プリFXを退避 → FX後にブレンド ---
-    const int numCh = buffer.getNumChannels();
-    const int numSm = buffer.getNumSamples();
-    const float fxMix = juce::jlimit(0.0f, 1.0f,
-        apvts.getRawParameterValue("fxMix")->load() + modMatrix.get(ModMatrix::DstFxMix));
+    const float fxMix = juce::jlimit(0.0f, 1.0f, cp.fxMix->load() + modMatrix.get(ModMatrix::DstFxMix));
 
     if (fxMix < 0.999f)
     {
-        fxDryBuffer.setSize(numCh, numSm, false, false, true);
+        if (fxDryBuffer.getNumChannels() < numCh || fxDryBuffer.getNumSamples() < numSm)
+            fxDryBuffer.setSize(juce::jmax(2, numCh), numSm, false, false, true);
         for (int ch = 0; ch < numCh; ++ch)
             fxDryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSm);
     }
@@ -838,22 +1158,27 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     }
 
     // --- Dryサンプル・プレビュー (原音をそのまま出力に加算) ---
-    if (dryPreviewActive.load() && sharedAudioBuffer.getNumSamples() > 0)
+    if (dryPreviewActive.load(std::memory_order_acquire) && totalSamples > 0)
     {
-        const int total = sharedAudioBuffer.getNumSamples();
-        const int srcCh = sharedAudioBuffer.getNumChannels();
-        int startS = trimStartSample.load();
-        int endS   = trimEndSample.load();
-        if (endS <= startS || endS > total) { startS = 0; endS = total; }
-        if (dryPreviewPos < 0.0) dryPreviewPos = (double)startS;
+        const int srcCh = activeSample->buffer.getNumChannels();
+        int startS = autoS;
+        int endS   = autoE;
+        if (endS <= startS || endS > totalSamples) { startS = 0; endS = totalSamples; }
+        if (dryPreviewResetPos.exchange(false, std::memory_order_acquire) || dryPreviewPos < 0.0)
+            dryPreviewPos = (double)startS;
 
         for (int i = 0; i < numSm; ++i)
         {
             const int sp = (int)dryPreviewPos;
-            if (sp >= endS) { dryPreviewActive.store(false); dryPreviewPos = -1.0; break; }
+            if (sp >= endS)
+            {
+                dryPreviewActive.store(false, std::memory_order_release);
+                dryPreviewPos = -1.0;
+                break;
+            }
             for (int ch = 0; ch < numCh; ++ch)
             {
-                const float s = sharedAudioBuffer.getSample(juce::jmin(ch, srcCh - 1), sp);
+                const float s = activeSample->buffer.getSample(juce::jmin(ch, srcCh - 1), sp);
                 buffer.addSample(ch, i, s);
             }
             dryPreviewPos += 1.0;
@@ -862,34 +1187,43 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
     // --- マスターブリックウォールリミッター + NaN/Inf/バーストセーフティガード ---
     {
-        const int channels = buffer.getNumChannels();
-        masterLimiter.setReleaseMs(apvts.getRawParameterValue("limRelease")->load());
+        masterLimiter.setReleaseMs(p.limRelease);
         const float ceilingLin = juce::Decibels::decibelsToGain(
-            juce::jlimit(-6.0f, 0.0f, apvts.getRawParameterValue("ceiling")->load()));
+            juce::jlimit(-6.0f, 0.0f, p.ceiling));
         float* dL = buffer.getWritePointer(0);
-        float* dR = channels > 1 ? buffer.getWritePointer(1) : dL;
-        for (int i = 0; i < buffer.getNumSamples(); ++i)
-            masterLimiter.process(dL[i], dR[i], ceilingLin);
+        if (numCh > 1)
+        {
+            float* dR = buffer.getWritePointer(1);
+            for (int i = 0; i < numSm; ++i)
+                masterLimiter.process(dL[i], dR[i], ceilingLin);
+        }
+        else
+        {
+            for (int i = 0; i < numSm; ++i)
+                masterLimiter.processMono(dL[i], ceilingLin);
+        }
 
         bool hasAnomaly = false;
-        const int numSmp = buffer.getNumSamples();
-        for (int i = 0; i < numSmp; ++i)
+        for (int ch = 0; ch < numCh && !hasAnomaly; ++ch)
         {
-            const float cL = dL[i];
-            const float cR = channels > 1 ? dR[i] : cL;
-            if (std::isnan(cL) || std::isinf(cL) || std::isnan(cR) || std::isinf(cR) || std::abs(cL) > 2.0f || std::abs(cR) > 2.0f)
+            const float* d = buffer.getReadPointer(ch);
+            for (int i = 0; i < numSm; ++i)
             {
-                hasAnomaly = true;
-                break;
+                const float v = d[i];
+                if (!isFiniteFloat(v) || std::abs(v) > 2.0f)
+                {
+                    hasAnomaly = true;
+                    break;
+                }
             }
         }
 
         if (hasAnomaly)
         {
             buffer.clear();
-            fxChain.prepare(currentSampleRate); // FX内部状態をリセット
-            synth.releaseResources(); // 音源リセット
-            synth.prepareToPlay(currentSampleRate, buffer.getNumSamples());
+            fxChain.reset();
+            synth.reset();
+            masterLimiter.reset();
         }
     }
 }
@@ -942,13 +1276,14 @@ void GranularAudioProcessor::setStateInformation(const void* data, int sizeInByt
 void GranularAudioProcessor::loadFileForIngest(const juce::File& file)
 {
     if (isThreadRunning()) stopThread(2000);
-    // 再読込/再解析時、音声スレッドが sharedAudioBuffer を読みながら
-    // 背景スレッドが再確保する競合を防ぐため、先に非Ready状態にする
+    // 再読込/再解析時、音声スレッドがサンプルを読み続ける競合をイミュータブル退避で防止
     ingestState.store(IngestState::Loading);
     waveformReady.store(false);
-    fileToIngest = file;
+    dryPreviewActive.store(false);
+    retireCurrentSample();
     {
         juce::ScopedLock sl(stateLock);
+        fileToIngest = file;
         hudLineFile = "File: " + file.getFileName();
         hudLineOrig = "Original: ---";
         hudLineCorr = "Corrected: ---";
@@ -958,8 +1293,9 @@ void GranularAudioProcessor::loadFileForIngest(const juce::File& file)
 
 void GranularAudioProcessor::reingestCurrentFile()
 {
-    if (fileToIngest.existsAsFile())
-        loadFileForIngest(fileToIngest);
+    const juce::File file = getFileToIngestCopy();
+    if (file.existsAsFile())
+        loadFileForIngest(file);
 }
 
 void GranularAudioProcessor::clearSample()
@@ -967,18 +1303,25 @@ void GranularAudioProcessor::clearSample()
     if (isThreadRunning()) stopThread(2000);
     ingestState.store(IngestState::Empty);   // processBlock が即座に発音を止める
     waveformReady.store(false);
+    dryPreviewActive.store(false);
+    panicRequested.store(true, std::memory_order_release);
+    retireCurrentSample();
     validSampleCount.store(0);
     trimStartSample.store(0);
     trimEndSample.store(0);
     rootMidiNote.store(60);
-    fileToIngest = juce::File();
-    waveformPeaks.fill(0.0f);
 
-    juce::ScopedLock sl(stateLock);
-    hudLineFile = "File: ---";
-    hudLineTask = "Task: Drop a sample";
-    hudLineOrig = "Original: ---";
-    hudLineCorr = "Corrected: ---";
+    {
+        juce::ScopedLock sl(stateLock);
+        fileToIngest = juce::File();
+        waveformPeaks.fill(0.0f);
+        waveformBright.fill(0.0f);
+        hudLineFile = "File: ---";
+        hudLineTask = "Task: Drop a sample";
+        hudLineOrig = "Original: ---";
+        hudLineCorr = "Corrected: ---";
+    }
+    sendChangeMessage();
 }
 
 void GranularAudioProcessor::run()
@@ -987,11 +1330,10 @@ void GranularAudioProcessor::run()
     ingestProgress.store(0.02f);
     { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Loading..."; }
 
-    // このインジェストが対象とするSRをスレッド開始時に確定
-    // (処理中にprepareToPlayでSRが変わっても混在しない)
-    const double targetSR = currentSampleRate;
-
-    const int materialMode = (int)apvts.getRawParameterValue("materialMode")->load();
+    // このインジェストが対象とするSRとファイルをスレッド開始時にスナップショット確定
+    const double targetSR = currentSampleRate.load(std::memory_order_relaxed);
+    const juce::File targetFile = getFileToIngestCopy();
+    const int materialMode = (int)cp.materialMode->load();
 
     // DAWのファイルロック解除待ちを含むリトライ読み込み
     std::unique_ptr<juce::AudioFormatReader> reader;
@@ -1001,17 +1343,17 @@ void GranularAudioProcessor::run()
 
     for (int i = 0; i < 200 && !threadShouldExit(); ++i)
     {
-        if (fileToIngest.existsAsFile() && fileToIngest.getSize() > 0)
+        if (targetFile.existsAsFile() && targetFile.getSize() > 0)
         {
             // 1. Ableton fl32 AIFF-C フォールバック読み込み
-            if (readAbletonAif(fileToIngest, tempRaw, fileSampleRate))
+            if (readAbletonAif(targetFile, tempRaw, fileSampleRate))
             {
                 loadedViaFallback = true;
                 break;
             }
 
             // 2. 通常のJUCEデコーダー
-            auto stream = fileToIngest.createInputStream();
+            auto stream = targetFile.createInputStream();
             if (stream != nullptr && !stream->isExhausted())
             {
                 reader.reset(formatManager.createReaderFor(std::move(stream)));
@@ -1020,17 +1362,19 @@ void GranularAudioProcessor::run()
             // 3. ファイルロック回避フォールバック (std::ifstream で共有オープンし、メモリバッファ経由でデコード)
             if (reader == nullptr)
             {
-                std::ifstream fLockFree(fileToIngest.getFullPathName().toWideCharPointer(), std::ios::binary | std::ios::ate);
+                std::ifstream fLockFree(targetFile.getFullPathName().toWideCharPointer(), std::ios::binary | std::ios::ate);
                 if (fLockFree.is_open())
                 {
                     std::streamsize size = fLockFree.tellg();
-                    fLockFree.seekg(0, std::ios::beg);
-
-                    juce::MemoryBlock memBlock((size_t)size);
-                    if (fLockFree.read((char*)memBlock.getData(), size))
+                    if (size > 0)
                     {
-                        auto memStream = std::make_unique<juce::MemoryInputStream>(memBlock, false);
-                        reader.reset(formatManager.createReaderFor(std::move(memStream)));
+                        fLockFree.seekg(0, std::ios::beg);
+                        juce::MemoryBlock memBlock((size_t)size);
+                        if (fLockFree.read((char*)memBlock.getData(), size))
+                        {
+                            auto memStream = std::make_unique<juce::MemoryInputStream>(memBlock, false);
+                            reader.reset(formatManager.createReaderFor(std::move(memStream)));
+                        }
                     }
                 }
             }
@@ -1040,6 +1384,8 @@ void GranularAudioProcessor::run()
         }
         juce::Thread::sleep(100);
     }
+
+    if (threadShouldExit()) return;
 
     if (!loadedViaFallback && (!reader || reader->lengthInSamples == 0))
     {
@@ -1061,8 +1407,6 @@ void GranularAudioProcessor::run()
     }
     else
     {
-        // フォールバックロード時は、すでに tempRaw にデータが入り、fileSampleRate がセットされています。
-        // 最大60秒の制限を適用
         const int maxSamples = (int)juce::jmin<juce::int64>(tempRaw.getNumSamples(), (juce::int64)(fileSampleRate * 60.0));
         if (tempRaw.getNumSamples() > maxSamples)
         {
@@ -1073,30 +1417,35 @@ void GranularAudioProcessor::run()
         }
     }
 
+    if (threadShouldExit() || tempRaw.getNumSamples() <= 0 || tempRaw.getNumChannels() <= 0) return;
+
     // ホストSRへリサンプル
     if (fileSampleRate != targetSR && fileSampleRate > 0.0)
     {
         const double ratio = fileSampleRate / targetSR;
-        const int newLength = (int)((double)tempRaw.getNumSamples() / ratio);
+        const int newLength = juce::jmax(1, (int)((double)tempRaw.getNumSamples() / ratio));
         juce::AudioBuffer<float> resampled(tempRaw.getNumChannels(), newLength);
         for (int ch = 0; ch < tempRaw.getNumChannels(); ++ch)
         {
+            if (threadShouldExit()) return;
             juce::LagrangeInterpolator interpolator;
             interpolator.process(ratio, tempRaw.getReadPointer(ch), resampled.getWritePointer(ch), newLength);
         }
         tempRaw = resampled;
     }
     ingestProgress.store(0.25f);
+    if (threadShouldExit()) return;
 
     // --- ピッチ解析 (Omni-Analyzer) ---
     ingestState.store(IngestState::Analyzing);
     { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Analyzing Pitch..."; }
 
     currentPitch = PitchAnalyzer::analyzeOmni(tempRaw.getReadPointer(0), tempRaw.getNumSamples(),
-                                              targetSR, fileToIngest.getFileName(), materialMode);
+                                              targetSR, targetFile.getFileName(), materialMode);
     currentDetectedRoot.store(currentPitch.detectedRoot);
     currentIsMajor.store(currentPitch.isMajor);
     ingestProgress.store(0.45f);
+    if (threadShouldExit()) return;
 
     {
         juce::ScopedLock sl(stateLock);
@@ -1182,42 +1531,56 @@ void GranularAudioProcessor::run()
         juce::ScopedLock sl(stateLock);
         hudLineCorr = "Corrected: N/A (Root C3)";
     }
+    if (threadShouldExit()) return;
     ingestProgress.store(0.75f);
 
-    // --- ステレオ化 → 正規化 → トリム → 波形ピーク ---
+    // --- ステレオ化 → 正規化 → トリム → 波形ピーク (イミュータブル構築後に一括公開) ---
     ingestState.store(IngestState::Normalizing);
     { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Normalizing..."; }
 
     const int len = corrected.getNumSamples();
-    sharedAudioBuffer.setSize(2, len, false, true, true);
-    sharedAudioBuffer.copyFrom(0, 0, corrected, 0, 0, len);
-    sharedAudioBuffer.copyFrom(1, 0, corrected, corrected.getNumChannels() > 1 ? 1 : 0, 0, len);
-    validSampleCount.store(len);
+    if (len <= 0)
+    {
+        ingestState.store(IngestState::Failed);
+        { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Failed (Empty Audio)"; }
+        return;
+    }
+
+    auto nextSample = std::make_shared<IngestedSample>();
+    nextSample->buffer.setSize(2, len, false, true, true);
+    nextSample->buffer.copyFrom(0, 0, corrected, 0, 0, len);
+    nextSample->buffer.copyFrom(1, 0, corrected, corrected.getNumChannels() > 1 ? 1 : 0, 0, len);
 
     int s = 0, e = len - 1;
     const float thresh = 0.005f;
-    const float* d = sharedAudioBuffer.getReadPointer(0);
+    const float* d = nextSample->buffer.getReadPointer(0);
     for (int i = 0; i < len; ++i)          { if (std::abs(d[i]) > thresh) { s = i; break; } }
     for (int i = len - 1; i >= s; --i)     { if (std::abs(d[i]) > thresh) { e = i; break; } }
-    trimStartSample.store(s);
-    trimEndSample.store(e);
 
-    const float mag = sharedAudioBuffer.getMagnitude(s, e - s + 1);
-    if (mag > 0.0f) sharedAudioBuffer.applyGain(s, e - s + 1, 0.5f / mag); // -6dB 正規化
+    const float mag = nextSample->buffer.getMagnitude(s, e - s + 1);
+    if (mag > 0.0f) nextSample->buffer.applyGain(s, e - s + 1, 0.5f / mag); // -6dB 正規化
 
-    waveformPeaks.fill(0.0f);
-    waveformBright.fill(0.0f);
+    nextSample->validSamples = len;
+    nextSample->trimStart    = s;
+    nextSample->trimEnd      = e;
+    nextSample->sampleRate   = targetSR;
+    nextSample->detectedRoot = currentPitch.detectedRoot;
+    nextSample->isMajor      = currentPitch.isMajor;
+    nextSample->rootMidiNote = foldedRoot;
+
+    std::array<float, 1000> peaksLocal {};
+    std::array<float, 1000> brightLocal {};
     const int stepSize = juce::jmax(1, len / 1000);
-    const float* wp = sharedAudioBuffer.getReadPointer(0);
+    const float* wp = nextSample->buffer.getReadPointer(0);
     for (int i = 0; i < 1000; ++i)
     {
+        if (threadShouldExit()) return;
         const int startIdx = i * stepSize;
         const int seg = juce::jmin(stepSize, len - startIdx);
         if (seg <= 0) continue;
-        waveformPeaks[(size_t)i] = sharedAudioBuffer.getMagnitude(startIdx, seg);
+        peaksLocal[(size_t)i] = nextSample->buffer.getMagnitude(startIdx, seg);
 
         // スペクトル明度: 一次差分(=簡易ハイパス)の全体エネルギー比。
-        // 低域主体→比が小(暖色)、高域主体→比が大(寒色)。振幅に依存しない。
         double totalE = 1.0e-9, highE = 0.0;
         for (int n = 1; n < seg; ++n)
         {
@@ -1227,16 +1590,28 @@ void GranularAudioProcessor::run()
             highE  += (double)dx * dx;
         }
         const float ratio = (float)std::sqrt(highE / totalE); // 0..~2
-        waveformBright[(size_t)i] = juce::jlimit(0.0f, 1.0f, ratio / 1.6f);
+        brightLocal[(size_t)i] = juce::jlimit(0.0f, 1.0f, ratio / 1.6f);
     }
+
+    if (threadShouldExit()) return;
+
+    {
+        juce::ScopedLock sl(stateLock);
+        waveformPeaks = peaksLocal;
+        waveformBright = brightLocal;
+        hudLineTask = "Task: Ready";
+    }
+    validSampleCount.store(len);
+    trimStartSample.store(s);
+    trimEndSample.store(e);
+    bufferSampleRate.store(targetSR); // このサンプルのSRを記録 (srComp補正の基準)
     waveformReady.store(true);
 
-    bufferSampleRate.store(targetSR); // このバッファのSRを記録 (srComp補正の基準)
+    // 完全初期化済みサンプルをオーディオスレッドへ公開（リリースフェンス付き）
+    publishIngestedSample(std::move(nextSample));
+
     ingestProgress.store(1.0f);
     ingestState.store(IngestState::Ready);
-    { juce::ScopedLock sl(stateLock); hudLineTask = "Task: Ready"; }
-
-
 
     sendChangeMessage();
 }
@@ -1246,12 +1621,8 @@ void GranularAudioProcessor::run()
 // ==========================================
 void GranularAudioProcessor::panic()
 {
-    physicalToSnapped.fill(-1);
-    synth.reset();
-    dryPreviewActive.store(false);
-    fxChain.reset();
-    arp.reset();
-    masterLimiter.reset();
+    dryPreviewActive.store(false, std::memory_order_release);
+    panicRequested.store(true, std::memory_order_release);
 }
 
 void GranularAudioProcessor::resetAllParametersToDefault()
@@ -1333,7 +1704,7 @@ void GranularAudioProcessor::randomizePreset()
         setV("lfo" + x + "Rate", rf(0.1f, 8.0f));
         setV("lfo" + x + "Wave", (float)ri(0, 5));
         setV("lfo" + x + "Sync", r.nextBool() ? 1.0f : 0.0f);
-        setV("lfo" + x + "SyncRate", (float)ri(0, 12));
+        setV("lfo" + x + "SyncRate", (float)ri(0, 15));
     }
     for (int i = 1; i <= 3; ++i)
     {
@@ -1397,10 +1768,11 @@ void GranularAudioProcessor::randomizePreset()
 
         if (fxt == 6)
         {
-            setV("gateDepth", rf(0.3f, 1.0f));
-            setV("gateDecay", rf(0.05f, 0.8f));
-            setV("gateVowel", (float)ri(0, 4));
-            setV("gatePattern", (float)ri(0, 24));
+            setV("gateRate", (float)ri(1, 6));
+            setV("gatePattern", (float)ri(0, gfx::FormantGate::kTotalPatterns - 1));
+            setV("gateDepth", rf(35.0f, 100.0f));
+            setV("gateDecay", rf(15.0f, 90.0f));
+            setV("gateVowel", rf(0.0f, 100.0f));
         }
     }
 

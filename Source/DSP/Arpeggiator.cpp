@@ -17,7 +17,10 @@ void Arpeggiator::reset()
     walkPos = 0;
     samplesToNextStep = 0.0;
     running = false;
+    wasEnabled = false;
     active.clear();
+    scratchOut.clear();
+    scratchPassthrough.clear();
 }
 
 // ------------------------------------------
@@ -441,7 +444,8 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
             // OFF切替: 鳴っているアルペジオノートを止めて入力をスルーに戻す
             // noteOffをブロックの末尾(numSamples-1)に配置することで、同一ブロック内の
             // 直前の発音（noteOn）が先に処理されることを保証し、ノート詰まりを防止します。
-            juce::MidiBuffer out;
+            auto& out = scratchOut;
+            out.clear();
             for (const auto& a : active)
                 out.addEvent(juce::MidiMessage::noteOff(1, a.note), juce::jmax(0, numSamples - 1));
             active.clear();
@@ -459,7 +463,8 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
     wasEnabled = true;
 
     // 1) 入力を消費して held を更新（ノート以外のCC/ピッチベンド等は素通し）
-    juce::MidiBuffer passthrough;
+    auto& passthrough = scratchPassthrough;
+    passthrough.clear();
     const bool hadNotes = !held.empty();
     for (const auto& m : midi)
     {
@@ -481,7 +486,8 @@ void Arpeggiator::process(juce::MidiBuffer& midi, int numSamples, const ArpParam
     if (held.empty())
         running = false;
 
-    juce::MidiBuffer out;
+    auto& out = scratchOut;
+    out.clear();
     out.addEvents(passthrough, 0, -1, 0); // CC等を先に戻す
 
     // 2) ステップ発火（サンプル精度）

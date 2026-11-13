@@ -17,10 +17,19 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include "ScaleQuantizer.h"
 #include "GrainVisualizerData.h"
+
+// IEEE-754 ビットパターン判定で /fp:fast 環境下でも確実に NaN / Inf を検出
+inline bool isFiniteFloat(float x) noexcept
+{
+    uint32_t bits = 0;
+    std::memcpy(&bits, &x, sizeof(bits));
+    return (bits & 0x7F800000u) != 0x7F800000u;
+}
 
 // ==========================================
 // CPU Optimization: Fast Xorshift PRNG
@@ -263,8 +272,18 @@ public:
         const double t = juce::jmax(0.5f, ms) * 0.001;
         releaseCoef = 1.0f - std::exp((float)(-1.0 / (t * sampleRate)));
     }
+    inline void processMono(float& s, float ceilingLin) noexcept
+    {
+        const float peak = juce::jmax(std::abs(s), 1.0e-9f);
+        const float target = peak > ceilingLin ? ceilingLin / peak : 1.0f;
+        if (target < gain) gain = target;                    // 即時アタック
+        else gain += releaseCoef * (target - gain);          // スムーズリリース
+        gain = juce::jmax(1.0e-6f, gain);                    // デノーマル防止
+        s *= gain;
+    }
     inline void process(float& l, float& r, float ceilingLin) noexcept
     {
+        if (&l == &r) { processMono(l, ceilingLin); return; }
         const float peak = juce::jmax(std::abs(l), std::abs(r), 1.0e-9f);
         const float target = peak > ceilingLin ? ceilingLin / peak : 1.0f;
         if (target < gain) gain = target;                    // 即時アタック
@@ -397,7 +416,7 @@ public:
         for (auto& v : voices) v.stopNote(false);
     }
 
-    void reset()
+    void reset() noexcept
     {
         for (auto& v : voices) v.reset();
         for (int ch = 0; ch < 2; ++ch)
@@ -406,6 +425,7 @@ public:
                 svfHP[ch][st].reset();
                 svfLP[ch][st].reset();
             }
+        prevOutGain = 0.0f;
         playheadDisplay.store(-1.0f);
     }
 

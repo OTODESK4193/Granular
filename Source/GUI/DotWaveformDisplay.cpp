@@ -49,8 +49,8 @@ DotWaveformDisplay::RegionGeometry DotWaveformDisplay::getRegionGeometry() const
     geo.effEN = geo.autoSN + e01 * span;
 
     // Start/End のMOD変調を反映したマーカー位置（描画・ヒットテスト用）
-    const float s01m = juce::jlimit(0.0f, 1.0f, s01 + proc.modMatrix.get(ModMatrix::DstSampleStart));
-    const float e01m = juce::jlimit(0.0f, 1.0f, e01 + proc.modMatrix.get(ModMatrix::DstSampleEnd));
+    const float s01m = juce::jlimit(0.0f, 1.0f, s01 + proc.modMatrix.getGui(ModMatrix::DstSampleStart));
+    const float e01m = juce::jlimit(0.0f, 1.0f, e01 + proc.modMatrix.getGui(ModMatrix::DstSampleEnd));
     geo.effSNmod = geo.autoSN + s01m * span;
     geo.effENmod = geo.autoSN + e01m * span;
 
@@ -74,7 +74,8 @@ void DotWaveformDisplay::pullGrainEvents()
     const double nowMs = juce::Time::getMillisecondCounterHiRes();
     for (uint32_t i = start; i != current; ++i)
     {
-        const auto& e = viz.events[(size_t)(i % GrainVisualizerData::kMaxEvents)];
+        GrainVisualizerData::EventData e;
+        if (!viz.tryRead(i, e)) continue;
         LiveDot dot;
         dot.normPos = e.normPos;
         dot.pan = e.pan;
@@ -156,6 +157,12 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
     const int numCols = juce::jmax(1, (int)(wave.getWidth() / kDotSpacingX));
     const float maxHalfH = wave.getHeight() * 0.5f - 4.0f;
 
+    std::array<float, 1000> peaksCopy;
+    {
+        const juce::ScopedLock sl(proc.stateLock);
+        peaksCopy = proc.waveformPeaks;
+    }
+
     for (int col = 0; col < numCols; ++col)
     {
         const float colNorm = (float)col / (float)juce::jmax(1, numCols - 1);
@@ -165,7 +172,7 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         const int binEnd = juce::jmin(999, (int)(((float)(col + 1) / (float)numCols) * 999.0f));
         float peak = 0.0f;
         for (int b = binStart; b <= binEnd; ++b)
-            peak = juce::jmax(peak, proc.waveformPeaks[(size_t)b]);
+            peak = juce::jmax(peak, peaksCopy[(size_t)b]);
 
         const float ampH = juce::jlimit(0.0f, maxHalfH, peak * 2.0f * maxHalfH);
         const int dotCount = juce::jmax(1, (int)(ampH / kDotSpacingY));
@@ -211,7 +218,7 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
     const float posNorm = proc.apvts.getRawParameterValue("position")->load();
     const float sprayNorm = juce::jlimit(0.0f, 1.0f,
         proc.apvts.getRawParameterValue("positionSpray")->load()
-        + proc.modMatrix.get(ModMatrix::DstSpray));
+        + proc.modMatrix.getGui(ModMatrix::DstSpray));
     const float posX = geo.effX + posNorm * geo.effW;
 
     if (sprayNorm > 0.001f)
@@ -248,7 +255,7 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
             g.drawRoundedRectangle(bandRect, 3.0f, 1.0f);
 
             // 現在の変調後 Position（白い明るいラインで動く）
-            const float liveN = juce::jlimit(0.0f, 1.0f, posNorm + proc.modMatrix.get(ModMatrix::DstPosition));
+            const float liveN = juce::jlimit(0.0f, 1.0f, posNorm + proc.modMatrix.getGui(ModMatrix::DstPosition));
             const float liveX = geo.effX + liveN * geo.effW;
             g.setColour(juce::Colours::white.withAlpha(0.85f));
             g.fillRect(liveX - 1.0f, wave.getY(), 2.0f, wave.getHeight());

@@ -15,6 +15,7 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include <atomic>
 #include <cmath>
 
 class ModMatrix
@@ -140,6 +141,12 @@ public:
         destAccum.fill(0.0f);
         rangeMin.fill(0.0f);
         rangeMax.fill(0.0f);
+        for (size_t i = 0; i < (size_t)NumDsts; ++i)
+        {
+            guiAccum[i].store(0.0f, std::memory_order_relaxed);
+            guiRangeMin[i].store(0.0f, std::memory_order_relaxed);
+            guiRangeMax[i].store(0.0f, std::memory_order_relaxed);
+        }
     }
 
     // 入力MIDI(アルペジオ後)からソース値を更新
@@ -187,7 +194,7 @@ public:
             if (lp.sync)
             {
                 const double bpm = p.bpm > 1.0 ? p.bpm : 120.0;
-                freq = bpm / (60.0 * beatsTable[juce::jlimit(0, 12, lp.rateSync)]);
+                freq = bpm / (60.0 * beatsTable[juce::jlimit(0, 15, lp.rateSync)]);
             }
 
             src[SrcLfo1 + i] = lfoValue(st, lp.wave);
@@ -290,17 +297,36 @@ public:
             rangeMin[(size_t)s.dst] += juce::jmin(c1, c2);
             rangeMax[(size_t)s.dst] += juce::jmax(c1, c2);
         }
+
+        for (size_t i = 0; i < (size_t)NumDsts; ++i)
+        {
+            guiAccum[i].store(destAccum[i], std::memory_order_relaxed);
+            guiRangeMin[i].store(rangeMin[i], std::memory_order_relaxed);
+            guiRangeMax[i].store(rangeMax[i], std::memory_order_relaxed);
+        }
     }
 
-    // 合成済み変調値 (概ね -1..+1、複数スロットで超えることもある)
+    // 合成済み変調値 (オーディオスレッド用)
     float get(int dst) const noexcept
     {
         return destAccum[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)];
     }
 
-    // GUIアーク用: 行き先が取りうる最小/最大オフセット (mod単位)
-    float getRangeMin(int dst) const noexcept { return rangeMin[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)]; }
-    float getRangeMax(int dst) const noexcept { return rangeMax[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)]; }
+    // GUIスレッド用: スレッドセーフなアトミックスナップショット
+    float getGui(int dst) const noexcept
+    {
+        return guiAccum[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)].load(std::memory_order_relaxed);
+    }
+
+    // GUIアーク用: 行き先が取りうる最小/最大オフセット (mod単位, アトミック)
+    float getRangeMin(int dst) const noexcept
+    {
+        return guiRangeMin[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)].load(std::memory_order_relaxed);
+    }
+    float getRangeMax(int dst) const noexcept
+    {
+        return guiRangeMax[(size_t)juce::jlimit(0, (int)NumDsts - 1, dst)].load(std::memory_order_relaxed);
+    }
 
     // ソースが本来バイポーラ(±1)か: LFOのみ。ENV/Vel/Note/Wheel/Randomはユニポーラ(0..1)
     static bool isBipolarSource(int s) noexcept { return s >= SrcLfo1 && s <= SrcLfo4; }
@@ -350,5 +376,8 @@ private:
     std::array<float, NumDsts> destAccum {};
     std::array<float, NumDsts> rangeMin {};
     std::array<float, NumDsts> rangeMax {};
+    std::array<std::atomic<float>, NumDsts> guiAccum {};
+    std::array<std::atomic<float>, NumDsts> guiRangeMin {};
+    std::array<std::atomic<float>, NumDsts> guiRangeMax {};
     juce::Random rng;
 };

@@ -221,7 +221,7 @@ add_preset("Sequenced Motion", "Rhythmic", "Sequence", [
 
 add_preset("Gate Rider", "Rhythmic", "Pulse", [
     ("grainSize", 0.14), ("density", 0.82), ("tone", 0.5), ("scaleOn", 1),
-    ("fx6Type", 6), ("fx6Amount", 88.0), ("gateRate", 4), ("gateDepth", 90.0),
+    ("fx4Type", 6), ("fx4Amount", 88.0), ("gateRate", 4), ("gateDepth", 90.0),
     ("mod1Src", 8), ("mod1Dst", 14), ("mod1Amt", 0.4),
     ("attack", 0.008), ("release", 0.3), ("fx5Type", 5), ("fx5Amount", 32.0)
 ])
@@ -362,7 +362,7 @@ add_preset("Singing Grain", "Leads", "Vocal", [
 
 add_preset("Vowel Lead", "Leads", "Vocal", [
     ("grainSize", 0.12), ("density", 0.82), ("tone", 0.66), ("scaleOn", 1),
-    ("fx6Type", 6), ("fx6Amount", 68.0), ("gateVowel", 65.0),
+    ("fx5Type", 6), ("fx5Amount", 68.0), ("gateVowel", 65.0),
     ("lfo1Rate", 0.5), ("mod1Src", 1), ("mod1Dst", 1), ("mod1Amt", 0.3),
     ("attack", 0.03), ("sustain", 0.8), ("release", 0.35)
 ])
@@ -526,7 +526,7 @@ add_preset("Fragment Scatter", "Glitch", "Buffer", [
 add_preset("CD Skip", "Glitch", "Stutter", [
     ("grainSize", 0.035), ("density", 0.9), ("tone", 0.5),
     ("lfo1Rate", 4.0), ("lfo1Sync", 1), ("lfo1SyncRate", 9), ("lfo1Wave", 3),
-    ("mod1Src", 1), ("mod1Dst", 19), ("mod1Amt", -0.75), ("mod1Uni", 1),
+    ("mod1Src", 1), ("mod1Dst", 20), ("mod1Amt", -0.75), ("mod1Uni", 1),
     ("attack", 0.001), ("release", 0.1)
 ])
 
@@ -548,7 +548,7 @@ add_preset("Binary Ghost", "Glitch", "Granular", [
 add_preset("Elastic Formant", "Experimental", "Formant", [
     ("grainSize", 0.12), ("density", 0.8), ("tone", 0.5),
     ("lfo1Rate", 2.0), ("lfo1Wave", 4), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.55), ("mod1Uni", 1),
-    ("attack", 0.05), ("release", 0.5), ("fx6Type", 6), ("fx6Amount", 70.0)
+    ("attack", 0.05), ("release", 0.5), ("fx5Type", 6), ("fx5Amount", 70.0)
 ])
 
 add_preset("Reverse Universe", "Experimental", "Fracture", [
@@ -833,35 +833,35 @@ add_preset("Mystic Ladder Arp", "Pitch", "Arp", [
 add_preset("Granular Techno Gate", "Pitch", "Gate", [
     ("tone", 0.82), ("grainSize", 0.09), ("density", 0.82),
     ("attack", 0.004), ("decay", 0.28), ("sustain", 0.8), ("release", 0.28),
-    ("scaleOn", 1), ("fx6Type", 6), ("fx6Amount", 88.0), ("gateRate", 4), ("gateDepth", 92.0),
+    ("scaleOn", 1), ("fx5Type", 6), ("fx5Amount", 88.0), ("gateRate", 4), ("gateDepth", 92.0),
     ("mod1Src", 8), ("mod1Dst", 14), ("mod1Amt", 0.35)
 ])
 
 add_preset("Glitch Pulse Walker", "Pitch", "Gate", [
     ("tone", 0.8), ("grainSize", 0.03), ("density", 0.65), ("playMode", 3), ("speed", 1.2),
     ("attack", 0.002), ("decay", 0.22), ("sustain", 0.65), ("release", 0.22),
-    ("scaleOn", 1), ("fx6Type", 6), ("fx6Amount", 82.0), ("gateRate", 6),
+    ("scaleOn", 1), ("fx5Type", 6), ("fx5Amount", 82.0), ("gateRate", 6),
     ("fx1Type", 1), ("fx1Amount", 32.0)
 ])
 
 add_preset("Vowel Slicer", "Pitch", "Gate", [
     ("tone", 0.78), ("grainSize", 0.12), ("density", 0.84),
     ("attack", 0.005), ("sustain", 0.85), ("release", 0.3),
-    ("scaleOn", 1), ("fx6Type", 6), ("fx6Amount", 85.0), ("gateRate", 4), ("gateVowel", 75.0),
+    ("scaleOn", 1), ("fx5Type", 6), ("fx5Amount", 85.0), ("gateRate", 4), ("gateVowel", 75.0),
     ("lfo1Rate", 0.5), ("mod1Src", 1), ("mod1Dst", 1), ("mod1Amt", 0.35)
 ])
 
 add_preset("Stutter Trance Gate", "Pitch", "Gate", [
     ("tone", 0.84), ("grainSize", 0.07), ("density", 0.78),
     ("attack", 0.003), ("decay", 0.25), ("sustain", 0.7), ("release", 0.25),
-    ("scaleOn", 1), ("fx6Type", 6), ("fx6Amount", 90.0), ("gateRate", 4), ("gatePattern", 2),
+    ("scaleOn", 1), ("fx4Type", 6), ("fx4Amount", 90.0), ("gateRate", 4), ("gatePattern", 2),
     ("fx5Type", 5), ("fx5Amount", 35.0)
 ])
 
 add_preset("Sync Rhythmic Gate", "Pitch", "Gate", [
     ("tone", 0.82), ("grainSize", 0.08), ("density", 0.8),
     ("attack", 0.003), ("decay", 0.2), ("sustain", 0.75), ("release", 0.2),
-    ("scaleOn", 1), ("fx6Type", 6), ("fx6Amount", 86.0), ("gateRate", 5), ("gatePattern", 1),
+    ("scaleOn", 1), ("fx5Type", 6), ("fx5Amount", 86.0), ("gateRate", 5), ("gatePattern", 1),
     ("fx1Type", 1), ("fx1Amount", 25.0)
 ])
 
@@ -910,7 +910,7 @@ fx_errors = 0
 for p in presets:
     fx_types = []
     for k, v in p["params"]:
-        if k in ("fx1Type", "fx2Type", "fx3Type", "fx4Type", "fx5Type", "fx6Type"):
+        if k in ("fx1Type", "fx2Type", "fx3Type", "fx4Type", "fx5Type"):
             if int(v) != 0:
                 fx_types.append((k, int(v)))
     # check duplicates

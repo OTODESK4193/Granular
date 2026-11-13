@@ -77,7 +77,7 @@ public:
 
         prevBtn.onClick   = [this] { step(-1); };
         nextBtn.onClick   = [this] { step(+1); };
-        randBtn.onClick   = [this] { randomizePreset(); };
+        randBtn.onClick   = [this] { if (onRandom) onRandom(); else randomizePreset(); };
         saveBtn.onClick   = [this] { showSaveDialog(); };
         initBtn.onClick   = [this] { if (onInit) onInit(); };
         closeBtn.onClick  = [this] { if (onClose) onClose(); };

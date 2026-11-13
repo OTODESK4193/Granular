@@ -101,9 +101,9 @@ void ConfigPanel::paint(juce::Graphics& g)
     g.drawText("POLY: max simultaneous voices.  FILTER SLOPE: master HPF/LPF steepness (12 or 24 dB/oct).",
                440, 120, 620, 14, juce::Justification::topLeft);
 
-    g.setColour(GranularColors::textDim.withAlpha(0.5f));
-    g.setFont(juce::Font(juce::FontOptions(12.0f)));
-    g.drawText("Color Theme / Analysis options - coming soon",
+    g.setColour(GranularColors::textDim.withAlpha(0.55f));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
+    g.drawText("COLOR THEME: palette switches live; reopen window for full redraw.",
                440, 138, 620, 18, juce::Justification::topLeft);
 
     // ------------------------------------------------------------------
@@ -173,7 +173,7 @@ void ConfigPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float sca
 {
     const float rMin = proc.modMatrix.getRangeMin(dst);
     const float rMax = proc.modMatrix.getRangeMax(dst);
-    const float live = proc.modMatrix.get(dst);
+    const float live = proc.modMatrix.getGui(dst);
 
     auto& props = s.getProperties();
     const bool active = std::abs(rMax - rMin) > 1.0e-4f;
