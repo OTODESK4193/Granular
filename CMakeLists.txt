@@ -36,7 +36,7 @@ juce_add_plugin(Granular
     IS_MIDI_EFFECT           FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_AUTO_MANIFEST       FALSE
-    COPY_PLUGIN_AFTER_BUILD  FALSE
+    COPY_PLUGIN_AFTER_BUILD  TRUE
     VERSION                  "1.1.0"
 )
 
