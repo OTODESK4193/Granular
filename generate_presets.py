@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Preset generator & validator for Granular v1.1.0 B016
+Preset generator & validator for Granular v1.1.0 B017
 Generates 150 unique, richly modulated, musically balanced presets across 12 categories.
 Guarantees zero FX duplication and Phase 1-4 parameter/mod consistency in all presets.
 """

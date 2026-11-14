@@ -14,7 +14,7 @@
 
 In most granular instruments, pitch jitter, LFOs and random spray are applied *after* any scale correction, so the moment you add movement the result drifts out of tune. GRANULAR inserts its scale quantizer at the very end of the pitch chain: note, octave, semitone, fine tune, random jitter and every modulation slot are summed first, and only then snapped to the selected Key and Scale. Turn Pitch Jitter to ±24 semitones and the texture stays musical.
 
-On top of that sits a complete instrument: pitch-synchronous grain firing that gives noise a playable pitch, a comb resonator for string-like tone, a 25-pattern arpeggiator (with Euclidean rhythm gating), a 16-slot modulation matrix, a drag-to-reorder 5-slot FX rack (with exclusive slot selection and FormantGate), a 3-column preset browser with 150 differentiated factory presets, and a dot-matrix waveform display coloured by the sample's own frequency content.
+On top of that sits a complete instrument: multi-engine time stretching (Granular, WSOLA, TD-PSOLA with decoupled formant shifting), a Concatenative Grain Atlas for timbre navigation, an 8-mode scale-tuned Modal Resonator, pitch-synchronous grain firing that gives noise a playable pitch, a comb resonator for string-like tone, a 25-pattern arpeggiator (with Euclidean rhythm gating), a 16-slot modulation matrix, a drag-to-reorder 5-slot FX rack (with exclusive slot selection and FormantGate), a 3-column preset browser with 150 differentiated factory presets, and a dot-matrix waveform display coloured by the sample's own frequency content.
 
 **Design goal:** the chaos of granular synthesis, kept in tune.
 
@@ -33,11 +33,8 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 
 * **Up to 100 grains per voice**, capped by a global 1200-grain CPU budget with voice stealing, so dense patches degrade gracefully instead of stalling the host.
 * **Exponential density curve** (overlap 0.25–64) with 1/√overlap gain normalisation, keeping perceived level steady as density climbs.
-* **Deterministic scheduler with collision-avoidance.** Density is treated as an overlap factor with ±25 % jitter, while `GrainSwarmScheduler` prevents multi-voice grain bunching at identical `(pos, pitch)` coordinates and distributes optional scale-locked Diatonic Swarm harmonies.
+* **Deterministic scheduler with collision-avoidance.** Density is treated as an overlap factor with ±25 % jitter, while `GrainSwarmScheduler` prevents multi-voice grain bunching at identical `(pos, pitch)` coordinates.
 * **Mip-mapped 4-point Hermite interpolation.** 31-tap Blackman-windowed sinc pyramid (`2×–16×`) eliminates aliasing on extreme upward pitch shifts while keeping readout silky smooth.
-* **Multi-Engine Core (ENGINE tab):** Switch seamlessly between **Granular**, **WSOLA** (normalized cross-correlation phase alignment), and **TD-PSOLA** (pitch-synchronous overlap-add with independent `Formant Shift` ±12 st).
-* **Concatenative Grain Atlas:** Offline frame extraction computes brightness timbre, onset score, local F0 (`hasPitch`), and upward zero-crossing offsets, powering $O(\log N)$ **Timbre Scrubbing**, per-grain pitch locking, and transient-adaptive windows on the audio thread.
-* **Per-Grain Sculpt & SVF:** Each grain carries individual window skew, pitch chirp glide, and a dedicated Zavalishin TPT State-Variable Filter (LP / BP / HP / Notch) with per-grain cutoff jitter.
 * **Graceful voice stealing.** Stolen voices keep their old grains alive to decay through their own windows instead of being cut — the usual source of clicks when polyphony runs out.
 
 ### Making Noise Playable
@@ -54,6 +51,31 @@ On top of that sits a complete instrument: pitch-synchronous grain firing that g
 * **Start / End** by knob or by dragging the markers on the waveform, with ~3 ms fades at the region edges so the End→Start wrap never clicks.
 * **MOTION:** Forward / Backward / Ping-Pong / Random playhead movement. With S-SYNC on, the Start–End region is scanned over a musical length (1 beat – 8 bars) locked to host tempo.
 * **Random jump rate.** In Random mode the playhead doesn't travel — it jumps to a new point at a fixed interval set by SPEED (≈30 jumps/sec at SPEED 1, frozen at 0) or by SCAN when S-SYNC is on. Jump timing is independent of DENSITY, so dense grain clusters can lurch slowly from place to place.
+
+---
+
+##
+<img src="Source/Assets/Granular_Engine.jpg" width="700">
+
+### Multi-Engine Core, Grain Atlas & Modal Resonator (ENGINE Tab)
+
+* **Multi-Engine Core:** Switch smoothly between three distinct time-stretch & synthesis engines:
+  - **Granular:** Classic micro-acoustic grain synthesis with probabilistic spray, variable windowing, and continuous position scanning.
+  - **WSOLA (Waveform Similarity Overlap-Add):** Normalized cross-correlation time stretching with phase alignment for pristine, artifact-free ambient playback and smooth pad stretching.
+  - **TD-PSOLA (Time-Domain Pitch-Synchronous Overlap-Add):** Decoupled pitch and formant control with independent **Formant Shift** (±12 semitones) for vocal and acoustic transformation without chipmunk effects.
+* **Concatenative Grain Atlas:** High-speed offline frame analysis generates a 4-dimensional acoustic map (spectral brightness centroid, onset transient score, local F0 / pitch existence, and positive zero-crossing phase offsets).
+  - **Timbre Navigation:** Scrub through grains based on timbre brightness rather than linear sample time ($O(\log N)$ binary search).
+  - **Atlas Pitch Lock:** Neutralizes pitch fluctuations in noisy or unpitched samples, anchoring grains directly to harmonic roots.
+  - **Zero-Crossing Phase Lock:** Grain start offsets snap to positive zero crossings, eliminating phase cancellation and high-frequency fuzz.
+* **Diatonic Swarm:** Intelligent voice layering distributing scale-locked harmonic grains across the stereo field, complete with collision avoidance to prevent acoustic clumping.
+* **Per-Grain Sculpt & Zavalishin TPT SVF:**
+  - **Window Skew:** Shifts the apex of grain envelopes from percussive attack (snap) to gentle swell (fade-in).
+  - **Pitch Chirp:** Sweeps pitch continuously inside each grain's lifetime (±12 semitones) for laser chirps, tape warps, and micro-sweeps.
+  - **Per-Grain Filter:** Dedicated State-Variable Filter (LP / BP / HP / Notch) per grain with Cutoff, Resonance, and Cutoff Jitter for organic timbral dispersion.
+* **8-Mode Scale-Tuned Modal Resonator Bank:**
+  - Physical modeling resonator bank tuned to the active Key & Scale.
+  - **Ratio Modes:** Scale, Harmonic, Marimba, Bell, Plate, Bar, Membrane, Pipe, Glass, Metal.
+  - Controls for Decay (T60), HF Damping, and Inharmonic stiffness dispersion.
 
 ---
 

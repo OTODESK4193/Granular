@@ -203,7 +203,7 @@ Click **BROWSE** in the header to open the **3-column hierarchical browser**:
 > **Sample References**: Presets do not embed heavy audio files; they record the **sample's file path**. If the file exists on disk, it is automatically reloaded in the background.
 
 ### 150 Factory Presets
-Audited and refined in B016 for scale coherence, unipolar velocity/envelope curves, and saturation gain trim, plus 30 new presets showcasing Phase 4 DSP across 3 categories:
+Audited and refined in B016/B017 for scale coherence, unipolar velocity/envelope curves, and saturation gain trim, plus 30 new presets showcasing Phase 4 DSP across 3 categories:
 - **Existing 80 presets**: Across Pads & Ambient, Textures, Rhythmic, Bass, Leads, Cinematic, Glitch, Experimental.
 - **"Pitch" Category (40 presets)**:
   Organized into 8 dedicated subcategories (5 presets each) emphasizing Tone comb resonance and granular timing:

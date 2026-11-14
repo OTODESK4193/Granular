@@ -151,22 +151,22 @@ void ConfigPanel::resized()
     limReleaseKnob.setBounds(280, 34, kKnobW - 8, kKnobH);
     limReleaseLabel.setBounds(280, 34 + kKnobH, kKnobW - 8, kLabelH);
 
-    // SYSTEM: Poly ノブ + Filter Slope コンボ
-    polyKnob.setBounds(440, 34, kKnobW - 8, kKnobH);
-    polyLabel.setBounds(440, 34 + kKnobH, kKnobW - 8, kLabelH);
+    // SYSTEM: Poly ノブ + Filter Slope コンボ + Color Theme + GUI SCALE
+    polyKnob.setBounds(430, 34, kKnobW - 8, kKnobH);
+    polyLabel.setBounds(430, 34 + kKnobH, kKnobW - 8, kLabelH);
 
-    slopeLabel.setBounds(540, 40, 110, 14);
-    slopeBox.setBounds(540, 56, 130, 26);
+    slopeLabel.setBounds(515, 40, 100, 14);
+    slopeBox.setBounds(515, 56, 105, 26);
 
-    themeLabel.setBounds(700, 40, 110, 14);
-    themeBox.setBounds(700, 56, 150, 26);
+    themeLabel.setBounds(635, 40, 110, 14);
+    themeBox.setBounds(635, 56, 135, 26);
 
-    scaleLabel.setBounds(870, 40, 180, 14);
-    const int btnW = 34;
+    scaleLabel.setBounds(785, 40, 180, 14);
+    const int btnW = 48;
     const int btnH = 26;
-    const int gap  = 4;
+    const int gap  = 6;
     for (size_t i = 0; i < 5; ++i)
-        scaleButtons[i].setBounds(870 + (int)i * (btnW + gap), 56, btnW, btnH);
+        scaleButtons[i].setBounds(785 + (int)i * (btnW + gap), 56, btnW, btnH);
 }
 
 void ConfigPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
