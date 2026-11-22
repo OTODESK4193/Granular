@@ -22,7 +22,7 @@
 ## 1. Make a sound
 
 **OTODESK / 24-voice Scale-Quantized Granular Synth (VST3 / Standalone)**  
-**Version:** v1.2.0
+**Version:** v1.2.1
 
 GRANULAR breaks incoming audio into tiny "grains" and reconstructs them into new musical forms. Even noise or raw field recordings become fully playable instruments in perfect key, powered by a post-modulation scale quantizer, a 16-slot modulation matrix, an arpeggiator, a 5-slot FX rack, and 150 factory presets.
 
@@ -138,7 +138,7 @@ Controls the unique post-modulation scale snapping engine:
 Configure sources on the left sub-tabs and route them via the **16-slot matrix** on the right (Page 1 / Page 2).
 
 ### Sources (13 total)
-- **LFO ×4**: 6 shapes (Sine / Triangle / Saw / Square / S&H / RK4 Lorenz Chaos). Free (0.02–20 Hz) or tempo-synced (1/1–1/32).
+- **LFO ×4**: 6 shapes (Sine / Triangle / Saw / Square / S&H / RK4 Lorenz Chaos). Free (0.02–20 Hz) or tempo-synced (1/1–1/32). Sine starts at the bottom (-1) and matrix slots default to Unipolar (`UNI` ON), matching Wavetable for continuous, gap-free modulation even on knobs at 0% or 100%.
 - **Env ×3 (Polyphonic)**: Each of the 24 voices advances its own ADSR state independently. Enable **LOOP** to cycle Attack-Decay as a complex custom LFO.
 - **MIDI Sources**: Velocity / Note / Mod Wheel / Random / Aftertouch (Poly Pressure & MPE CC74).
 

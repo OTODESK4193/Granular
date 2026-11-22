@@ -453,7 +453,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
             ModMatrix::getDestNames(), 0));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("mod" + idx + "Amt", "Mod " + idx + " Amount",
             -1.0f, 1.0f, 0.0f));
-        params.push_back(std::make_unique<juce::AudioParameterBool>("mod" + idx + "Uni", "Mod " + idx + " Unipolar", false));
+        params.push_back(std::make_unique<juce::AudioParameterBool>("mod" + idx + "Uni", "Mod " + idx + " Unipolar", true));
     }
 
     // --- アルペジエイター ---
@@ -2354,25 +2354,25 @@ void GranularAudioProcessor::randomizePreset()
     if (arch == ArchKineticLab)
         addMod(ModMatrix::SrcLfo2, ModMatrix::DstTimbreScrub, rf(0.25f, 0.65f), false);
 
-    struct SafeModEntry { int dst; float maxAmt; bool forceUni; bool requireScale; };
+    struct SafeModEntry { int dst; float maxAmt; bool bipolarOk; bool requireScale; };
     static constexpr SafeModEntry kSafeModPool[] = {
         { ModMatrix::DstPosition,        0.55f, false, false },
         { ModMatrix::DstSize,            0.40f, false, false },
         { ModMatrix::DstDensity,         0.38f, false, false },
-        { ModMatrix::DstSpray,           0.45f, true,  false },
+        { ModMatrix::DstSpray,           0.45f, false, false },
         { ModMatrix::DstPanSpread,       0.40f, false, false },
         { ModMatrix::DstSpeed,           0.45f, false, false },
         { ModMatrix::DstTone,            0.35f, false, false },
-        { ModMatrix::DstSemi,            0.40f, false, true  }, // only when scaleOn is true
+        { ModMatrix::DstSemi,            0.40f, true,  true  }, // only when scaleOn is true
         { ModMatrix::DstMasterLpf,       0.45f, false, false },
-        { ModMatrix::DstFormantShift,    0.50f, false, false },
-        { ModMatrix::DstTimbreScrub,     0.60f, false, false },
-        { ModMatrix::DstGrainSkew,       0.65f, false, false },
-        { ModMatrix::DstGrainChirp,      0.38f, false, false },
-        { ModMatrix::DstGrainFilterFreq, 0.50f, false, false },
-        { ModMatrix::DstGrainFilterRes,  0.30f, true,  false },
+        { ModMatrix::DstFormantShift,    0.50f, true,  false },
+        { ModMatrix::DstTimbreScrub,     0.60f, true,  false },
+        { ModMatrix::DstGrainSkew,       0.65f, true,  false },
+        { ModMatrix::DstGrainChirp,      0.38f, true,  false },
+        { ModMatrix::DstGrainFilterFreq, 0.50f, true,  false },
+        { ModMatrix::DstGrainFilterRes,  0.30f, false, false },
         { ModMatrix::DstModalDamp,       0.45f, false, false },
-        { ModMatrix::DstRevShimmer,      0.45f, true,  false }
+        { ModMatrix::DstRevShimmer,      0.45f, false, false }
     };
     static constexpr int kSafeSrcs[] = {
         ModMatrix::SrcLfo1, ModMatrix::SrcLfo2, ModMatrix::SrcLfo3, ModMatrix::SrcLfo4,
@@ -2388,11 +2388,15 @@ void GranularAudioProcessor::randomizePreset()
         if (e.requireScale && !scaleEnabled) continue;
         if (usedDst[e.dst]) continue;
         const int src = kSafeSrcs[r.nextInt((int)std::size(kSafeSrcs))];
-        const bool isExpressiveUniSrc = (src >= ModMatrix::SrcEnv1 && src != ModMatrix::SrcRandom);
-        const bool uni = e.forceUni
-                      || (isExpressiveUniSrc && (e.dst == ModMatrix::DstMasterLpf || e.dst == ModMatrix::DstTone || chance(0.8f)));
+        const bool isLfoOrRandom = (src <= ModMatrix::SrcLfo4 || src == ModMatrix::SrcRandom);
+        const bool uni = !(e.bipolarOk && isLfoOrRandom && chance(0.55f));
         float amt = rf(0.18f, e.maxAmt);
-        if (!uni && chance(0.45f)) amt = -amt;
+        if (e.dst == ModMatrix::DstMasterLpf && cp.masterLPF->load() > 10000.0f)
+            amt = -juce::jmin(0.30f, amt);
+        else if (e.dst == ModMatrix::DstPanSpread && cp.panSpread->load() > 0.72f)
+            amt = -amt;
+        else if (!uni && chance(0.45f))
+            amt = -amt;
         if (e.dst == ModMatrix::DstMasterLpf && amt < 0.0f) amt = juce::jmax(-0.30f, amt);
         addMod(src, e.dst, amt, uni);
     }

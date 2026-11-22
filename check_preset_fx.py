@@ -112,6 +112,19 @@ def check_preset_data_h(dst_count: int) -> list[str]:
         if pmap.get("grainFilterRes", 0.7) > 3.6:
             errors.append(f"[{cat}/{name}] grainFilterRes {pmap.get('grainFilterRes')} > 3.6")
 
+        # v1.2.1 Unipolar boundary dead-zone checks
+        for m in range(1, 17):
+            d_val = int(round(pmap.get(f"mod{m}Dst", 0.0)))
+            a_val = pmap.get(f"mod{m}Amt", 0.0)
+            u_val = int(round(pmap.get(f"mod{m}Uni", 1.0)))
+            if u_val == 1:
+                if d_val == 14 and pmap.get("masterLPF", 20000.0) >= 19500.0 and a_val > 0.0:
+                    errors.append(f"[{cat}/{name}] clamped +LPF mod on 20kHz (mod{m})")
+                if d_val == 7 and pmap.get("panSpread", 1.0) >= 0.90 and a_val > 0.0:
+                    errors.append(f"[{cat}/{name}] clamped +Pan mod at max (mod{m})")
+                if d_val == 1 and pmap.get("position", 0.0) <= 0.01 and a_val < 0.0:
+                    errors.append(f"[{cat}/{name}] clamped -Pos mod at 0 (mod{m})")
+
     return errors
 
 

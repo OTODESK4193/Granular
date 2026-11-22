@@ -1,6 +1,6 @@
 # GRANULAR
 
-![Release](https://img.shields.io/badge/release-v1.2.0-blue)
+![Release](https://img.shields.io/badge/release-v1.2.1-blue)
 ![License](https://img.shields.io/badge/license-AGPLv3-green)
 ![JUCE](https://img.shields.io/badge/JUCE-8.0.x-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
@@ -255,7 +255,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | Source | 13 sources | None | LFO 1–4, ENV 1–3, Velocity, Note, Mod Wheel, Random, Aftertouch |
 | Destination | 77 destinations | None | All Synth/Engine/Atlas/Modal/Filter/Arp/FX/Mod parameters |
 | Amount | -1.0 – +1.0 | 0.0 | Double-click to reset |
-| UNI | Off (bipolar) / On (unipolar) | Off | Output polarity |
+| UNI | Off (bipolar) / On (unipolar) | On | Output polarity (Unipolar default with bottom-referenced Sine LFO for seamless cycle modulation) |
 | LFO Rate | 0.02 – 20 Hz, or 1/1 – 1/32 | 1.0 Hz | SYNC toggles between them |
 | ENV A / D / S / R | 0.001–10 s / 0–1 | 0.05 / 0.5 / 1.0 / 0.3 | Per-voice ADSR (LOOP cycles A-D as complex LFO) |
 

@@ -294,14 +294,16 @@ public:
             src[(size_t)(SrcLfo1 + i)] = lfoOut;
             cachedLfoSrc[(size_t)i]    = lfoOut;
 
-            // 位相を1ブロック分進める
+            // 位相を1ブロック分進める（端数完全保持・周期境界の隙間ゼロ）
             const double inc = freq * (double)numSamples / sampleRate;
             st.phase += inc;
-            while (st.phase >= 1.0)
+            if (st.phase >= 1.0)
             {
-                st.phase -= 1.0;
+                const int wraps = (int)std::floor(st.phase);
+                st.phase -= (double)wraps;
                 st.shValue = rng.nextFloat() * 2.0f - 1.0f; // S&H更新
             }
+            if (!std::isfinite(st.phase) || st.phase < 0.0) st.phase = 0.0;
 
             // Chaos波形 (wave==5) は Lorenz アトラクタを RK4 サブステップ積分
             if (lp.wave == 5)
@@ -565,8 +567,8 @@ private:
         const float ph = (float)st.phase;
         switch (wave)
         {
-        case 0: return std::sin(ph * juce::MathConstants<float>::twoPi);              // Sine
-        case 1: return 1.0f - 4.0f * std::abs(ph - 0.5f);                             // Triangle
+        case 0: return -std::cos(ph * juce::MathConstants<float>::twoPi);             // Sine (ボトム -1 開始: Wavetable 準拠)
+        case 1: return 1.0f - 4.0f * std::abs(ph - 0.5f);                             // Triangle (ボトム -1 開始)
         case 2: return 2.0f * ph - 1.0f;                                              // Saw
         case 3: return ph < 0.5f ? 1.0f : -1.0f;                                      // Square
         case 4: return st.shValue;                                                    // S&H

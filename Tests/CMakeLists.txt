@@ -34,7 +34,7 @@ target_compile_definitions(GranularTests PRIVATE
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1
-    GRANULAR_VERSION="1.2.0"
+    GRANULAR_VERSION="1.2.1"
     JucePlugin_Name="Granular"
 )
 

@@ -1987,13 +1987,13 @@ void testKnobModMenuMappingAndOps()
     using namespace GranularUI::ModMatrixOps;
     check(countUsedSlots(proc.apvts) == 0, "Fresh default preset should have 0 used mod slots");
 
-    // Assign LFO1 -> MasterLPF with knob near max (norm=0.95 -> negative initial amt -0.45, bipolar)
+    // Assign LFO1 -> MasterLPF with knob near max (norm=0.95 -> negative initial amt -0.45, unipolar like Wavetable)
     const int s0 = assignSource(proc.apvts, ModMatrix::SrcLfo1, ModMatrix::DstMasterLpf, 0.95f);
     check(s0 == 0, "First assigned slot should be 0");
     auto slots = findAssignedSlots(proc.apvts, ModMatrix::DstMasterLpf);
     check(slots.size() == 1 && slots[0].srcIdx == ModMatrix::SrcLfo1 &&
-          std::abs(slots[0].amount + 0.45f) < 1e-3f && !slots[0].unipolar,
-          "High-knob LFO assign should default to -0.45 bipolar");
+          std::abs(slots[0].amount + 0.45f) < 1e-3f && slots[0].unipolar,
+          "High-knob LFO assign should default to -0.45 unipolar (zero clamped gap)");
 
     // Assign ENV1 -> MasterLPF with knob low (norm=0.2 -> positive +0.45, unipolar)
     const int s1 = assignSource(proc.apvts, ModMatrix::SrcEnv1, ModMatrix::DstMasterLpf, 0.2f);
@@ -2367,6 +2367,71 @@ void testAll150FactoryPresetsNoHowling()
     check(stressCount >= 20, "Long-hold stress test should cover >= 20 high-feedback/modal/freeze presets");
     tmpWav.deleteFile();
 }
+
+void testLfoSmoothContinuousUnipolarCycle()
+{
+    std::cout << "Running testLfoSmoothContinuousUnipolarCycle...\n";
+
+    // 1. APVTS default for mod1..16 Uni must be true (Unipolar, matching Wavetable)
+    auto procPtr = std::make_unique<GranularAudioProcessor>();
+    auto& proc = *procPtr;
+    proc.resetAllParametersToDefault();
+    for (int m = 1; m <= ModMatrix::kNumSlots; ++m)
+    {
+        check(getParamReal(proc, "mod" + juce::String(m) + "Uni") > 0.5f,
+              "Default mod" + std::to_string(m) + "Uni must be true (Unipolar)");
+    }
+
+    // 2. Verify Sine (-cos) and Triangle in Unipolar mode sweep 0 -> +amt -> 0 across 2 full cycles
+    //    with ZERO dead-zone / gap at cycle boundaries on a knob sitting at 0.0 (e.g. Position=0)
+    //    and a knob sitting at 1.0 (e.g. LPF=20kHz with -amt).
+    ModMatrix mm;
+    const double sr = 48000.0;
+    const int blk = 240; // 5 ms blocks -> 200 blocks per 1 Hz cycle
+    mm.prepare(sr);
+
+    for (int wave : { 0, 1 }) // Sine & Triangle
+    {
+        mm.reset();
+        ModMatrix::Params p;
+        p.lfo[0].sync = false;
+        p.lfo[0].rateHz = 1.0f;
+        p.lfo[0].wave = wave;
+        p.slot[0].src = ModMatrix::SrcLfo1;
+        p.slot[0].dst = ModMatrix::DstPosition;
+        p.slot[0].amt = 0.50f;
+        p.slot[0].uni = true;
+
+        std::vector<float> vals;
+        vals.reserve(400);
+        for (int b = 0; b < 400; ++b) // Exactly 2 full cycles (2.0 s)
+        {
+            mm.processBlock(blk, p);
+            vals.push_back(mm.get(ModMatrix::DstPosition));
+        }
+
+        // Start at bottom 0.0, peak at half-cycle (idx 100 & 300) = 0.50, return to 0.0 at cycle end (idx 200)
+        check(std::abs(vals[0]) < 1.0e-4f, "LFO wave=" + std::to_string(wave) + " must start at 0.0 in Unipolar");
+        check(std::abs(vals[100] - 0.50f) < 1.0e-3f, "LFO wave=" + std::to_string(wave) + " cycle 1 peak must reach +0.50");
+        check(std::abs(vals[200]) < 1.0e-3f, "LFO wave=" + std::to_string(wave) + " cycle 1 end must smoothly hit 0.0");
+        check(std::abs(vals[300] - 0.50f) < 1.0e-3f, "LFO wave=" + std::to_string(wave) + " cycle 2 peak must reach +0.50");
+
+        // Verify ZERO dead gap after cycle 1 ends: vals[201..205] must immediately rise above 0!
+        check(vals[202] > vals[200] && vals[205] > vals[202],
+              "LFO wave=" + std::to_string(wave) + " must immediately resume smoothly after cycle 1 with zero gap");
+
+        // Verify smooth continuity across all 400 blocks (no sudden jump at wrap boundary)
+        float maxStep = 0.0f;
+        int flatZeroBlocks = 0;
+        for (size_t i = 1; i < vals.size(); ++i)
+        {
+            maxStep = juce::jmax(maxStep, std::abs(vals[i] - vals[i - 1]));
+            if (vals[i] <= 1.0e-5f) ++flatZeroBlocks;
+        }
+        check(maxStep < 0.02f, "LFO wave=" + std::to_string(wave) + " must have zero step discontinuity at wrap (maxStep=" + std::to_string(maxStep) + ")");
+        check(flatZeroBlocks <= 2, "LFO wave=" + std::to_string(wave) + " must never stall at 0 (flatZeroBlocks=" + std::to_string(flatZeroBlocks) + ")");
+    }
+}
 } // namespace
 
 int main()
@@ -2412,6 +2477,7 @@ int main()
         testKnobModMenuMappingAndOps();
         testFreezeFxNoSelfOscillation();
         testAll150FactoryPresetsNoHowling();
+        testLfoSmoothContinuousUnipolarCycle();
     }
     catch (const std::exception& e)
     {

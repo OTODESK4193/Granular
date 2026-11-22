@@ -22,7 +22,7 @@
 ## 1. まずは音を出す
 
 **OTODESK / 24ボイス スケール量子化グラニュラーシンセ（VST3 / Standalone）**  
-**Version:** v1.2.0
+**Version:** v1.2.1
 
 読み込んだオーディオファイルを「粒（グレイン）」に分解して再構築するグラニュラーシンセです。環境音やノイズ素材でも音楽的な音程を持った楽器として演奏でき、強力な変調マトリクス・アルペジエイター・5スロットFXチェーン・150種類のファクトリープリセットを備えています。
 
@@ -141,7 +141,7 @@
 左側のサブタブで**ソース**を設定し、右側の **16スロット・マトリクス**（Page 1 / Page 2）で自在にルーティングします。
 
 ### ソース群（全13種）
-- **LFO ×4**：波形6種（Sine / Triangle / Saw / Square / S&H / RK4 Lorenz Chaos）。テンポ同期（1/1〜1/32）またはフリー（0.02〜20 Hz）
+- **LFO ×4**：波形6種（Sine / Triangle / Saw / Square / S&H / RK4 Lorenz Chaos）。テンポ同期（1/1〜1/32）またはフリー（0.02〜20 Hz）。Wavetable 同様、Sine 波はボトム（-1）開始・Matrix のデフォルト極性は Unipolar（`UNI` ON）となっており、下限 0% や上限 100% のノブに割り当てても1周期後の隙間なくスムーズに変調し続けます。
 - **Env ×3（ポリフォニック対応）**：ADSRエンベロープを全24ボイス各自が独立して保持・進行します。**LOOP** オンで Attack-Decay 循環LFOとして動作。
 - **MIDIソース**：Velocity / Note / Mod Wheel / Random（ノート毎S&H）/ Aftertouch（Poly Aftertouch・CC74 MPE Slide 対応）
 

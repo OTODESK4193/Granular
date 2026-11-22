@@ -264,7 +264,7 @@ namespace GranularUI
             setParamDenorm(apvts, "mod" + si + "Src", 0.0f);
             setParamDenorm(apvts, "mod" + si + "Dst", 0.0f);
             setParamDenorm(apvts, "mod" + si + "Amt", 0.0f);
-            setParamDenorm(apvts, "mod" + si + "Uni", 0.0f);
+            setParamDenorm(apvts, "mod" + si + "Uni", 1.0f); // Unipolar をデフォルト極性に統一 (Wavetable 準拠)
         }
 
         inline void clearPair(juce::AudioProcessorValueTreeState& apvts, int srcIdx, int destIdx)
@@ -288,7 +288,8 @@ namespace GranularUI
             }
         }
 
-        // 新規アサイン: ノブ位置に応じたスマート初期方向 + ソース特性に応じた初期 UNI 設定
+        // 新規アサイン: ノブ位置に応じたスマート初期方向 + Wavetable 準拠 Unipolar デフォルト
+        // (ノブ下限 0 / 上限 100% に LFO を割り当てた際の半周期クランプ隙間を防止)
         inline int assignSource(juce::AudioProcessorValueTreeState& apvts,
                                 int srcIdx, int destIdx, float knobNorm01)
         {
@@ -300,18 +301,11 @@ namespace GranularUI
 
             // ノブが上限付近（例: LPF 20kHz 全開）なら下向き -0.45、それ以外は +0.45
             const float initialAmt = (knobNorm01 > 0.75f) ? -0.45f : 0.45f;
-
-            // ENV / Velocity / ModWheel / Aftertouch は直感的な Unipolar をデフォルトに
-            const bool defaultUni = (srcIdx >= ModMatrix::SrcEnv1 && srcIdx <= ModMatrix::SrcEnv3)
-                                 || srcIdx == ModMatrix::SrcVelocity
-                                 || srcIdx == ModMatrix::SrcModWheel
-                                 || srcIdx == ModMatrix::SrcAftertouch;
-
             const juce::String si(slot + 1);
 
             // 先に Amt / Uni / Dst を整えてから最後に Src をセットし一時グリッチを防ぐ
             setParamDenorm(apvts, "mod" + si + "Amt", initialAmt);
-            setParamDenorm(apvts, "mod" + si + "Uni", defaultUni ? 1.0f : 0.0f);
+            setParamDenorm(apvts, "mod" + si + "Uni", 1.0f);
             setParamDenorm(apvts, "mod" + si + "Dst", (float)destIdx);
             setParamDenorm(apvts, "mod" + si + "Src", (float)srcIdx);
             return slot;
