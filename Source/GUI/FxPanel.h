@@ -15,6 +15,7 @@
 #include "ValueKnob.h"
 #include "ColorPalette.h"
 #include "PredicateComboBox.h"
+#include "KnobModMenu.h"
 
 // ------------------------------------------
 // 1スロット分のカード
@@ -27,11 +28,13 @@ public:
     FxSlotCard(GranularAudioProcessor& processor, int slotIndex,
                std::function<void(int, int)> onSwapCallback,
                std::function<void(int)> onSelectCallback,
-               std::function<void()> onTypeChangedCallback);
+               std::function<void()> onTypeChangedCallback,
+               GranularUI::ModTabNavigator onOpenModTabCallback);
     ~FxSlotCard() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void visibilityChanged() override { if (isVisible()) timerCallback(); }
 
     void setSelected(bool shouldBeSelected)
     {
@@ -84,6 +87,9 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void visibilityChanged() override { if (isVisible()) timerCallback(); }
+
+    GranularUI::ModTabNavigator onOpenModTab;
 
 private:
     void swapSlots(int a, int b);

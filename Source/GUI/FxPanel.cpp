@@ -18,7 +18,8 @@ namespace
 FxSlotCard::FxSlotCard(GranularAudioProcessor& processor, int slotIndex,
                        std::function<void(int, int)> onSwapCallback,
                        std::function<void(int)> onSelectCallback,
-                       std::function<void()> onTypeChangedCallback)
+                       std::function<void()> onTypeChangedCallback,
+                       GranularUI::ModTabNavigator onOpenModTabCallback)
     : proc(processor), slot(slotIndex),
       onSwap(std::move(onSwapCallback)),
       onSelect(std::move(onSelectCallback)),
@@ -67,6 +68,8 @@ FxSlotCard::FxSlotCard(GranularAudioProcessor& processor, int slotIndex,
     addAndMakeVisible(amountKnob);
     amountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         proc.apvts, "fx" + idx + "Amount", amountKnob);
+    GranularUI::attachKnobModMenu(amountKnob, proc.apvts, "fx" + idx + "Amount",
+                                  "FX" + idx + " Amount", std::move(onOpenModTabCallback));
 
     amountLabel.setText("AMOUNT", juce::dontSendNotification);
     amountLabel.setJustificationType(juce::Justification::centred);
@@ -194,6 +197,7 @@ void FxSlotCard::applyModRing(juce::Slider& s, int dst, ModKind kind, float scal
 
 void FxSlotCard::timerCallback()
 {
+    if (!isShowing()) return;
     applyModRing(amountKnob, ModMatrix::DstFx1Amount + slot, LinearAdd, 100.0f);
 }
 
@@ -202,12 +206,18 @@ void FxSlotCard::timerCallback()
 // ------------------------------------------
 FxPanel::FxPanel(GranularAudioProcessor& p) : proc(p)
 {
+    juce::Component::SafePointer<FxPanel> safeThis(this);
     for (int i = 0; i < FxChain::kNumSlots; ++i)
     {
         cards[(size_t)i] = std::make_unique<FxSlotCard>(proc, i,
             [this](int a, int b) { swapSlots(a, b); },
             [this](int s) { selectSlot(s); },
-            [this] { rebuildDetails(); });
+            [this] { rebuildDetails(); },
+            [safeThis](int subTab, int page)
+            {
+                if (safeThis != nullptr && safeThis->onOpenModTab)
+                    safeThis->onOpenModTab(subTab, page);
+            });
         addAndMakeVisible(*cards[(size_t)i]);
     }
 
@@ -359,6 +369,7 @@ void FxPanel::rebuildDetails()
         detailComboLabels.push_back(std::move(label));
     }
 
+    juce::Component::SafePointer<FxPanel> safeThis(this);
     for (const auto& def : knobDefs)
     {
         auto knob = std::make_unique<ValueKnob>();
@@ -369,6 +380,12 @@ void FxPanel::rebuildDetails()
         addAndMakeVisible(*knob);
         detailKnobAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             proc.apvts, def.id, *knob));
+        GranularUI::attachKnobModMenu(*knob, proc.apvts, def.id, def.label,
+            [safeThis](int subTab, int page)
+            {
+                if (safeThis != nullptr && safeThis->onOpenModTab)
+                    safeThis->onOpenModTab(subTab, page);
+            });
         detailKnobs.push_back(std::move(knob));
 
         auto label = std::make_unique<juce::Label>();
@@ -437,6 +454,7 @@ void FxPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
 
 void FxPanel::timerCallback()
 {
+    if (!isVisible()) return;
     int type = getSlotType(selectedSlot);
     using D = ModMatrix;
     

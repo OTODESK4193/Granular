@@ -22,6 +22,14 @@ ConfigPanel::ConfigPanel(GranularAudioProcessor& p) : proc(p)
         sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             proc.apvts, id, k));
 
+        juce::Component::SafePointer<ConfigPanel> safeThis(this);
+        GranularUI::attachKnobModMenu(k, proc.apvts, id, text,
+            [safeThis](int subTab, int page)
+            {
+                if (safeThis != nullptr && safeThis->onOpenModTab)
+                    safeThis->onOpenModTab(subTab, page);
+            });
+
         l.setText(text, juce::dontSendNotification);
         l.setJustificationType(juce::Justification::centred);
         l.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
@@ -222,6 +230,7 @@ void ConfigPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float sca
 
 void ConfigPanel::timerCallback()
 {
+    if (!isVisible()) return;
     using D = ModMatrix;
     applyModRing(limReleaseKnob, D::DstLimRelease, LinearAdd, 250.0f);
 }

@@ -273,7 +273,7 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         }
     }
 
-    // --- 動くプレイヘッド (発音中の実再生位置 / ミント色) ---
+    // --- 動くプレイヘッド (発音中の実再生位置 / Retrigger OFF待機位置) ---
     const float ph = proc.synth.playheadDisplay.load(std::memory_order_relaxed);
     if (ph >= 0.0f)
     {
@@ -282,6 +282,16 @@ void DotWaveformDisplay::paint(juce::Graphics& g)
         g.fillRect(phX - 2.0f, wave.getY(), 4.0f, wave.getHeight());
         g.setColour(GranularColors::mint.withAlpha(0.9f));
         g.fillRect(phX - 0.75f, wave.getY(), 1.5f, wave.getHeight());
+    }
+    else
+    {
+        const float pausedPh = proc.synth.pausedPlayheadDisplay.load(std::memory_order_relaxed);
+        if (pausedPh >= 0.0f)
+        {
+            const float phX = geo.effX + juce::jlimit(0.0f, 1.0f, pausedPh) * geo.effW;
+            g.setColour(GranularColors::mint.withAlpha(0.45f));
+            g.fillRect(phX - 0.75f, wave.getY(), 1.5f, wave.getHeight());
+        }
     }
 
     // --- ライブ・グレインドット ---
@@ -342,6 +352,7 @@ void DotWaveformDisplay::mouseMove(const juce::MouseEvent& e)
 
 void DotWaveformDisplay::mouseDown(const juce::MouseEvent& e)
 {
+    if (e.mods.isRightButtonDown()) return;
     if (proc.ingestState.load() != IngestState::Ready) return;
 
     const auto geo = getRegionGeometry();

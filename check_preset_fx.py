@@ -80,6 +80,38 @@ def check_preset_data_h(dst_count: int) -> list[str]:
         if pmap.get("satDrive", 2.0) >= 6.0 and pmap.get("satTrim", 0.0) >= 0.0:
             errors.append(f"[{cat}/{name}] satDrive >= 6.0 missing negative satTrim")
 
+        # v1.2.0 Anti-howling safety bounds
+        has_freeze = any(int(round(pmap.get(f"fx{s}Type", 0.0))) == 4 for s in range(1, 6))
+        if has_freeze:
+            if "frzFeedback" not in pmap or "frzDamp" not in pmap:
+                errors.append(f"[{cat}/{name}] Freeze preset missing explicit frzFeedback/frzDamp")
+            elif pmap["frzFeedback"] > 0.85 or pmap["frzDamp"] < 0.32:
+                errors.append(f"[{cat}/{name}] Freeze feedback/damp out of safe bounds")
+
+        if pmap.get("dlyFeedback", 0.35) > 0.68:
+            errors.append(f"[{cat}/{name}] dlyFeedback {pmap.get('dlyFeedback')} > 0.68")
+
+        if pmap.get("revDecay", 0.7) > 0.88 or pmap.get("revShimmer", 0.4) > 0.68:
+            errors.append(f"[{cat}/{name}] revDecay/revShimmer exceeds anti-howling ceiling")
+
+        tone_val = pmap.get("tone", 0.5)
+        pos_tone_mod = sum(
+            max(0.0, pmap.get(f"mod{m}Amt", 0.0))
+            for m in range(1, 17)
+            if int(round(pmap.get(f"mod{m}Dst", 0.0))) == 9
+        )
+        if tone_val > 0.82 or (tone_val + pos_tone_mod) > 0.90 + 1e-6:
+            errors.append(f"[{cat}/{name}] tone/mod ceiling exceeded ({tone_val} + {pos_tone_mod:.2f})")
+
+        modal_mix = pmap.get("modalMix", 0.0)
+        if modal_mix > 0.60 or pmap.get("modalDecay", 0.8) > 2.2:
+            errors.append(f"[{cat}/{name}] modalMix/modalDecay exceeds anti-howling ceiling")
+        if modal_mix >= 0.30 and (tone_val > 0.74 or pmap.get("modalDamp", 0.4) < 0.32):
+            errors.append(f"[{cat}/{name}] stacked Modal+Tone or low modalDamp")
+
+        if pmap.get("grainFilterRes", 0.7) > 3.6:
+            errors.append(f"[{cat}/{name}] grainFilterRes {pmap.get('grainFilterRes')} > 3.6")
+
     return errors
 
 

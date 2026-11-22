@@ -30,8 +30,8 @@ namespace gfx
 
     inline float safeLoopSaturate(float x) noexcept
     {
-        if (x > 1.5f) return 1.5f + std::tanh(x - 1.5f) * 0.1f;
-        if (x < -1.5f) return -1.5f + std::tanh(x + 1.5f) * 0.1f;
+        if (x > 1.0f) return 1.0f + std::tanh((x - 1.0f) * 2.0f) * 0.15f;
+        if (x < -1.0f) return -1.0f + std::tanh((x + 1.0f) * 2.0f) * 0.15f;
         return x;
     }
 
@@ -376,11 +376,12 @@ namespace gfx
 
                 dampStates[(size_t)i] = rawRead * (1.0f - dampFactor) + dampStates[(size_t)i] * dampFactor;
 
-                // SR補償済み 15Hz DCブロッカー
+                // SR補償済み 15Hz DCブロッカー (ナイキストゲイン <= 1.0 厳密正規化)
                 const float dcIn = dampStates[(size_t)i];
-                const float hp = dcIn - dcX1[(size_t)i] + dcCoef * dcY1[(size_t)i];
+                const float dcScale = 0.5f * (1.0f + dcCoef);
+                const float hp = dcScale * (dcIn - dcX1[(size_t)i]) + dcCoef * dcY1[(size_t)i];
                 dcX1[(size_t)i] = dcIn;
-                dcY1[(size_t)i] = hp;
+                dcY1[(size_t)i] = antiDenormal(hp);
 
                 delayOutputs[i] = hp;
                 feedbackInputs[i] = hp;
@@ -418,8 +419,8 @@ namespace gfx
                     return x * (1.5f - 0.5f * x * x);
                 };
 
-                inOutL = inOutL * (1.0f - mixAmount) + softClipOutput(sumL) * mixAmount * 1.2f;
-                inOutR = inOutR * (1.0f - mixAmount) + softClipOutput(sumR) * mixAmount * 1.2f;
+                inOutL = inOutL * (1.0f - mixAmount) + softClipOutput(sumL) * mixAmount * 0.90f;
+                inOutR = inOutR * (1.0f - mixAmount) + softClipOutput(sumR) * mixAmount * 0.90f;
             }
         }
     };
@@ -623,9 +624,10 @@ namespace gfx
             dL = lpStateL;
             dR = lpStateR;
 
-            // SR補償済み 15Hz DCブロッカー
-            const float hpL = dL - dcX1L + dcCoef * dcY1L; dcX1L = dL; dcY1L = hpL; dL = hpL;
-            const float hpR = dR - dcX1R + dcCoef * dcY1R; dcX1R = dR; dcY1R = hpR; dR = hpR;
+            // SR補償済み 15Hz DCブロッカー (ナイキストゲイン <= 1.0 厳密正規化)
+            const float dcScale = 0.5f * (1.0f + dcCoef);
+            const float hpL = dcScale * (dL - dcX1L) + dcCoef * dcY1L; dcX1L = dL; dcY1L = antiDenormal(hpL); dL = hpL;
+            const float hpR = dcScale * (dR - dcX1R) + dcCoef * dcY1R; dcX1R = dR; dcY1R = antiDenormal(hpR); dR = hpR;
 
             const float fb = curFeedback;
             delayBuffer[(size_t)writeIndex * 2] =
@@ -656,10 +658,39 @@ namespace gfx
     };
 
     // ------------------------------------------
-    // Freeze / Smear (192kHzヒープ確保 + Velvetノイズ拡散 + SR補償Damp)
+    // Freeze / Smear (192kHzヒープ確保 + ループ内ユニティAP拡散 + ループ外Velvetスメア)
+    //   ※ 非オールパスFIR(Velvet)をフィードバックループ内に入れると特定周波数で
+    //     |H(w)| > 1.0 となりハウリング発振するため、ループ内は厳密に |H(w)|==1.0 の
+    //     Schroeder オールパス2段で拡散し、Velvetはループ外のウェット出力に適用する。
     // ------------------------------------------
     class FreezeSmear
     {
+        struct AllpassStage
+        {
+            std::vector<float> buf;
+            int idx = 0;
+
+            void prepare(int delaySamps)
+            {
+                buf.assign((size_t)juce::jmax(16, delaySamps), 0.0f);
+                idx = 0;
+            }
+            void clear() noexcept
+            {
+                std::fill(buf.begin(), buf.end(), 0.0f);
+                idx = 0;
+            }
+            inline float process(float x, float g) noexcept
+            {
+                if (buf.empty()) return x;
+                const float d = buf[(size_t)idx];
+                const float v = antiDenormal(x + g * d);
+                buf[(size_t)idx] = v;
+                if (++idx >= (int)buf.size()) idx = 0;
+                return d - g * v;
+            }
+        };
+
     public:
         void prepareToPlay(double sr)
         {
@@ -668,9 +699,17 @@ namespace gfx
             const int reqHalf = std::max(1024, (int)std::ceil(sampleRate * 1.25));
             buffer.assign((size_t)reqHalf * 2, 0.0f);
 
+            // ループ内拡散用オールパス (L/R で異なる素数長 -> 豊かなステレオ拡散 & 絶対安定 |H|=1)
+            const double srScale = sampleRate / 44100.0;
+            apL[0].prepare(findNearestPrime((int)std::round(487.0 * srScale)));
+            apL[1].prepare(findNearestPrime((int)std::round(751.0 * srScale)));
+            apR[0].prepare(findNearestPrime((int)std::round(541.0 * srScale)));
+            apR[1].prepare(findNearestPrime((int)std::round(823.0 * srScale)));
+
             velvetL.prepare((float)sampleRate, 24681u);
             velvetR.prepare((float)sampleRate, 97531u);
             amountSmoothCoef = 1.0f - std::exp(-1.0f / (0.010f * (float)sampleRate));
+            delaySmoothCoef  = 1.0f - std::exp(-1.0f / (0.025f * (float)sampleRate));
             dcCoef = std::exp(-juce::MathConstants<float>::twoPi * 15.0f / (float)sampleRate);
 
             clearState();
@@ -678,32 +717,44 @@ namespace gfx
         void clearState() noexcept
         {
             std::fill(buffer.begin(), buffer.end(), 0.0f);
+            for (int k = 0; k < 2; ++k) { apL[k].clear(); apR[k].clear(); }
             velvetL.clearState();
             velvetR.clearState();
             writeIndex = 0;
             curAmount = 0.0f;
+            curFeedback = 0.0f;
+            curDelaySamps = 0.0f;
             lpStateL = lpStateR = 0.0f;
             dcX1L = dcY1L = dcX1R = dcY1R = 0.0f;
             cachedDamp = -1.0f;
             cachedLpCoef = 0.5f;
         }
 
-        // amount=Wet量, sizeMs=ループ長(20..1000ms), feedback=0..0.99, damp=高域減衰
+        // amount=Wet量, sizeMs=ループ長(20..1000ms), feedback=0..0.96, damp=高域減衰
         void process(float& inOutL, float& inOutR, float amount,
                      float sizeMs, float feedback, float damp) noexcept
         {
             const int halfSize = (int)(buffer.size() / 2);
             if (halfSize < 128) return;
 
-            curAmount += amountSmoothCoef * (juce::jlimit(0.0f, 1.0f, amount) - curAmount);
+            curAmount   += amountSmoothCoef * (juce::jlimit(0.0f, 1.0f, amount) - curAmount);
+            curFeedback += amountSmoothCoef * (juce::jlimit(0.0f, 0.96f, feedback) - curFeedback);
 
-            const int delaySamps = juce::jlimit(64, halfSize - 2,
-                                                (int)(sampleRate * (double)sizeMs * 0.001));
-            int readIndex = writeIndex - delaySamps;
-            if (readIndex < 0) readIndex += halfSize;
+            const float targetDelay = juce::jlimit(64.0f, (float)(halfSize - 2),
+                                                   (float)(sampleRate * (double)sizeMs * 0.001));
+            if (curDelaySamps <= 0.0f) curDelaySamps = targetDelay;
+            curDelaySamps += delaySmoothCoef * (targetDelay - curDelaySamps);
 
-            float smL = buffer[(size_t)readIndex * 2];
-            float smR = buffer[(size_t)readIndex * 2 + 1];
+            float readPos = (float)writeIndex - curDelaySamps;
+            while (readPos < 0.0f) readPos += (float)halfSize;
+            int idx1 = (int)readPos;
+            if (idx1 >= halfSize) idx1 %= halfSize;
+            const float frac = readPos - std::floor(readPos);
+            int idx2 = idx1 + 1;
+            if (idx2 >= halfSize) idx2 -= halfSize;
+
+            float smL = buffer[(size_t)idx1 * 2]     * (1.0f - frac) + buffer[(size_t)idx2 * 2]     * frac;
+            float smR = buffer[(size_t)idx1 * 2 + 1] * (1.0f - frac) + buffer[(size_t)idx2 * 2 + 1] * frac;
 
             // SR独立ループ内LPF減衰 (18kHz .. 1kHz)
             const float dampClamped = juce::jlimit(0.0f, 1.0f, damp);
@@ -719,19 +770,17 @@ namespace gfx
             smL = lpStateL;
             smR = lpStateR;
 
-            // SR補償済み 15Hz DCブロッカー
-            const float hpL = smL - dcX1L + dcCoef * dcY1L; dcX1L = smL; dcY1L = hpL; smL = hpL;
-            const float hpR = smR - dcX1R + dcCoef * dcY1R; dcX1R = smR; dcY1R = hpR; smR = hpR;
+            // SR補償済み 15Hz DCブロッカー (ナイキストゲイン <= 1.0 厳密正規化)
+            const float dcScale = 0.5f * (1.0f + dcCoef);
+            const float hpL = dcScale * (smL - dcX1L) + dcCoef * dcY1L; dcX1L = smL; dcY1L = antiDenormal(hpL); smL = hpL;
+            const float hpR = dcScale * (smR - dcX1R) + dcCoef * dcY1R; dcX1R = smR; dcY1R = antiDenormal(hpR); smR = hpR;
 
-            // Velvet Noise ディフューザーによる時間軸スメア（単一タップの金属的コム感を解消）
-            const float smearAmt = 0.55f + dampClamped * 0.30f;
-            velvetL.setAmount(smearAmt);
-            velvetR.setAmount(smearAmt);
-            smL = velvetL.process(smL);
-            smR = velvetR.process(smR);
+            // ループ内オールパス2段拡散 (全周波数で厳密 |H(w)| == 1.0 -> ハウリング不可)
+            smL = apL[1].process(apL[0].process(smL, 0.45f), 0.42f);
+            smR = apR[1].process(apR[0].process(smR, 0.45f), 0.42f);
 
-            // クロスフェード蓄積器: in*(1-fb) + loop*fb
-            const float fb = juce::jlimit(0.0f, 0.99f, feedback);
+            // クロスフェード蓄積器: in*(1-fb) + loop*fb (受動的・絶対安定)
+            const float fb = curFeedback;
             buffer[(size_t)writeIndex * 2] =
                 gfx::antiDenormal(gfx::safeLoopSaturate(inOutL * (1.0f - fb) + smL * fb));
             buffer[(size_t)writeIndex * 2 + 1] =
@@ -739,20 +788,31 @@ namespace gfx
 
             if (++writeIndex >= halfSize) writeIndex = 0;
 
+            // Velvet Noise ディフューザーはループ外の出力段で適用（フィードフォワードのみ -> 発振しない）
+            const float smearAmt = 0.45f + dampClamped * 0.25f;
+            velvetL.setAmount(smearAmt);
+            velvetR.setAmount(smearAmt);
+            const float wetL = velvetL.process(smL);
+            const float wetR = velvetR.process(smR);
+
             if (curAmount > 1.0e-5f)
             {
-                inOutL = inOutL * (1.0f - curAmount) + smL * curAmount;
-                inOutR = inOutR * (1.0f - curAmount) + smR * curAmount;
+                inOutL = inOutL * (1.0f - curAmount) + wetL * curAmount;
+                inOutR = inOutR * (1.0f - curAmount) + wetR * curAmount;
             }
         }
 
     private:
         double sampleRate = 44100.0;
         std::vector<float> buffer;
+        AllpassStage apL[2], apR[2];
         VelvetNoiseDiffuser velvetL, velvetR;
         int writeIndex = 0;
         float curAmount = 0.0f;
+        float curFeedback = 0.0f;
+        float curDelaySamps = 0.0f;
         float amountSmoothCoef = 0.002f;
+        float delaySmoothCoef = 0.001f;
         float lpStateL = 0.0f, lpStateR = 0.0f;
         float dcX1L = 0.0f, dcY1L = 0.0f, dcX1R = 0.0f, dcY1R = 0.0f;
         float dcCoef = 0.9975f;

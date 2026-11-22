@@ -13,6 +13,7 @@
 #include "ValueKnob.h"
 #include "GlowToggle.h"
 #include "ColorPalette.h"
+#include "KnobModMenu.h"
 
 class MainPanel : public juce::Component,
                   private juce::Timer
@@ -23,9 +24,12 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void visibilityChanged() override { if (isVisible()) timerCallback(); }
+
+    GranularUI::ModTabNavigator onOpenModTab;
 
 private:
-    void setupKnob(juce::Slider& s, juce::Label& l, const juce::String& text,
+    void setupKnob(ValueKnob& s, juce::Label& l, const juce::String& text,
                    const juce::String& paramID, juce::Colour accent);
     void setupCombo(juce::ComboBox& c, juce::Label& l, const juce::String& text,
                     const juce::String& paramID);
@@ -56,7 +60,8 @@ private:
     // --- MOTION (プレイヘッドの動き) ---
     juce::ComboBox modeBox, scanBox;
     juce::Label    modeLabel, scanLabel;
-    GlowToggle speedSyncButton { "S-SYNC", GranularColors::babyBlue };
+    GlowToggle speedSyncButton { "S-SYNC",    GranularColors::babyBlue };
+    GlowToggle retrigButton    { "RETRIGGER", GranularColors::mint };
 
     // --- MASTER ---
     ValueKnob hpfKnob, lpfKnob, gainKnob, mixKnob;

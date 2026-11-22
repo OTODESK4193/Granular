@@ -161,6 +161,7 @@ private:
         std::atomic<float>* playMode = nullptr;
         std::atomic<float>* speedSync = nullptr;
         std::atomic<float>* speedSyncDiv = nullptr;
+        std::atomic<float>* playRetrig = nullptr;
         std::atomic<float>* reverseGrain = nullptr;
         std::atomic<float>* windowShape = nullptr;
 
@@ -311,6 +312,7 @@ private:
     std::array<std::array<int8_t, 128>, 16> physicalToSnapped {}; // チャネル別NoteOn/NoteOff整合性
     int pendingSnappedCount = 0;
     bool prevArpEnabled = false;
+    const IngestedSample* lastActiveSample = nullptr;
 
     int savedEditorWidth { 1080 };
     int savedEditorHeight { 640 };

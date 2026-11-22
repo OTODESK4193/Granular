@@ -50,6 +50,10 @@ MainPanel::MainPanel(GranularAudioProcessor& p) : proc(p)
     buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         proc.apvts, "speedSync", speedSyncButton));
 
+    addAndMakeVisible(retrigButton);
+    buttonAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        proc.apvts, "playRetrig", retrigButton));
+
     // --- MASTER ---
     setupKnob(hpfKnob,  hpfLabel,  "HPF",  "masterHPF", master);
     setupKnob(lpfKnob,  lpfLabel,  "LPF",  "masterLPF", master);
@@ -121,6 +125,7 @@ void MainPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale
 
 void MainPanel::timerCallback()
 {
+    if (!isVisible()) return;
     using D = ModMatrix;
     // 宛先ノブ ← ModMatrix Dst (スケールは PluginProcessor の変調適用式に一致)
     applyModRing(positionKnob, D::DstPosition,  LinearAdd, 1.0f);
@@ -142,7 +147,7 @@ void MainPanel::timerCallback()
     applyModRing(ceilingKnob,  D::DstLimCeiling, LinearAdd, 6.0f);
 }
 
-void MainPanel::setupKnob(juce::Slider& s, juce::Label& l, const juce::String& text,
+void MainPanel::setupKnob(ValueKnob& s, juce::Label& l, const juce::String& text,
                           const juce::String& paramID, juce::Colour accent)
 {
     s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
@@ -159,6 +164,14 @@ void MainPanel::setupKnob(juce::Slider& s, juce::Label& l, const juce::String& t
 
     sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         proc.apvts, paramID, s));
+
+    juce::Component::SafePointer<MainPanel> safeThis(this);
+    GranularUI::attachKnobModMenu(s, proc.apvts, paramID, text,
+        [safeThis](int subTab, int page)
+        {
+            if (safeThis != nullptr && safeThis->onOpenModTab)
+                safeThis->onOpenModTab(subTab, page);
+        });
 }
 
 void MainPanel::setupCombo(juce::ComboBox& c, juce::Label& l, const juce::String& text,
@@ -201,9 +214,11 @@ void MainPanel::paint(juce::Graphics& g)
     g.setColour(GranularColors::textDim.withAlpha(0.6f));
     g.setFont(juce::Font(juce::FontOptions(10.5f)));
     g.drawText("S-SYNC: scan Start-End over SCAN length (DAW tempo).",
-               256, 236, 250, 13, juce::Justification::topLeft);
+               256, 238, 250, 13, juce::Justification::topLeft);
+    g.drawText("RETRIGGER: off continues playhead across notes.",
+               256, 251, 250, 13, juce::Justification::topLeft);
     g.drawText("Random: SPEED / SCAN set the jump rate.",
-               256, 249, 250, 13, juce::Justification::topLeft);
+               256, 264, 250, 13, juce::Justification::topLeft);
 }
 
 void MainPanel::resized()
@@ -238,12 +253,13 @@ void MainPanel::resized()
     placeKnob(startKnob,    startLabel,    20 + 1 * kKnobW, row2);
     placeKnob(endKnob,      endLabel,      20 + 2 * kKnobW, row2);
 
-    // MOTION (x256..506): MODE / SCAN 上段、S-SYNC 中段、説明文は下段(paint)
+    // MOTION (x256..506): MODE / SCAN 上段、S-SYNC / RETRIGGER 中段、説明文は下段(paint)
     modeLabel.setBounds(256, 168, 80, 14);
     modeBox.setBounds(256, 184, 110, 24);
     scanLabel.setBounds(376, 168, 80, 14);
     scanBox.setBounds(376, 184, 110, 24);
     speedSyncButton.setBounds(256, 212, 110, 24);
+    retrigButton.setBounds(376, 212, 110, 24);
 
     // MASTER (Motionに続けて配置)
     placeKnob(hpfKnob,  hpfLabel,  516 + 0 * kKnobW, row2);

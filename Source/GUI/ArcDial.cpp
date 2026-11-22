@@ -7,8 +7,16 @@
 
 ArcDialLookAndFeel::ArcDialLookAndFeel()
 {
+    refreshColours();
+}
+
+void ArcDialLookAndFeel::refreshColours()
+{
     setColour(juce::Slider::textBoxTextColourId, GranularColors::text);
     setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    setColour(juce::Slider::trackColourId, GranularColors::mint);
+    setColour(juce::Slider::backgroundColourId, GranularColors::knobTrack);
+    setColour(juce::Slider::thumbColourId, GranularColors::text);
     setColour(juce::ComboBox::backgroundColourId, GranularColors::panel);
     setColour(juce::ComboBox::textColourId, GranularColors::text);
     setColour(juce::ComboBox::outlineColourId, GranularColors::panelLine);
@@ -28,6 +36,8 @@ void ArcDialLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int w
                                           float rotaryEndAngle, juce::Slider& slider)
 {
     const auto radius = (float)juce::jmin(width / 2, height / 2) - 4.0f;
+    if (radius <= 2.0f) return;
+
     const auto centreX = (float)x + (float)width * 0.5f;
     const auto centreY = (float)y + (float)height * 0.5f;
     const auto rx = centreX - radius;
@@ -97,4 +107,52 @@ void ArcDialLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int w
         g.setColour(GranularColors::pink);
         g.fillEllipse(dotX - 2.6f, dotY - 2.6f, 5.2f, 5.2f);
     }
+}
+
+void ArcDialLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
+                                          float sliderPos, float minSliderPos, float maxSliderPos,
+                                          juce::Slider::SliderStyle style, juce::Slider& slider)
+{
+    if (style != juce::Slider::LinearHorizontal)
+    {
+        juce::LookAndFeel_V4::drawLinearSlider(g, x, y, width, height, sliderPos,
+                                               minSliderPos, maxSliderPos, style, slider);
+        return;
+    }
+
+    const float cy = (float)y + (float)height * 0.5f;
+    const float trackH = 4.0f;
+    const auto track = juce::Rectangle<float>((float)x, cy - trackH * 0.5f, (float)width, trackH);
+
+    g.setColour(GranularColors::knobTrack);
+    g.fillRoundedRectangle(track, trackH * 0.5f);
+
+    // 中央 (0) からの双方向バー (MOD Amount / 右クリックインライン編集用)
+    const auto range = slider.getNormalisableRange();
+    const bool bipolar = (range.start < 0.0 && range.end > 0.0);
+    const float zeroX = bipolar
+        ? (float)x + (float)width * (float)range.convertTo0to1(0.0)
+        : (float)x;
+
+    const auto fill = slider.findColour(juce::Slider::trackColourId);
+    const float lo = juce::jmin(zeroX, sliderPos);
+    const float hi = juce::jmax(zeroX, sliderPos);
+    if (hi - lo > 0.5f)
+    {
+        g.setColour(fill);
+        g.fillRoundedRectangle(juce::Rectangle<float>(lo, cy - trackH * 0.5f, hi - lo, trackH), trackH * 0.5f);
+    }
+
+    // 中央0の小さな目盛り
+    if (bipolar)
+    {
+        g.setColour(GranularColors::textDim.withAlpha(0.45f));
+        g.fillRect(zeroX - 0.5f, cy - 4.5f, 1.0f, 9.0f);
+    }
+
+    // つまみ
+    g.setColour(fill.brighter(0.35f));
+    g.fillEllipse(sliderPos - 5.0f, cy - 5.0f, 10.0f, 10.0f);
+    g.setColour(GranularColors::bg.withAlpha(0.8f));
+    g.drawEllipse(sliderPos - 5.0f, cy - 5.0f, 10.0f, 10.0f, 1.0f);
 }

@@ -423,7 +423,11 @@ void GranularVoice::releaseResources()
     voiceInternalBuffer.setSize(0, 0);
 }
 
-void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, const GranularParams& p)
+void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, const GranularParams& p,
+                              bool continuePlayhead,
+                              double initPlayheadOffset,
+                              double initRandomTargetRel,
+                              double initRandomJumpCountdown)
 {
     const bool wasPlaying = playing; // ボイススチール(発音中の再スタート)かどうか
 
@@ -432,10 +436,19 @@ void GranularVoice::startNote(int midiNote, float velocity, uint64_t stamp, cons
     heldDown = true;
     noteStamp = stamp;
     velocityGain = 0.25f + 0.75f * juce::jlimit(0.0f, 1.0f, velocity);
-    playheadOffset = 0.0;
+    if (continuePlayhead)
+    {
+        playheadOffset      = initPlayheadOffset;
+        randomTargetRel     = initRandomTargetRel;
+        randomJumpCountdown = initRandomJumpCountdown;
+    }
+    else
+    {
+        playheadOffset      = 0.0;
+        randomJumpCountdown = 0.0; // Random: ノート頭で必ず1回抽選する
+    }
     smoothedPos01 = (double)p.position; // ノート開始位置は即時（グライドは保持中のノブ移動のみ）
     samplesToNextSpawn = 0.0; // 即時に最初のグレインを発火
-    randomJumpCountdown = 0.0; // Random: ノート頭で必ず1回抽選する
     wsolaExpectedNextPos = -1.0;
 
     if (!wasPlaying)
@@ -730,6 +743,7 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
     // Per-Grain Zavalishin TPT SVF coefficients
     grain.ic1L = grain.ic2L = grain.ic1R = grain.ic2R = 0.0f;
     grain.svfMode = juce::jlimit(0, 4, p.grainFilterMode);
+    grain.svfGainComp = 1.0f;
     if (grain.svfMode > 0)
     {
         const float randOct = (random.nextFloat() * 2.0f - 1.0f) * p.grainFilterJitter * 3.0f;
@@ -741,6 +755,11 @@ void GranularVoice::spawnGrain(int trimStart, int trimEnd,
         grain.svfA1 = 1.0f / (1.0f + g * (g + grain.svfK));
         grain.svfA2 = g * grain.svfA1;
         grain.svfA3 = g * grain.svfA2;
+        // 高Q設定時の狭帯域発振/ハウリング防止用ゲイン補償
+        if (grain.svfMode == 2)
+            grain.svfGainComp = juce::jmin(1.0f, grain.svfK); // BP: 中心周波数で0dB正規化
+        else if (grain.svfMode == 1 || grain.svfMode == 3)
+            grain.svfGainComp = 1.0f / std::pow(juce::jmax(1.0f, q), 0.35f); // LP/HP: 共振ピークを抑制
     }
 
     // --------------------------------------
@@ -908,9 +927,12 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     const float targetCombDelay = (float)juce::jlimit(1.5, (double)(combSize - 4), notePeriod - lpPhaseDelaySamples);
     if (currentCombDelay <= 0.0f) currentCombDelay = targetCombDelay; // 初回
     const float combGlideCoef = 1.0f - (float)std::exp(-1.0 / (0.0045 * currentSampleRate));
-    const float combFb = 0.55f + 0.40f * p.tone;
-    const float combDcR = 1.0f - (float)(juce::MathConstants<double>::twoPi * 5.0 / currentSampleRate);
-    const float toneMix = p.tone;
+    // TONE コム共振器のエネルギー保存型スケーリング (高Tone時の +20dB 超ハウリング防止)
+    const float combFb      = 0.48f + 0.43f * p.tone; // max 0.91
+    const float combInScale = std::sqrt(juce::jmax(0.08f, 1.0f - combFb * combFb));
+    const float combDcR     = std::exp(-(float)(juce::MathConstants<double>::twoPi * 5.0 / currentSampleRate));
+    const float combDcScale = 0.5f * (1.0f + combDcR);
+    const float toneMix     = p.tone;
 
     const double L = (double)validLength;
     const double normStep = speedMag / L;
@@ -1063,14 +1085,18 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                     const float v2 = ic2 + grain.svfA2 * ic1 + grain.svfA3 * v3;
                     ic1 = (std::abs(2.0f * v1 - ic1) < 1.0e-18f) ? 0.0f : (2.0f * v1 - ic1);
                     ic2 = (std::abs(2.0f * v2 - ic2) < 1.0e-18f) ? 0.0f : (2.0f * v2 - ic2);
+                    float y = x;
                     switch (grain.svfMode)
                     {
-                    case 1: return v2;                                 // LP
-                    case 2: return v1;                                 // BP
-                    case 3: return x - grain.svfK * v1 - v2;           // HP
-                    case 4: return x - grain.svfK * v1;                // Notch
-                    default: return x;
+                    case 1: y = v2 * grain.svfGainComp;                          break; // LP (Q補償)
+                    case 2: y = v1 * grain.svfGainComp;                          break; // BP (0dB正規化)
+                    case 3: y = (x - grain.svfK * v1 - v2) * grain.svfGainComp;  break; // HP (Q補償)
+                    case 4: y = x - grain.svfK * v1;                             break; // Notch
+                    default: y = x; break;
                     }
+                    if (std::abs(y) > 1.2f)
+                        y = (y > 0.0f ? 1.2f : -1.2f) + 0.3f * std::tanh((y - (y > 0.0f ? 1.2f : -1.2f)) * 2.0f);
+                    return y;
                 };
                 sL = runSvf(sL, grain.ic1L, grain.ic2L);
                 sR = runSvf(sR, grain.ic1R, grain.ic2R);
@@ -1103,7 +1129,7 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             if (++grain.age >= grain.life) grain.isActive = false;
         }
 
-        // TONE: Thiran 1次オールパス小数遅延 + SR補償LPF + 5Hz DCブロッカー
+        // TONE: Thiran 1次オールパス小数遅延 + SR補償LPF + 正規化5Hz DCブロッカー
         if (toneOn)
         {
             currentCombDelay += combGlideCoef * (targetCombDelay - currentCombDelay);
@@ -1111,7 +1137,7 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             const float fracDelay = juce::jlimit(0.5f, 1.5f, currentCombDelay - (float)intDelay);
             const float apCoeff = (1.0f - fracDelay) / (1.0f + fracDelay);
 
-            auto processComb = [combSize, intDelay, apCoeff, combFb, combDamp, combDcR](
+            auto processComb = [combSize, intDelay, apCoeff, combFb, combInScale, combDamp, combDcR, combDcScale](
                 std::vector<float>& buf, int writeIdx, float in,
                 float& lpState, float& apXPrev, float& apYPrev, float& dcXPrev, float& dcYPrev) noexcept
             {
@@ -1125,12 +1151,12 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                 lpState += combDamp * (delayed - lpState);
                 if (std::abs(lpState) < 1.0e-18f) lpState = 0.0f;
 
-                const float fbSig = lpState - dcXPrev + combDcR * dcYPrev;
+                const float fbSig = combDcScale * (lpState - dcXPrev) + combDcR * dcYPrev;
                 dcXPrev = lpState;
                 dcYPrev = (std::abs(fbSig) < 1.0e-18f) ? 0.0f : fbSig;
 
-                const float w = in + fbSig * combFb;
-                buf[(size_t)writeIdx] = 1.5f * std::tanh(w * 0.6667f);
+                const float w = in * combInScale + fbSig * combFb;
+                buf[(size_t)writeIdx] = std::tanh(w);
                 return fbSig;
             };
 
@@ -1140,8 +1166,8 @@ void GranularVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                                            combLpR, combApXPrevR, combApYPrevR, combDcXPrevR, combDcYPrevR);
             combWriteIdx = (combWriteIdx + 1) % combSize;
 
-            mixL = mixL * (1.0f - toneMix * 0.5f) + wetL * toneMix;
-            mixR = mixR * (1.0f - toneMix * 0.5f) + wetR * toneMix;
+            mixL = mixL * (1.0f - toneMix * 0.5f) + wetL * (toneMix * 0.85f);
+            mixR = mixR * (1.0f - toneMix * 0.5f) + wetR * (toneMix * 0.85f);
         }
 
         // PadEnvelope をサンプル単位で適用（コムの余韻もリリースに含まれる）
@@ -1209,6 +1235,7 @@ void GranularSynth::prepareToPlay(double sr, int spb)
         }
     swarmScheduler.reset();
     modalResonator.prepare(sr);
+    resetPlayhead();
     prevOutGain = juce::Decibels::decibelsToGain(0.0f);
     hasPrevParams = false;
     lastTriggeredNote = 60;
@@ -1256,7 +1283,16 @@ void GranularSynth::handleMidiMessage(const juce::MidiMessage& msg, const Granul
 
         if (target != nullptr)
         {
-            target->startNote(msg.getNoteNumber(), msg.getFloatVelocity(), ++noteCounter, p);
+            const bool continuePh = (!p.playRetrig && hasPersistentPlayhead);
+            double initOff = 0.0;
+            if (continuePh)
+            {
+                const double modPeriod = (p.playMode == 2) ? 2.0 : 1.0;
+                initOff = std::fmod(persistentPlayheadOffset, modPeriod);
+                if (initOff < 0.0) initOff += modPeriod;
+            }
+            target->startNote(msg.getNoteNumber(), msg.getFloatVelocity(), ++noteCounter, p,
+                              continuePh, initOff, persistentRandomTargetRel, persistentRandomJumpCountdown);
             if (modMatrix != nullptr)
                 modMatrix->noteOn(target->getVoiceIndex(), msg.getNoteNumber(), msg.getFloatVelocity());
         }
@@ -1337,6 +1373,9 @@ void GranularSynth::renderVoicesRange(juce::AudioBuffer<float>& subBuf,
 
     int totalSpawnBudget = juce::jmax(0, MAX_TOTAL_GRAINS - activeTotal);
 
+    uint64_t newestRenderedStamp = 0;
+    const GranularVoice* newestRenderedVoice = nullptr;
+
     for (auto& v : voices)
     {
         if (v.isActive())
@@ -1350,7 +1389,28 @@ void GranularSynth::renderVoicesRange(juce::AudioBuffer<float>& subBuf,
             const int consumed = budgetBefore - voiceBudget;
             totalSpawnBudget = juce::jmax(0, totalSpawnBudget - consumed);
             --activeVoices;
+
+            if (v.isActive())
+            {
+                if (v.getNoteStamp() >= newestRenderedStamp)
+                {
+                    newestRenderedStamp = v.getNoteStamp();
+                    newestRenderedVoice = &v;
+                }
+            }
+            else if (modMatrix != nullptr)
+            {
+                modMatrix->voiceFinished(v.getVoiceIndex());
+            }
         }
+    }
+
+    if (newestRenderedVoice != nullptr)
+    {
+        persistentPlayheadOffset      = newestRenderedVoice->getPlayheadOffset();
+        persistentRandomTargetRel     = newestRenderedVoice->getRandomTargetRel();
+        persistentRandomJumpCountdown = newestRenderedVoice->getRandomJumpCountdown();
+        hasPersistentPlayhead         = true;
     }
 }
 
@@ -1434,7 +1494,7 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
     prevParams = p;
     hasPrevParams = true;
 
-    // 最新ノートの実プレイヘッド位置をGUIへ公開
+    // 最新ノートの実プレイヘッド位置をGUIへ公開 (+ Retrigger OFF待機位置)
     {
         float ph = -1.0f;
         uint64_t newest = 0;
@@ -1445,6 +1505,28 @@ void GranularSynth::processBlock(juce::AudioBuffer<float>& buf,
                 ph = v.getPlayheadNorm();
             }
         playheadDisplay.store(ph, std::memory_order_relaxed);
+
+        float pausedPh = -1.0f;
+        if (ph < 0.0f && !p.playRetrig && hasPersistentPlayhead)
+        {
+            if (p.playMode == 3)
+            {
+                pausedPh = (float)juce::jlimit(0.0, 1.0, persistentRandomTargetRel);
+            }
+            else if (p.playMode == 2)
+            {
+                double t = std::fmod((double)p.position + persistentPlayheadOffset, 2.0);
+                if (t < 0.0) t += 2.0;
+                pausedPh = (float)((t <= 1.0) ? t : (2.0 - t));
+            }
+            else
+            {
+                double t = std::fmod((double)p.position + persistentPlayheadOffset, 1.0);
+                if (t < 0.0) t += 1.0;
+                pausedPh = (float)t;
+            }
+        }
+        pausedPlayheadDisplay.store(pausedPh, std::memory_order_relaxed);
     }
 
     // --- Grain-Excited Scale-Tuned Modal Resonator Bank (MasterFilterの前段) ---

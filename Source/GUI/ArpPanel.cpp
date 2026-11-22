@@ -103,6 +103,14 @@ void ArpPanel::setupKnob(ValueKnob& s, juce::Label& l, const juce::String& text,
 
     sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         proc.apvts, paramID, s));
+
+    juce::Component::SafePointer<ArpPanel> safeThis(this);
+    GranularUI::attachKnobModMenu(s, proc.apvts, paramID, text,
+        [safeThis](int subTab, int page)
+        {
+            if (safeThis != nullptr && safeThis->onOpenModTab)
+                safeThis->onOpenModTab(subTab, page);
+        });
 }
 
 void ArpPanel::setupCombo(juce::ComboBox& c, juce::Label& l, const juce::String& text,
@@ -175,6 +183,7 @@ void ArpPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
 
 void ArpPanel::timerCallback()
 {
+    if (!isVisible()) return;
     using D = ModMatrix;
     applyModRing(octavesKnob,    D::DstArpOct,      LinearAdd, 3.0f);
     applyModRing(rateFreeKnob,   D::DstArpRateFree, ExpOct,    2.0f);

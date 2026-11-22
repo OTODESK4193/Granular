@@ -81,6 +81,7 @@ struct GranularParams
     int   playMode = 0;           // 0=Forward 1=Backward 2=Ping-Pong 3=Random
     bool  speedSync = false;      // DAWテンポ追随（領域を指定音価でスキャン）
     int   speedSyncDiv = 2;       // 0=1Beat 1=2Beats 2=1Bar 3=2Bars 4=4Bars 5=8Bars
+    bool  playRetrig = true;      // 鍵盤トリガー時にプレイヘッドを先頭へリセット (false=前回位置から継続)
     double bpm = 120.0;
 
     int   octave = 0;
@@ -607,6 +608,7 @@ struct Grain
     // Per-grain TPT SVF (coef precomputed in spawnGrain)
     int   svfMode = 0;
     float svfK = 1.0f, svfA1 = 0.0f, svfA2 = 0.0f, svfA3 = 0.0f;
+    float svfGainComp = 1.0f;
     float ic1L = 0.0f, ic2L = 0.0f, ic1R = 0.0f, ic2R = 0.0f;
 };
 
@@ -624,7 +626,11 @@ public:
     void prepareToPlay(double sampleRate, int samplesPerBlock);
     void releaseResources();
 
-    void startNote(int midiNote, float velocity, uint64_t noteStamp, const GranularParams& p);
+    void startNote(int midiNote, float velocity, uint64_t noteStamp, const GranularParams& p,
+                   bool continuePlayhead = false,
+                   double initPlayheadOffset = 0.0,
+                   double initRandomTargetRel = 0.0,
+                   double initRandomJumpCountdown = 0.0);
     void stopNote(bool allowTailOff);
     bool isActive() const noexcept { return playing; }
     void clearCurrentNote();
@@ -633,6 +639,9 @@ public:
     int getCurrentlyPlayingNote() const noexcept { return currentMidiNote; }
     uint64_t getNoteStamp() const noexcept { return noteStamp; }
     bool isReleasing() const noexcept { return playing && !heldDown; }
+    double getPlayheadOffset() const noexcept { return playheadOffset; }
+    double getRandomTargetRel() const noexcept { return randomTargetRel; }
+    double getRandomJumpCountdown() const noexcept { return randomJumpCountdown; }
 
     void renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                          const juce::AudioBuffer<float>* sharedSourceBuffer,
@@ -728,6 +737,15 @@ public:
         for (auto& v : voices) v.stopNote(false);
     }
 
+    void resetPlayhead() noexcept
+    {
+        persistentPlayheadOffset = 0.0;
+        persistentRandomTargetRel = 0.0;
+        persistentRandomJumpCountdown = 0.0;
+        hasPersistentPlayhead = false;
+        pausedPlayheadDisplay.store(-1.0f, std::memory_order_relaxed);
+    }
+
     void reset() noexcept
     {
         for (auto& v : voices) v.reset();
@@ -739,16 +757,18 @@ public:
             }
         swarmScheduler.reset();
         modalResonator.reset();
+        resetPlayhead();
         prevOutGain = 0.0f;
         hasPrevParams = false;
         lastTriggeredNote = 60;
-        playheadDisplay.store(-1.0f);
+        playheadDisplay.store(-1.0f, std::memory_order_relaxed);
     }
 
     const ModalResonatorBank& getModalResonator() const noexcept { return modalResonator; }
 
     GrainVisualizerData visualizer;
-    std::atomic<float> playheadDisplay { -1.0f }; // 最新ボイスの実プレイヘッド (GUI用)
+    std::atomic<float> playheadDisplay { -1.0f };       // 発音中最新ボイスの実プレイヘッド (GUI用)
+    std::atomic<float> pausedPlayheadDisplay { -1.0f }; // Retrigger OFF待機中の継続位置 (GUI用)
 
     static constexpr int NUM_VOICES = 24;
     static constexpr int MAX_TOTAL_GRAINS = 1200; // 全ボイス合計のCPUバジェット
@@ -782,6 +802,12 @@ private:
 
     double currentSampleRate = 44100.0;
     uint64_t noteCounter = 0;
+
+    // Retrigger OFF 時の継続プレイヘッド状態
+    double persistentPlayheadOffset = 0.0;
+    double persistentRandomTargetRel = 0.0;
+    double persistentRandomJumpCountdown = 0.0;
+    bool   hasPersistentPlayhead = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GranularSynth)
 };

@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Preset generator & validator for Granular v1.1.0 B017
+Preset generator & validator for Granular v1.2.0
 Generates 150 unique, richly modulated, musically balanced presets across 12 categories.
-Guarantees zero FX duplication and Phase 1-4 parameter/mod consistency in all presets.
+Guarantees zero FX duplication, anti-howling headroom, and Phase 1-4 parameter/mod consistency in all presets.
 """
 
 import sys
+from pathlib import Path
 
 presets = []
 
@@ -26,7 +27,7 @@ add_preset("Warm Cathedral", "Pads & Ambient", "Warm", [
     ("tone", 0.45), ("scaleOn", 0), ("masterLPF", 8500.0),
     ("lfo1Rate", 0.08), ("lfo1Wave", 0), ("mod1Src", 1), ("mod1Dst", 1), ("mod1Amt", 0.25),
     ("lfo2Rate", 0.15), ("lfo2Wave", 1), ("mod2Src", 2), ("mod2Dst", 14), ("mod2Amt", 0.2),
-    ("fx5Type", 5), ("fx5Amount", 48.0), ("revDecay", 0.88), ("fxMix", 1.0)
+    ("fx5Type", 5), ("fx5Amount", 44.0), ("revDecay", 0.84), ("revDamp", 0.4), ("fxMix", 1.0)
 ])
 
 add_preset("Glass Choir", "Pads & Ambient", "Glass", [
@@ -35,7 +36,7 @@ add_preset("Glass Choir", "Pads & Ambient", "Glass", [
     ("attack", 1.5), ("decay", 2.0), ("sustain", 0.88), ("release", 2.8),
     ("lfo1Rate", 0.2), ("lfo1Wave", 0), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.18),
     ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.25), ("mod2Uni", 1),
-    ("fx2Type", 2), ("fx2Amount", 32.0), ("fx5Type", 5), ("fx5Amount", 40.0), ("revShimmer", 0.6)
+    ("fx2Type", 2), ("fx2Amount", 32.0), ("fx5Type", 5), ("fx5Amount", 40.0), ("revShimmer", 0.58), ("revDamp", 0.38)
 ])
 
 add_preset("Slow Bloom", "Pads & Ambient", "Evolving", [
@@ -44,7 +45,7 @@ add_preset("Slow Bloom", "Pads & Ambient", "Evolving", [
     ("attack", 3.0), ("decay", 2.0), ("sustain", 1.0), ("release", 4.0),
     ("env1Attack", 3.5), ("env1Decay", 2.0), ("env1Loop", 1), ("mod1Src", 5), ("mod1Dst", 14), ("mod1Amt", 0.45), ("mod1Uni", 1),
     ("lfo1Rate", 0.05), ("mod2Src", 1), ("mod2Dst", 1), ("mod2Amt", 0.35),
-    ("fx5Type", 5), ("fx5Amount", 52.0), ("revDecay", 0.92)
+    ("fx5Type", 5), ("fx5Amount", 46.0), ("revDecay", 0.85), ("revDamp", 0.42)
 ])
 
 add_preset("Dark Vespers", "Pads & Ambient", "Dark", [
@@ -61,7 +62,7 @@ add_preset("Aurora Wash", "Pads & Ambient", "Evolving", [
     ("attack", 2.4), ("decay", 2.0), ("sustain", 0.9), ("release", 3.2),
     ("lfo1Rate", 0.18), ("lfo1Wave", 0), ("mod1Src", 1), ("mod1Dst", 7), ("mod1Amt", 0.4),
     ("lfo2Rate", 0.25), ("mod2Src", 2), ("mod2Dst", 4), ("mod2Amt", 0.3),
-    ("fx2Type", 2), ("fx2Amount", 28.0), ("fx5Type", 5), ("fx5Amount", 48.0), ("revShimmer", 0.72)
+    ("fx2Type", 2), ("fx2Amount", 28.0), ("fx5Type", 5), ("fx5Amount", 44.0), ("revShimmer", 0.6), ("revDamp", 0.42)
 ])
 
 add_preset("Velvet Drift", "Pads & Ambient", "Warm", [
@@ -77,14 +78,15 @@ add_preset("Frozen Lake", "Pads & Ambient", "Glass", [
     ("grainSize", 0.24), ("density", 0.72), ("octave", 1), ("tone", 0.62), ("scaleOn", 0),
     ("masterHPF", 200.0), ("attack", 1.6), ("decay", 2.2), ("sustain", 0.85), ("release", 3.0),
     ("lfo1Rate", 0.3), ("lfo1Wave", 4), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.15),
-    ("fx4Type", 4), ("fx4Amount", 30.0), ("frzSize", 350.0), ("fx5Type", 5), ("fx5Amount", 44.0), ("revShimmer", 0.68)
+    ("fx4Type", 4), ("fx4Amount", 28.0), ("frzSize", 350.0), ("frzFeedback", 0.78), ("frzDamp", 0.42),
+    ("fx5Type", 5), ("fx5Amount", 40.0), ("revShimmer", 0.56), ("revDamp", 0.44)
 ])
 
 add_preset("Distant Bells Pad", "Pads & Ambient", "Glass", [
-    ("grainSize", 0.2), ("density", 0.68), ("tone", 0.68), ("scaleOn", 0), ("modalMix", 0.25), ("modalRatioMode", 3), ("modalDecay", 1.8),
+    ("grainSize", 0.2), ("density", 0.68), ("tone", 0.68), ("scaleOn", 0), ("modalMix", 0.25), ("modalRatioMode", 3), ("modalDecay", 1.5), ("modalDamp", 0.42),
     ("attack", 0.9), ("decay", 2.0), ("sustain", 0.8), ("release", 2.6),
     ("lfo1Rate", 4.0), ("lfo1Wave", 0), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.12),
-    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.3), ("mod2Uni", 1),
+    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.18), ("mod2Uni", 1),
     ("fx3Type", 3), ("fx3Amount", 26.0), ("dlyFeedback", 0.45), ("fx5Type", 5), ("fx5Amount", 42.0)
 ])
 
@@ -103,7 +105,7 @@ add_preset("Breathing Room", "Pads & Ambient", "Evolving", [
     ("attack", 1.8), ("decay", 2.0), ("sustain", 0.85), ("release", 3.0),
     ("env1Attack", 2.2), ("env1Decay", 2.2), ("env1Loop", 1), ("mod1Src", 5), ("mod1Dst", 2), ("mod1Amt", 0.4),
     ("lfo1Rate", 0.1), ("mod2Src", 1), ("mod2Dst", 4), ("mod2Amt", 0.35),
-    ("fx5Type", 5), ("fx5Amount", 44.0), ("revDecay", 0.85)
+    ("fx5Type", 5), ("fx5Amount", 42.0), ("revDecay", 0.82), ("revDamp", 0.38)
 ])
 
 # ============================================================
@@ -136,7 +138,7 @@ add_preset("Shimmer Veil", "Textures", "Shimmer", [
     ("tone", 0.54), ("scaleOn", 0), ("swarmMix", 0.35), ("scale", 12), ("attack", 0.8), ("release", 2.2),
     ("lfo1Rate", 0.15), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.25),
     ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.2), ("mod2Uni", 1),
-    ("fx5Type", 5), ("fx5Amount", 50.0), ("revShimmer", 0.82)
+    ("fx5Type", 5), ("fx5Amount", 44.0), ("revShimmer", 0.64), ("revDamp", 0.42)
 ])
 
 add_preset("Particle Stream", "Textures", "Cloud", [
@@ -151,7 +153,7 @@ add_preset("Frostbite", "Textures", "Grainy", [
     ("grainSize", 0.08), ("density", 0.72), ("octave", 2), ("pitchJitter", 22.0),
     ("tone", 0.6), ("scaleOn", 0), ("masterHPF", 480.0), ("attack", 0.2), ("release", 1.5),
     ("lfo1Rate", 0.4), ("lfo1Wave", 4), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.22),
-    ("fx5Type", 5), ("fx5Amount", 44.0), ("revShimmer", 0.6)
+    ("fx5Type", 5), ("fx5Amount", 40.0), ("revShimmer", 0.52), ("revDamp", 0.45)
 ])
 
 add_preset("Whisper Grains", "Textures", "Noise", [
@@ -162,11 +164,11 @@ add_preset("Whisper Grains", "Textures", "Noise", [
 ])
 
 add_preset("Crystalline", "Textures", "Shimmer", [
-    ("grainSize", 0.16), ("density", 0.76), ("octave", 2), ("tone", 0.68), ("scaleOn", 0), ("swarmMix", 0.3), ("scale", 1),
+    ("grainSize", 0.16), ("density", 0.76), ("octave", 2), ("tone", 0.64), ("scaleOn", 0), ("swarmMix", 0.3), ("scale", 1),
     ("attack", 0.35), ("release", 2.0),
     ("lfo1Rate", 3.5), ("lfo1Wave", 0), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.15),
-    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.25), ("mod2Uni", 1),
-    ("fx5Type", 5), ("fx5Amount", 48.0), ("revShimmer", 0.88)
+    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.18), ("mod2Uni", 1),
+    ("fx5Type", 5), ("fx5Amount", 42.0), ("revShimmer", 0.62), ("revDamp", 0.46)
 ])
 
 add_preset("Tape Erosion", "Textures", "Grainy", [
@@ -199,7 +201,7 @@ add_preset("Arp Runner", "Rhythmic", "Arp", [
     ("grainSize", 0.08), ("density", 0.62), ("tone", 0.58),
     ("arpEnable", 1), ("arpPattern", 0), ("arpRateSync", 12), ("arpOctaves", 2), ("arpGate", 0.55),
     ("scaleOn", 1), ("scale", 1), ("attack", 0.003), ("decay", 0.16), ("sustain", 0.2), ("release", 0.2),
-    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.3), ("mod1Uni", 1),
+    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.22), ("mod1Uni", 1),
     ("fx3Type", 3), ("fx3Amount", 32.0), ("dlyFeedback", 0.48)
 ])
 
@@ -230,8 +232,8 @@ add_preset("Trance Pluck Arp", "Rhythmic", "Arp", [
     ("grainSize", 0.07), ("density", 0.58), ("tone", 0.68),
     ("arpEnable", 1), ("arpPattern", 0), ("arpRateSync", 12), ("arpOctaves", 2), ("arpGate", 0.45),
     ("scaleOn", 1), ("scale", 1), ("attack", 0.002), ("decay", 0.14), ("sustain", 0.1), ("release", 0.18),
-    ("masterHPF", 160.0), ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.3), ("mod1Uni", 1),
-    ("fx3Type", 3), ("fx3Amount", 36.0), ("dlyFeedback", 0.52)
+    ("masterHPF", 160.0), ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.18), ("mod1Uni", 1),
+    ("fx3Type", 3), ("fx3Amount", 34.0), ("dlyFeedback", 0.48), ("dlyDamp", 0.38)
 ])
 
 add_preset("Broken Clock", "Rhythmic", "Stutter", [
@@ -339,15 +341,15 @@ add_preset("Sub Attack", "Bass", "Sub", [
 # E. LEADS (10)
 # ============================================================
 add_preset("Neon Searing", "Leads", "Solo", [
-    ("grainSize", 0.08), ("density", 0.85), ("tone", 0.72), ("scaleOn", 0),
+    ("grainSize", 0.08), ("density", 0.85), ("tone", 0.68), ("scaleOn", 0),
     ("lfo1Rate", 5.0), ("lfo1Wave", 0), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.2),
-    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.3), ("mod2Uni", 1),
+    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.18), ("mod2Uni", 1),
     ("attack", 0.02), ("decay", 0.3), ("sustain", 0.85), ("release", 0.35),
     ("fx1Type", 1), ("fx1Amount", 35.0), ("satAlgo", 5), ("satDrive", 4.0), ("satTrim", -1.0), ("fx3Type", 3), ("fx3Amount", 30.0)
 ])
 
 add_preset("Glass Solo", "Leads", "Bright", [
-    ("grainSize", 0.1), ("density", 0.75), ("octave", 1), ("tone", 0.78), ("scaleOn", 0),
+    ("grainSize", 0.1), ("density", 0.75), ("octave", 1), ("tone", 0.76), ("scaleOn", 0),
     ("lfo1Rate", 4.5), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.18),
     ("attack", 0.03), ("decay", 0.25), ("sustain", 0.8), ("release", 0.35),
     ("fx2Type", 2), ("fx2Amount", 26.0), ("fx5Type", 5), ("fx5Amount", 38.0)
@@ -384,7 +386,7 @@ add_preset("Overdriven Peak", "Leads", "Solo", [
 ])
 
 add_preset("Whistle Wind", "Leads", "Bright", [
-    ("grainSize", 0.13), ("density", 0.6), ("octave", 1), ("tone", 0.8), ("scaleOn", 0),
+    ("grainSize", 0.13), ("density", 0.6), ("octave", 1), ("tone", 0.76), ("scaleOn", 0),
     ("lfo1Rate", 5.2), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.25),
     ("attack", 0.08), ("release", 0.4), ("fx5Type", 5), ("fx5Amount", 36.0)
 ])
@@ -414,7 +416,7 @@ add_preset("Soft Glow", "Leads", "Warm", [
 # ============================================================
 add_preset("Tension Rise", "Cinematic", "Tension", [
     ("grainSize", 0.3), ("density", 0.85), ("tone", 0.52), ("scaleOn", 0),
-    ("env1Attack", 5.0), ("env1Decay", 0.5), ("mod1Src", 5), ("mod1Dst", 9), ("mod1Amt", 0.65), ("mod1Uni", 1),
+    ("env1Attack", 5.0), ("env1Decay", 0.5), ("mod1Src", 5), ("mod1Dst", 9), ("mod1Amt", 0.34), ("mod1Uni", 1),
     ("attack", 3.0), ("release", 2.5), ("fx1Type", 1), ("fx1Amount", 35.0), ("fx5Type", 5), ("fx5Amount", 45.0)
 ])
 
@@ -422,13 +424,14 @@ add_preset("Deep Abyss", "Cinematic", "Drone", [
     ("grainSize", 0.45), ("density", 0.9), ("octave", -2), ("speed", 0.15), ("tone", 0.45), ("scaleOn", 0),
     ("masterLPF", 1800.0), ("attack", 2.5), ("release", 3.5),
     ("lfo1Rate", 0.08), ("mod1Src", 1), ("mod1Dst", 1), ("mod1Amt", 0.35),
-    ("fx5Type", 5), ("fx5Amount", 52.0), ("revDecay", 0.94)
+    ("fx5Type", 5), ("fx5Amount", 46.0), ("revDecay", 0.86), ("revDamp", 0.45)
 ])
 
 add_preset("SciFi Drone", "Cinematic", "Drone", [
     ("grainSize", 0.35), ("density", 0.8), ("playMode", 2), ("tone", 0.55), ("scaleOn", 0),
     ("lfo1Rate", 0.15), ("mod1Src", 1), ("mod1Dst", 4), ("mod1Amt", 0.4),
-    ("attack", 2.0), ("release", 3.0), ("fx4Type", 4), ("fx4Amount", 35.0), ("fx5Type", 5), ("fx5Amount", 40.0)
+    ("attack", 2.0), ("release", 3.0), ("fx4Type", 4), ("fx4Amount", 32.0), ("frzSize", 240.0), ("frzFeedback", 0.78), ("frzDamp", 0.42),
+    ("fx5Type", 5), ("fx5Amount", 40.0), ("revDamp", 0.4)
 ])
 
 add_preset("Horror Sting", "Cinematic", "Tension", [
@@ -460,7 +463,7 @@ add_preset("Void Pulse", "Cinematic", "Drone", [
 add_preset("Time Dilate", "Cinematic", "Atmosphere", [
     ("grainSize", 0.32), ("density", 0.82), ("speed", 0.05), ("engineMode", 1), ("tone", 0.54), ("scaleOn", 0),
     ("env1Attack", 4.0), ("env1Loop", 0), ("mod1Src", 5), ("mod1Dst", 14), ("mod1Amt", 0.6), ("mod1Uni", 1),
-    ("attack", 2.2), ("release", 3.2), ("fx4Type", 4), ("fx4Amount", 40.0)
+    ("attack", 2.2), ("release", 3.2), ("fx4Type", 4), ("fx4Amount", 34.0), ("frzSize", 300.0), ("frzFeedback", 0.8), ("frzDamp", 0.44)
 ])
 
 add_preset("Ancient Ruin", "Cinematic", "Atmosphere", [
@@ -474,7 +477,7 @@ add_preset("Star Drift", "Cinematic", "Drone", [
     ("grainSize", 0.42), ("density", 0.84), ("octave", 1), ("tone", 0.62), ("scaleOn", 0),
     ("attack", 2.5), ("release", 3.5),
     ("lfo1Rate", 0.08), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.2),
-    ("fx5Type", 5), ("fx5Amount", 50.0), ("revShimmer", 0.75)
+    ("fx5Type", 5), ("fx5Amount", 44.0), ("revShimmer", 0.6), ("revDamp", 0.42)
 ])
 
 # ============================================================
@@ -497,7 +500,7 @@ add_preset("Data Buffer", "Glitch", "Buffer", [
     ("grainSize", 0.04), ("density", 0.7), ("tone", 0.48),
     ("lfo1Rate", 9.0), ("lfo1Sync", 1), ("lfo1SyncRate", 15), ("lfo1Wave", 4),
     ("mod1Src", 1), ("mod1Dst", 7), ("mod1Amt", 0.65),
-    ("attack", 0.001), ("release", 0.12), ("fx4Type", 4), ("fx4Amount", 35.0)
+    ("attack", 0.001), ("release", 0.12), ("fx4Type", 4), ("fx4Amount", 30.0), ("frzSize", 140.0), ("frzFeedback", 0.74), ("frzDamp", 0.42)
 ])
 
 add_preset("Reverse Glitch", "Glitch", "Granular", [
@@ -509,7 +512,7 @@ add_preset("Reverse Glitch", "Glitch", "Granular", [
 
 add_preset("Quantum Stutter", "Glitch", "Stutter", [
     ("grainSize", 0.025), ("density", 0.6), ("tone", 0.52),
-    ("mod1Src", 11), ("mod1Dst", 9), ("mod1Amt", 0.5), ("mod2Src", 11), ("mod2Dst", 6), ("mod2Amt", 0.65),
+    ("mod1Src", 11), ("mod1Dst", 9), ("mod1Amt", 0.34), ("mod2Src", 11), ("mod2Dst", 6), ("mod2Amt", 0.65),
     ("attack", 0.001), ("release", 0.1)
 ])
 
@@ -563,13 +566,13 @@ add_preset("Reverse Universe", "Experimental", "Fracture", [
 add_preset("Time Fracture", "Experimental", "Fracture", [
     ("grainSize", 0.06), ("density", 0.7), ("playMode", 3), ("tone", 0.48),
     ("mod1Src", 11), ("mod1Dst", 2), ("mod1Amt", 0.55), ("mod2Src", 11), ("mod2Dst", 1), ("mod2Amt", 0.65),
-    ("attack", 0.005), ("release", 0.3), ("fx4Type", 4), ("fx4Amount", 30.0)
+    ("attack", 0.005), ("release", 0.3), ("fx4Type", 4), ("fx4Amount", 28.0), ("frzSize", 180.0), ("frzFeedback", 0.74), ("frzDamp", 0.42)
 ])
 
 add_preset("Alien Transmission", "Experimental", "Feedback", [
     ("grainSize", 0.15), ("density", 0.75), ("pitchJitter", 140.0), ("tone", 0.58),
     ("lfo1Rate", 0.5), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.45), ("mod1Uni", 1),
-    ("attack", 0.1), ("release", 0.8), ("fx3Type", 3), ("fx3Amount", 38.0), ("dlyTime", 4), ("dlyFeedback", 0.75), ("dlyDamp", 0.58), ("dlyDuck", 0.62)
+    ("attack", 0.1), ("release", 0.8), ("fx3Type", 3), ("fx3Amount", 34.0), ("dlyTime", 4), ("dlyFeedback", 0.6), ("dlyDamp", 0.58), ("dlyDuck", 0.62)
 ])
 
 add_preset("Spectral Swarm", "Experimental", "Swarm", [
@@ -588,13 +591,13 @@ add_preset("Chaos Well", "Experimental", "Feedback", [
 add_preset("Granular Feedback", "Experimental", "Feedback", [
     ("grainSize", 0.1), ("density", 0.8), ("tone", 0.55),
     ("lfo1Rate", 7.0), ("lfo1Wave", 5), ("mod1Src", 1), ("mod1Dst", 1), ("mod1Amt", 0.65),
-    ("attack", 0.01), ("release", 0.5), ("fx3Type", 3), ("fx3Amount", 45.0), ("dlyTime", 5), ("dlyFeedback", 0.85), ("dlyDamp", 0.65), ("dlyDuck", 0.68)
+    ("attack", 0.01), ("release", 0.5), ("fx3Type", 3), ("fx3Amount", 36.0), ("dlyTime", 5), ("dlyFeedback", 0.65), ("dlyDamp", 0.62), ("dlyDuck", 0.68)
 ])
 
 add_preset("Dimensional Tear", "Experimental", "Fracture", [
     ("grainSize", 0.25), ("density", 0.88), ("speed", 0.0), ("position", 0.5), ("tone", 0.6),
     ("lfo1Rate", 0.2), ("mod1Src", 1), ("mod1Dst", 4), ("mod1Amt", 0.5),
-    ("attack", 1.0), ("release", 2.2), ("fx4Type", 4), ("fx4Amount", 42.0)
+    ("attack", 1.0), ("release", 2.2), ("fx4Type", 4), ("fx4Amount", 34.0), ("frzSize", 260.0), ("frzFeedback", 0.8), ("frzDamp", 0.44)
 ])
 
 add_preset("Quantum Leap", "Experimental", "Swarm", [
@@ -611,43 +614,43 @@ add_preset("Event Horizon", "Experimental", "Formant", [
 
 # ============================================================
 # I. 新設カテゴリ「Pitch」40選（8サブカテゴリ × 各5種）
-#   P-Sync過剰依存を排し、Tone(0.65〜0.95)とScaleQuantizeを主軸に、
-#   Size/Density/Spray/Jitter/Position/Arp/Gate/MODで劇的差別化
+#   P-Sync過剰依存を排し、Tone(0.68〜0.80)とScaleQuantizeを主軸に、
+#   Size/Density/Spray/Jitter/Position/Arp/Gate/MODで劇的差別化（ハウリング安全域に最適化）
 # ============================================================
 
 # --- 1. Pluck (5) ---
 add_preset("Reso Pluck C3", "Pitch", "Pluck", [
-    ("tone", 0.88), ("grainSize", 0.035), ("density", 0.42), ("windowShape", 3), ("panSpread", 0.7),
+    ("tone", 0.76), ("grainSize", 0.035), ("density", 0.42), ("windowShape", 3), ("panSpread", 0.7),
     ("attack", 0.001), ("decay", 0.35), ("sustain", 0.0), ("release", 0.35),
-    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.25), ("mod1Uni", 1),
+    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.12), ("mod1Uni", 1),
     ("scaleOn", 0), ("masterHPF", 120.0), ("fx3Type", 3), ("fx3Amount", 24.0)
 ])
 
 add_preset("Crystal Harp", "Pitch", "Pluck", [
-    ("tone", 0.84), ("grainSize", 0.07), ("density", 0.52), ("positionSpray", 0.2), ("octave", 1),
+    ("tone", 0.78), ("grainSize", 0.07), ("density", 0.52), ("positionSpray", 0.2), ("octave", 1),
     ("attack", 0.002), ("decay", 0.75), ("sustain", 0.05), ("release", 0.9),
     ("lfo1Rate", 0.3), ("mod1Src", 1), ("mod1Dst", 4), ("mod1Amt", 0.25),
-    ("scaleOn", 0), ("fx5Type", 5), ("fx5Amount", 40.0), ("revShimmer", 0.65)
+    ("scaleOn", 0), ("fx5Type", 5), ("fx5Amount", 38.0), ("revShimmer", 0.56), ("revDamp", 0.4)
 ])
 
 add_preset("Steel Kalimba", "Pitch", "Pluck", [
-    ("tone", 0.92), ("grainSize", 0.025), ("density", 0.38), ("windowShape", 2), ("octave", 1),
-    ("modalMix", 0.30), ("modalRatioMode", 2), ("modalDecay", 0.55), ("modalDamp", 0.35),
+    ("tone", 0.72), ("grainSize", 0.025), ("density", 0.38), ("windowShape", 2), ("octave", 1),
+    ("modalMix", 0.30), ("modalRatioMode", 2), ("modalDecay", 0.55), ("modalDamp", 0.4),
     ("attack", 0.001), ("decay", 0.45), ("sustain", 0.0), ("release", 0.4),
     ("mod1Src", 8), ("mod1Dst", 14), ("mod1Amt", 0.35), ("mod1Uni", 1),
     ("scaleOn", 0), ("fx2Type", 2), ("fx2Amount", 22.0), ("fx3Type", 3), ("fx3Amount", 26.0)
 ])
 
 add_preset("Bamboo Marimba", "Pitch", "Pluck", [
-    ("tone", 0.78), ("grainSize", 0.045), ("density", 0.48), ("windowShape", 1),
-    ("modalMix", 0.38), ("modalRatioMode", 2), ("modalDecay", 0.35), ("modalDamp", 0.52),
+    ("tone", 0.68), ("grainSize", 0.045), ("density", 0.48), ("windowShape", 1),
+    ("modalMix", 0.36), ("modalRatioMode", 2), ("modalDecay", 0.35), ("modalDamp", 0.52),
     ("attack", 0.001), ("decay", 0.32), ("sustain", 0.0), ("release", 0.28),
-    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.3), ("mod1Uni", 1),
+    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.16), ("mod1Uni", 1),
     ("scaleOn", 0), ("masterLPF", 7500.0), ("fx1Type", 1), ("fx1Amount", 18.0)
 ])
 
 add_preset("Plucked Reso Vibe", "Pitch", "Pluck", [
-    ("tone", 0.85), ("grainSize", 0.05), ("density", 0.5), ("panSpread", 0.8),
+    ("tone", 0.76), ("grainSize", 0.05), ("density", 0.5), ("panSpread", 0.8),
     ("modalMix", 0.25), ("modalRatioMode", 2), ("modalDecay", 0.65), ("modalDamp", 0.42),
     ("attack", 0.001), ("decay", 0.5), ("sustain", 0.0), ("release", 0.45),
     ("lfo1Rate", 3.0), ("mod1Src", 1), ("mod1Dst", 7), ("mod1Amt", 0.35),
@@ -656,74 +659,75 @@ add_preset("Plucked Reso Vibe", "Pitch", "Pluck", [
 
 # --- 2. Bell (5) ---
 add_preset("Music Box Fairy", "Pitch", "Bell", [
-    ("tone", 0.9), ("grainSize", 0.04), ("density", 0.45), ("reverseGrain", 1), ("octave", 2),
+    ("tone", 0.8), ("grainSize", 0.04), ("density", 0.45), ("reverseGrain", 1), ("octave", 2),
     ("attack", 0.001), ("decay", 0.75), ("sustain", 0.0), ("release", 0.85),
-    ("scaleOn", 0), ("fx5Type", 5), ("fx5Amount", 38.0), ("revShimmer", 0.58)
+    ("scaleOn", 0), ("fx5Type", 5), ("fx5Amount", 36.0), ("revShimmer", 0.5), ("revDamp", 0.42)
 ])
 
 add_preset("Celestial Glocken", "Pitch", "Bell", [
-    ("tone", 0.88), ("grainSize", 0.05), ("density", 0.52), ("octave", 2), ("panSpread", 0.9),
+    ("tone", 0.8), ("grainSize", 0.05), ("density", 0.52), ("octave", 2), ("panSpread", 0.9),
     ("lfo1Rate", 4.5), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.16),
     ("attack", 0.001), ("decay", 0.6), ("sustain", 0.0), ("release", 0.6),
     ("scaleOn", 0), ("masterHPF", 220.0), ("fx2Type", 2), ("fx2Amount", 26.0)
 ])
 
 add_preset("Tibetan Singing Bowl", "Pitch", "Bell", [
-    ("tone", 0.94), ("grainSize", 0.35), ("density", 0.85), ("speed", 0.08), ("playMode", 2),
-    ("modalMix", 0.45), ("modalRatioMode", 3), ("modalDecay", 2.4), ("modalDamp", 0.22), ("modalInharm", 0.15),
-    ("lfo1Rate", 0.12), ("mod1Src", 1), ("mod1Dst", 9), ("mod1Amt", 0.15),
+    ("tone", 0.7), ("grainSize", 0.35), ("density", 0.85), ("speed", 0.08), ("playMode", 2),
+    ("modalMix", 0.4), ("modalRatioMode", 3), ("modalDecay", 1.8), ("modalDamp", 0.36), ("modalInharm", 0.15),
+    ("lfo1Rate", 0.12), ("mod1Src", 1), ("mod1Dst", 9), ("mod1Amt", 0.12),
     ("attack", 0.6), ("decay", 1.8), ("sustain", 0.85), ("release", 2.6),
-    ("scaleOn", 0), ("fx4Type", 4), ("fx4Amount", 32.0), ("fx5Type", 5), ("fx5Amount", 44.0)
+    ("scaleOn", 0), ("fx4Type", 4), ("fx4Amount", 28.0), ("frzSize", 280.0), ("frzFeedback", 0.78), ("frzDamp", 0.46),
+    ("fx5Type", 5), ("fx5Amount", 40.0), ("revDamp", 0.42)
 ])
 
 add_preset("Glass Harmonica", "Pitch", "Bell", [
-    ("tone", 0.92), ("grainSize", 0.22), ("density", 0.72), ("positionSpray", 0.25),
+    ("tone", 0.8), ("grainSize", 0.22), ("density", 0.72), ("positionSpray", 0.25),
     ("lfo1Rate", 3.8), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.14),
     ("attack", 0.4), ("decay", 1.2), ("sustain", 0.75), ("release", 1.8),
     ("scaleOn", 0), ("fx3Type", 3), ("fx3Amount", 26.0), ("fx5Type", 5), ("fx5Amount", 40.0)
 ])
 
 add_preset("Temple Metal Bell", "Pitch", "Bell", [
-    ("tone", 0.95), ("grainSize", 0.06), ("density", 0.55), ("octave", 1),
-    ("modalMix", 0.42), ("modalRatioMode", 3), ("modalDecay", 1.8), ("modalDamp", 0.28), ("modalInharm", 0.22),
+    ("tone", 0.72), ("grainSize", 0.06), ("density", 0.55), ("octave", 1),
+    ("modalMix", 0.4), ("modalRatioMode", 3), ("modalDecay", 1.5), ("modalDamp", 0.36), ("modalInharm", 0.22),
     ("attack", 0.001), ("decay", 1.2), ("sustain", 0.0), ("release", 1.5),
     ("lfo1Rate", 5.2), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.18),
-    ("scaleOn", 0), ("fx1Type", 1), ("fx1Amount", 20.0), ("fx5Type", 5), ("fx5Amount", 45.0)
+    ("scaleOn", 0), ("fx1Type", 1), ("fx1Amount", 20.0), ("fx5Type", 5), ("fx5Amount", 40.0), ("revDamp", 0.4)
 ])
 
 # --- 3. Lead (5) ---
 add_preset("Singing Cello Lead", "Pitch", "Lead", [
-    ("tone", 0.84), ("grainSize", 0.16), ("density", 0.78), ("panSpread", 0.6),
+    ("tone", 0.74), ("grainSize", 0.16), ("density", 0.78), ("panSpread", 0.6),
     ("lfo1Rate", 5.2), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.24),
-    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.25), ("mod2Uni", 1),
+    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.14), ("mod2Uni", 1),
     ("attack", 0.06), ("decay", 0.35), ("sustain", 0.85), ("release", 0.45),
     ("scaleOn", 0), ("masterLPF", 5500.0), ("fx1Type", 1), ("fx1Amount", 26.0), ("satDrive", 3.6)
 ])
 
 add_preset("Cyber Flute", "Pitch", "Lead", [
-    ("tone", 0.8), ("grainSize", 0.11), ("density", 0.65), ("octave", 1), ("positionSpray", 0.2),
+    ("tone", 0.76), ("grainSize", 0.11), ("density", 0.65), ("octave", 1), ("positionSpray", 0.2),
     ("lfo1Rate", 4.8), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.18),
     ("attack", 0.05), ("decay", 0.25), ("sustain", 0.8), ("release", 0.38),
     ("scaleOn", 0), ("fx3Type", 3), ("fx3Amount", 30.0), ("dlyFeedback", 0.45)
 ])
 
 add_preset("Analog Brass Lead", "Pitch", "Lead", [
-    ("tone", 0.82), ("grainSize", 0.08), ("density", 0.88), ("windowShape", 1),
+    ("tone", 0.76), ("grainSize", 0.08), ("density", 0.88), ("windowShape", 1),
     ("env1Attack", 0.04), ("env1Decay", 0.3), ("mod1Src", 5), ("mod1Dst", 14), ("mod1Amt", 0.45), ("mod1Uni", 1),
     ("attack", 0.03), ("decay", 0.3), ("sustain", 0.8), ("release", 0.35),
     ("scaleOn", 0), ("filterSlope", 1), ("masterLPF", 4600.0), ("fx1Type", 1), ("fx1Amount", 35.0)
 ])
 
 add_preset("Overdriven Fusion", "Pitch", "Lead", [
-    ("tone", 0.86), ("grainSize", 0.07), ("density", 0.9), ("panSpread", 0.7),
+    ("tone", 0.78), ("grainSize", 0.07), ("density", 0.9), ("panSpread", 0.7),
     ("lfo1Rate", 5.0), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.22),
     ("attack", 0.008), ("decay", 0.3), ("sustain", 0.85), ("release", 0.35),
     ("scaleOn", 0), ("masterLPF", 6000.0), ("fx1Type", 1), ("fx1Amount", 58.0), ("satAlgo", 6), ("satPreHz", 140.0), ("satDrive", 7.5), ("satTrim", -3.0)
 ])
 
 add_preset("Psychedelic Sitar", "Pitch", "Lead", [
-    ("tone", 0.94), ("grainSize", 0.06), ("density", 0.72), ("pitchJitter", 14.0),
-    ("swarmMix", 0.18), ("scale", 43), ("modalMix", 0.32), ("modalRatioMode", 1), ("modalDecay", 0.75), ("modalDamp", 0.38),
+    ("tone", 0.72), ("grainSize", 0.06), ("density", 0.72), ("pitchJitter", 14.0),
+    ("swarmMix", 0.18), ("scale", 43), ("modalMix", 0.32), ("modalRatioMode", 1), ("modalDecay", 0.75), ("modalDamp", 0.42),
     ("attack", 0.004), ("decay", 0.45), ("sustain", 0.65), ("release", 0.55),
     ("lfo1Rate", 0.5), ("mod1Src", 1), ("mod1Dst", 4), ("mod1Amt", 0.3),
     ("scaleOn", 0), ("fx2Type", 2), ("fx2Amount", 28.0), ("fx3Type", 3), ("fx3Amount", 25.0)
@@ -731,35 +735,35 @@ add_preset("Psychedelic Sitar", "Pitch", "Lead", [
 
 # --- 4. Pad (5) ---
 add_preset("Tuned Nebula", "Pitch", "Pad", [
-    ("tone", 0.76), ("grainSize", 0.34), ("density", 0.82), ("playMode", 2), ("speed", 0.3),
+    ("tone", 0.74), ("grainSize", 0.34), ("density", 0.82), ("playMode", 2), ("speed", 0.3),
     ("lfo1Rate", 0.16), ("mod1Src", 1), ("mod1Dst", 1), ("mod1Amt", 0.35),
     ("attack", 1.4), ("decay", 1.5), ("sustain", 0.88), ("release", 2.6),
     ("scaleOn", 0), ("masterLPF", 6200.0), ("fx2Type", 2), ("fx2Amount", 30.0), ("fx5Type", 5), ("fx5Amount", 40.0)
 ])
 
 add_preset("Frozen Strings", "Pitch", "Pad", [
-    ("tone", 0.82), ("grainSize", 0.28), ("density", 0.8), ("speed", 0.0), ("engineMode", 1), ("grainSkew", 0.15),
+    ("tone", 0.74), ("grainSize", 0.28), ("density", 0.8), ("speed", 0.0), ("engineMode", 1), ("grainSkew", 0.15),
     ("lfo1Rate", 0.2), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.15),
     ("attack", 0.9), ("decay", 1.4), ("sustain", 0.85), ("release", 2.4),
-    ("scaleOn", 0), ("fx4Type", 4), ("fx4Amount", 35.0), ("frzSize", 280.0)
+    ("scaleOn", 0), ("fx4Type", 4), ("fx4Amount", 30.0), ("frzSize", 280.0), ("frzFeedback", 0.78), ("frzDamp", 0.44)
 ])
 
 add_preset("Cathedral Choir", "Pitch", "Pad", [
-    ("tone", 0.8), ("grainSize", 0.32), ("density", 0.85), ("octave", 1),
+    ("tone", 0.74), ("grainSize", 0.32), ("density", 0.85), ("octave", 1),
     ("lfo1Rate", 0.1), ("mod1Src", 1), ("mod1Dst", 14), ("mod1Amt", 0.25),
     ("attack", 1.5), ("decay", 1.8), ("sustain", 0.9), ("release", 2.8),
-    ("scaleOn", 0), ("fx5Type", 5), ("fx5Amount", 46.0), ("revDecay", 0.9)
+    ("scaleOn", 0), ("fx5Type", 5), ("fx5Amount", 42.0), ("revDecay", 0.84), ("revDamp", 0.42)
 ])
 
 add_preset("Glass Forest", "Pitch", "Pad", [
-    ("tone", 0.86), ("grainSize", 0.22), ("density", 0.68), ("positionSpray", 0.35), ("reverseGrain", 1),
+    ("tone", 0.76), ("grainSize", 0.22), ("density", 0.68), ("positionSpray", 0.35), ("reverseGrain", 1),
     ("lfo1Rate", 0.25), ("mod1Src", 1), ("mod1Dst", 4), ("mod1Amt", 0.3),
     ("attack", 1.0), ("decay", 1.3), ("sustain", 0.82), ("release", 2.2),
-    ("scaleOn", 0), ("fx5Type", 5), ("fx5Amount", 42.0), ("revShimmer", 0.72)
+    ("scaleOn", 0), ("fx5Type", 5), ("fx5Amount", 40.0), ("revShimmer", 0.58), ("revDamp", 0.42)
 ])
 
 add_preset("Velvet Sunset", "Pitch", "Pad", [
-    ("tone", 0.78), ("grainSize", 0.3), ("density", 0.8), ("panSpread", 0.95),
+    ("tone", 0.74), ("grainSize", 0.3), ("density", 0.8), ("panSpread", 0.95),
     ("lfo1Rate", 0.12), ("mod1Src", 1), ("mod1Dst", 7), ("mod1Amt", 0.35),
     ("attack", 1.6), ("decay", 1.6), ("sustain", 0.88), ("release", 2.5),
     ("scaleOn", 0), ("masterLPF", 4800.0), ("fx2Type", 2), ("fx2Amount", 26.0), ("fx5Type", 5), ("fx5Amount", 36.0)
@@ -767,35 +771,35 @@ add_preset("Velvet Sunset", "Pitch", "Pad", [
 
 # --- 5. Bass (5) ---
 add_preset("Reso Sub Boom", "Pitch", "Bass", [
-    ("tone", 0.86), ("grainSize", 0.12), ("density", 0.9), ("octave", -2), ("panSpread", 0.2),
+    ("tone", 0.74), ("grainSize", 0.12), ("density", 0.9), ("octave", -2), ("panSpread", 0.2),
     ("attack", 0.002), ("decay", 0.8), ("sustain", 0.2), ("release", 0.45),
-    ("env1Attack", 0.002), ("env1Decay", 0.15), ("mod1Src", 5), ("mod1Dst", 9), ("mod1Amt", 0.3), ("mod1Uni", 1),
+    ("env1Attack", 0.002), ("env1Decay", 0.15), ("mod1Src", 5), ("mod1Dst", 9), ("mod1Amt", 0.14), ("mod1Uni", 1),
     ("scaleOn", 0), ("masterLPF", 900.0), ("fx1Type", 1), ("fx1Amount", 24.0)
 ])
 
 add_preset("Acid Reso 303", "Pitch", "Bass", [
-    ("tone", 0.92), ("grainSize", 0.045), ("density", 0.86), ("octave", -1), ("panSpread", 0.3), ("filterSlope", 1),
+    ("tone", 0.8), ("grainSize", 0.045), ("density", 0.86), ("octave", -1), ("panSpread", 0.3), ("filterSlope", 1),
     ("env1Attack", 0.002), ("env1Decay", 0.2), ("mod1Src", 5), ("mod1Dst", 14), ("mod1Amt", 0.65), ("mod1Uni", 1),
     ("attack", 0.002), ("decay", 0.35), ("sustain", 0.35), ("release", 0.22),
     ("scaleOn", 0), ("masterLPF", 2200.0), ("fx1Type", 1), ("fx1Amount", 58.0), ("satAlgo", 9), ("satPreHz", 100.0), ("satDrive", 7.2), ("satTrim", -3.0)
 ])
 
 add_preset("Upright Acoustic Bass", "Pitch", "Bass", [
-    ("tone", 0.82), ("grainSize", 0.075), ("density", 0.68), ("windowShape", 1), ("octave", -1),
+    ("tone", 0.72), ("grainSize", 0.075), ("density", 0.68), ("windowShape", 1), ("octave", -1),
     ("attack", 0.003), ("decay", 0.45), ("sustain", 0.15), ("release", 0.35),
-    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.35), ("mod1Uni", 1),
+    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.16), ("mod1Uni", 1),
     ("scaleOn", 0), ("masterLPF", 2000.0), ("fx1Type", 1), ("fx1Amount", 16.0)
 ])
 
 add_preset("Cyberpunk Reese", "Pitch", "Bass", [
-    ("tone", 0.82), ("grainSize", 0.14), ("density", 0.94), ("octave", -1), ("panSpread", 0.85), ("filterSlope", 1),
+    ("tone", 0.76), ("grainSize", 0.14), ("density", 0.94), ("octave", -1), ("panSpread", 0.85), ("filterSlope", 1),
     ("lfo1Rate", 0.5), ("mod1Src", 1), ("mod1Dst", 14), ("mod1Amt", 0.35),
     ("attack", 0.01), ("decay", 0.4), ("sustain", 0.85), ("release", 0.4),
     ("scaleOn", 0), ("masterLPF", 2600.0), ("fx1Type", 1), ("fx1Amount", 44.0), ("satAlgo", 4), ("satDrive", 3.5), ("satTrim", -0.8), ("fx2Type", 2), ("fx2Amount", 28.0)
 ])
 
 add_preset("Plucked Reso Bass", "Pitch", "Bass", [
-    ("tone", 0.88), ("grainSize", 0.038), ("density", 0.58), ("windowShape", 3), ("octave", -1),
+    ("tone", 0.78), ("grainSize", 0.038), ("density", 0.58), ("windowShape", 3), ("octave", -1),
     ("attack", 0.001), ("decay", 0.3), ("sustain", 0.05), ("release", 0.26),
     ("mod1Src", 8), ("mod1Dst", 14), ("mod1Amt", 0.4), ("mod1Uni", 1),
     ("scaleOn", 0), ("masterLPF", 3000.0), ("fx1Type", 1), ("fx1Amount", 26.0)
@@ -803,36 +807,36 @@ add_preset("Plucked Reso Bass", "Pitch", "Bass", [
 
 # --- 6. Arp (5) ---
 add_preset("Clockwork Chime", "Pitch", "Arp", [
-    ("tone", 0.9), ("grainSize", 0.045), ("density", 0.5), ("octave", 1), ("scale", 3),
+    ("tone", 0.76), ("grainSize", 0.045), ("density", 0.5), ("octave", 1), ("scale", 3),
     ("arpEnable", 1), ("arpPattern", 0), ("arpRateSync", 14), ("arpGate", 0.6),
     ("attack", 0.001), ("decay", 0.26), ("sustain", 0.0), ("release", 0.26),
-    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.25), ("mod1Uni", 1),
+    ("mod1Src", 8), ("mod1Dst", 9), ("mod1Amt", 0.12), ("mod1Uni", 1),
     ("scaleOn", 1), ("fx3Type", 3), ("fx3Amount", 25.0)
 ])
 
 add_preset("Pentatonic Raindrop", "Pitch", "Arp", [
-    ("tone", 0.85), ("grainSize", 0.06), ("density", 0.55), ("octave", 1), ("scale", 4),
+    ("tone", 0.78), ("grainSize", 0.06), ("density", 0.55), ("octave", 1), ("scale", 4),
     ("arpEnable", 1), ("arpPattern", 20), ("arpRateSync", 12), ("arpOctaves", 2), ("arpGate", 0.5),
     ("attack", 0.001), ("decay", 0.32), ("sustain", 0.0), ("release", 0.3),
     ("scaleOn", 1), ("fx5Type", 5), ("fx5Amount", 34.0)
 ])
 
 add_preset("Shuffled Koto Groove", "Pitch", "Arp", [
-    ("tone", 0.86), ("grainSize", 0.065), ("density", 0.62), ("scale", 6),
+    ("tone", 0.78), ("grainSize", 0.065), ("density", 0.62), ("scale", 6),
     ("arpEnable", 1), ("arpPattern", 16), ("arpRateSync", 12), ("arpOctaves", 2), ("arpGate", 0.55),
     ("attack", 0.002), ("decay", 0.28), ("sustain", 0.1), ("release", 0.28),
     ("scaleOn", 1), ("fx2Type", 2), ("fx2Amount", 20.0), ("fx3Type", 3), ("fx3Amount", 24.0)
 ])
 
 add_preset("Polyrhythm Bell Arp", "Pitch", "Arp", [
-    ("tone", 0.92), ("grainSize", 0.07), ("density", 0.6), ("octave", 1), ("scale", 14),
+    ("tone", 0.8), ("grainSize", 0.07), ("density", 0.6), ("octave", 1), ("scale", 14),
     ("arpEnable", 1), ("arpPattern", 18), ("arpRateSync", 9), ("arpGate", 0.65),
     ("attack", 0.002), ("decay", 0.38), ("sustain", 0.05), ("release", 0.38),
     ("scaleOn", 1), ("fx3Type", 3), ("fx3Amount", 30.0), ("fx5Type", 5), ("fx5Amount", 32.0)
 ])
 
 add_preset("Mystic Ladder Arp", "Pitch", "Arp", [
-    ("tone", 0.88), ("grainSize", 0.05), ("density", 0.58), ("scale", 2),
+    ("tone", 0.78), ("grainSize", 0.05), ("density", 0.58), ("scale", 2),
     ("arpEnable", 1), ("arpPattern", 1), ("arpRateSync", 12), ("arpOctaves", 3), ("arpGate", 0.6),
     ("attack", 0.001), ("decay", 0.22), ("sustain", 0.0), ("release", 0.22),
     ("mod1Src", 8), ("mod1Dst", 14), ("mod1Amt", 0.35), ("mod1Uni", 1),
@@ -841,35 +845,35 @@ add_preset("Mystic Ladder Arp", "Pitch", "Arp", [
 
 # --- 7. Gate (5) ---
 add_preset("Granular Techno Gate", "Pitch", "Gate", [
-    ("tone", 0.82), ("grainSize", 0.09), ("density", 0.82),
+    ("tone", 0.76), ("grainSize", 0.09), ("density", 0.82),
     ("attack", 0.004), ("decay", 0.28), ("sustain", 0.8), ("release", 0.28),
     ("scaleOn", 0), ("fx5Type", 6), ("fx5Amount", 88.0), ("gateRate", 4), ("gateDepth", 92.0),
     ("mod1Src", 8), ("mod1Dst", 14), ("mod1Amt", 0.35), ("mod1Uni", 1)
 ])
 
 add_preset("Glitch Pulse Walker", "Pitch", "Gate", [
-    ("tone", 0.8), ("grainSize", 0.03), ("density", 0.65), ("playMode", 3), ("speed", 1.2),
+    ("tone", 0.76), ("grainSize", 0.03), ("density", 0.65), ("playMode", 3), ("speed", 1.2),
     ("attack", 0.002), ("decay", 0.22), ("sustain", 0.65), ("release", 0.22),
     ("scaleOn", 0), ("fx5Type", 6), ("fx5Amount", 82.0), ("gateRate", 6),
     ("fx1Type", 1), ("fx1Amount", 32.0)
 ])
 
 add_preset("Vowel Slicer", "Pitch", "Gate", [
-    ("tone", 0.78), ("grainSize", 0.12), ("density", 0.84),
+    ("tone", 0.74), ("grainSize", 0.12), ("density", 0.84),
     ("attack", 0.005), ("sustain", 0.85), ("release", 0.3),
     ("scaleOn", 0), ("fx5Type", 6), ("fx5Amount", 85.0), ("gateRate", 4), ("gateVowel", 75.0),
     ("lfo1Rate", 0.5), ("mod1Src", 1), ("mod1Dst", 1), ("mod1Amt", 0.35)
 ])
 
 add_preset("Stutter Trance Gate", "Pitch", "Gate", [
-    ("tone", 0.84), ("grainSize", 0.07), ("density", 0.78),
+    ("tone", 0.76), ("grainSize", 0.07), ("density", 0.78),
     ("attack", 0.003), ("decay", 0.25), ("sustain", 0.7), ("release", 0.25),
     ("scaleOn", 0), ("fx4Type", 6), ("fx4Amount", 90.0), ("gateRate", 4), ("gatePattern", 2),
     ("fx5Type", 5), ("fx5Amount", 35.0)
 ])
 
 add_preset("Sync Rhythmic Gate", "Pitch", "Gate", [
-    ("tone", 0.82), ("grainSize", 0.08), ("density", 0.8),
+    ("tone", 0.76), ("grainSize", 0.08), ("density", 0.8),
     ("attack", 0.003), ("decay", 0.2), ("sustain", 0.75), ("release", 0.2),
     ("scaleOn", 0), ("fx5Type", 6), ("fx5Amount", 86.0), ("gateRate", 5), ("gatePattern", 1),
     ("fx1Type", 1), ("fx1Amount", 25.0)
@@ -877,41 +881,43 @@ add_preset("Sync Rhythmic Gate", "Pitch", "Gate", [
 
 # --- 8. Drone (5) ---
 add_preset("Industrial Drone Bass", "Pitch", "Drone", [
-    ("tone", 0.84), ("grainSize", 0.42), ("density", 0.95), ("octave", -2), ("speed", 0.1), ("filterSlope", 1),
+    ("tone", 0.76), ("grainSize", 0.42), ("density", 0.95), ("octave", -2), ("speed", 0.1), ("filterSlope", 1),
     ("attack", 1.4), ("decay", 1.8), ("sustain", 0.92), ("release", 2.6),
     ("lfo1Rate", 0.08), ("mod1Src", 1), ("mod1Dst", 14), ("mod1Amt", -0.35),
     ("scaleOn", 0), ("masterLPF", 1600.0), ("fx1Type", 1), ("fx1Amount", 46.0), ("satAlgo", 4), ("satPreHz", 70.0), ("satDrive", 6.5), ("satTrim", -2.8)
 ])
 
 add_preset("Blade Runner Horizon", "Pitch", "Drone", [
-    ("tone", 0.82), ("grainSize", 0.36), ("density", 0.88), ("octave", -1), ("speed", 0.2),
+    ("tone", 0.76), ("grainSize", 0.36), ("density", 0.88), ("octave", -1), ("speed", 0.2),
     ("attack", 0.9), ("decay", 1.5), ("sustain", 0.85), ("release", 2.5),
     ("lfo1Rate", 0.15), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.18),
     ("scaleOn", 0), ("masterLPF", 4200.0), ("fx3Type", 3), ("fx3Amount", 35.0), ("fx5Type", 5), ("fx5Amount", 44.0)
 ])
 
 add_preset("Alien Artifact Drone", "Pitch", "Drone", [
-    ("tone", 0.94), ("grainSize", 0.15), ("density", 0.72), ("pitchJitter", 12.0), ("reverseGrain", 1),
-    ("atlasPitchLock", 0.6), ("grainChirp", 3.5), ("grainFilterMode", 2), ("grainFilterFreq", 1400.0), ("grainFilterRes", 2.4),
-    ("modalMix", 0.55), ("modalRatioMode", 4), ("modalDecay", 1.8), ("modalDamp", 0.28), ("modalInharm", 0.45),
+    ("tone", 0.7), ("grainSize", 0.15), ("density", 0.72), ("pitchJitter", 12.0), ("reverseGrain", 1),
+    ("atlasPitchLock", 0.6), ("grainChirp", 3.5), ("grainFilterMode", 2), ("grainFilterFreq", 1400.0), ("grainFilterRes", 1.8),
+    ("modalMix", 0.45), ("modalRatioMode", 4), ("modalDecay", 1.4), ("modalDamp", 0.38), ("modalInharm", 0.45),
     ("lfo1Rate", 0.2), ("mod1Src", 1), ("mod1Dst", 1), ("mod1Amt", 0.4),
     ("mod2Src", 2), ("mod2Dst", 71), ("mod2Amt", 0.35), ("lfo2Rate", 0.12),
     ("attack", 0.4), ("decay", 1.2), ("sustain", 0.75), ("release", 2.0),
-    ("scaleOn", 0), ("fx4Type", 4), ("fx4Amount", 38.0), ("fx5Type", 5), ("fx5Amount", 38.0)
+    ("scaleOn", 0), ("fx4Type", 4), ("fx4Amount", 30.0), ("frzSize", 220.0), ("frzFeedback", 0.76), ("frzDamp", 0.46),
+    ("fx5Type", 5), ("fx5Amount", 36.0), ("revDamp", 0.42)
 ])
 
 add_preset("Time Stasis Field", "Pitch", "Drone", [
-    ("tone", 0.86), ("grainSize", 0.4), ("density", 0.85), ("speed", 0.0), ("position", 0.45), ("engineMode", 1),
+    ("tone", 0.76), ("grainSize", 0.4), ("density", 0.85), ("speed", 0.0), ("position", 0.45), ("engineMode", 1),
     ("lfo1Rate", 0.05), ("mod1Src", 1), ("mod1Dst", 7), ("mod1Amt", 0.45),
     ("attack", 1.2), ("decay", 1.8), ("sustain", 0.88), ("release", 2.8),
-    ("scaleOn", 0), ("fx4Type", 4), ("fx4Amount", 44.0), ("fx5Type", 5), ("fx5Amount", 46.0)
+    ("scaleOn", 0), ("fx4Type", 4), ("fx4Amount", 34.0), ("frzSize", 300.0), ("frzFeedback", 0.8), ("frzDamp", 0.45),
+    ("fx5Type", 5), ("fx5Amount", 42.0), ("revDamp", 0.42)
 ])
 
 add_preset("Event Horizon Sweep", "Pitch", "Drone", [
-    ("tone", 0.85), ("grainSize", 0.32), ("density", 0.86), ("playMode", 2), ("speed", 0.12),
+    ("tone", 0.76), ("grainSize", 0.32), ("density", 0.86), ("playMode", 2), ("speed", 0.12),
     ("lfo1Rate", 0.08), ("mod1Src", 1), ("mod1Dst", 14), ("mod1Amt", 0.38),
     ("attack", 1.8), ("decay", 2.0), ("sustain", 0.9), ("release", 3.2),
-    ("scaleOn", 0), ("fx1Type", 1), ("fx1Amount", 25.0), ("fx5Type", 5), ("fx5Amount", 48.0)
+    ("scaleOn", 0), ("fx1Type", 1), ("fx1Amount", 25.0), ("fx5Type", 5), ("fx5Amount", 44.0), ("revDamp", 0.4)
 ])
 
 # ============================================================
@@ -927,12 +933,12 @@ add_preset("WSOLA Silk Stretcher", "Engine & Formant", "WSOLA", [
 ])
 
 add_preset("PSOLA Choir Morph", "Engine & Formant", "PSOLA", [
-    ("engineMode", 2), ("formantShift", 3.0), ("tone", 0.75), ("atlasPitchLock", 0.85),
+    ("engineMode", 2), ("formantShift", 3.0), ("tone", 0.7), ("atlasPitchLock", 0.85),
     ("grainSize", 0.14), ("density", 0.84), ("panSpread", 0.8),
     ("attack", 0.45), ("decay", 1.2), ("sustain", 0.88), ("release", 1.6),
     ("lfo1Rate", 0.22), ("mod1Src", 1), ("mod1Dst", 64), ("mod1Amt", 0.35),
-    ("mod2Src", 12), ("mod2Dst", 9), ("mod2Amt", 0.25), ("mod2Uni", 1),
-    ("fx2Type", 2), ("fx2Amount", 24.0), ("fx5Type", 5), ("fx5Amount", 46.0), ("revDecay", 0.84)
+    ("mod2Src", 12), ("mod2Dst", 9), ("mod2Amt", 0.16), ("mod2Uni", 1),
+    ("fx2Type", 2), ("fx2Amount", 24.0), ("fx5Type", 5), ("fx5Amount", 44.0), ("revDecay", 0.82), ("revDamp", 0.38)
 ])
 
 add_preset("Formant Giant Bass", "Engine & Formant", "PSOLA", [
@@ -945,7 +951,7 @@ add_preset("Formant Giant Bass", "Engine & Formant", "PSOLA", [
 ])
 
 add_preset("Chipmunk Formant Lead", "Engine & Formant", "PSOLA", [
-    ("engineMode", 2), ("formantShift", 7.5), ("tone", 0.8), ("atlasPitchLock", 0.65),
+    ("engineMode", 2), ("formantShift", 7.5), ("tone", 0.76), ("atlasPitchLock", 0.65),
     ("grainSize", 0.09), ("density", 0.76),
     ("attack", 0.02), ("decay", 0.3), ("sustain", 0.75), ("release", 0.35),
     ("lfo1Rate", 5.0), ("mod1Src", 1), ("mod1Dst", 12), ("mod1Amt", 0.16),
@@ -974,11 +980,11 @@ add_preset("Spectral Centroid Sweep", "Engine & Formant", "Atlas", [
 
 add_preset("Phase Locked Strings", "Engine & Formant", "WSOLA", [
     ("engineMode", 1), ("speed", 0.12), ("playMode", 2), ("atlasPitchLock", 0.9),
-    ("grainSize", 0.26), ("density", 0.82), ("panSpread", 0.9), ("tone", 0.74),
+    ("grainSize", 0.26), ("density", 0.82), ("panSpread", 0.9), ("tone", 0.7),
     ("attack", 0.85), ("decay", 1.5), ("sustain", 0.88), ("release", 2.2),
     ("lfo1Rate", 0.15), ("mod1Src", 1), ("mod1Dst", 7), ("mod1Amt", 0.3),
-    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.25), ("mod2Uni", 1),
-    ("fx2Type", 2), ("fx2Amount", 28.0), ("fx5Type", 5), ("fx5Amount", 46.0), ("revShimmer", 0.45)
+    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.16), ("mod2Uni", 1),
+    ("fx2Type", 2), ("fx2Amount", 28.0), ("fx5Type", 5), ("fx5Amount", 44.0), ("revShimmer", 0.45), ("revDamp", 0.38)
 ])
 
 add_preset("Vowel Formant Keys", "Engine & Formant", "Vocal", [
@@ -1007,7 +1013,7 @@ add_preset("Aftertouch Divas", "Engine & Formant", "Vocal", [
     ("mod1Src", 12), ("mod1Dst", 64), ("mod1Amt", 0.45), ("mod1Uni", 1),
     ("lfo1Rate", 4.8), ("mod2Src", 1), ("mod2Dst", 12), ("mod2Amt", 0.16),
     ("env3Attack", 0.6), ("env3Decay", 0.8), ("mod3Src", 7), ("mod3Dst", 65), ("mod3Amt", 0.35), ("mod3Uni", 1),
-    ("fx5Type", 5), ("fx5Amount", 44.0), ("revDecay", 0.86)
+    ("fx5Type", 5), ("fx5Amount", 42.0), ("revDecay", 0.82), ("revDamp", 0.38)
 ])
 
 # ============================================================
@@ -1019,7 +1025,7 @@ add_preset("Harmonic Fifth Swarm", "Swarm & Modal", "Swarm", [
     ("attack", 0.6), ("release", 1.8),
     ("lfo1Rate", 0.16), ("mod1Src", 1), ("mod1Dst", 68), ("mod1Amt", 0.35), ("mod1Uni", 1),
     ("lfo2Rate", 0.1), ("mod2Src", 2), ("mod2Dst", 1), ("mod2Amt", 0.28),
-    ("fx5Type", 5), ("fx5Amount", 46.0), ("revShimmer", 0.65)
+    ("fx5Type", 5), ("fx5Amount", 44.0), ("revShimmer", 0.58), ("revDamp", 0.4)
 ])
 
 add_preset("Minor 9th Cloud Swarm", "Swarm & Modal", "Swarm", [
@@ -1028,66 +1034,67 @@ add_preset("Minor 9th Cloud Swarm", "Swarm & Modal", "Swarm", [
     ("attack", 1.2), ("release", 2.6),
     ("lfo1Rate", 0.12), ("mod1Src", 1), ("mod1Dst", 7), ("mod1Amt", 0.35),
     ("env2Attack", 1.0), ("env2Decay", 1.6), ("mod2Src", 6), ("mod2Dst", 68), ("mod2Amt", 0.4), ("mod2Uni", 1),
-    ("fx2Type", 2), ("fx2Amount", 26.0), ("fx5Type", 5), ("fx5Amount", 48.0), ("revDecay", 0.88)
+    ("fx2Type", 2), ("fx2Amount", 26.0), ("fx5Type", 5), ("fx5Amount", 44.0), ("revDecay", 0.84), ("revDamp", 0.4)
 ])
 
 add_preset("Hirajoshi Koto Swarm", "Swarm & Modal", "Swarm", [
     ("swarmMix", 0.6), ("scaleOn", 1), ("scale", 44),
     ("modalMix", 0.28), ("modalRatioMode", 0), ("modalDecay", 0.7), ("modalDamp", 0.45),
-    ("grainSize", 0.06), ("density", 0.58), ("tone", 0.8),
+    ("grainSize", 0.06), ("density", 0.58), ("tone", 0.74),
     ("attack", 0.002), ("decay", 0.55), ("sustain", 0.05), ("release", 0.5),
     ("mod1Src", 8), ("mod1Dst", 74), ("mod1Amt", 0.35), ("mod1Uni", 1),
     ("fx3Type", 3), ("fx3Amount", 26.0), ("fx5Type", 5), ("fx5Amount", 36.0)
 ])
 
 add_preset("Crystal Marimba Bank", "Swarm & Modal", "Modal", [
-    ("modalMix", 0.68), ("modalRatioMode", 2), ("modalDecay", 0.52), ("modalDamp", 0.38), ("modalInharm", 0.05),
-    ("grainSize", 0.045), ("density", 0.46), ("tone", 0.82),
+    ("modalMix", 0.55), ("modalRatioMode", 2), ("modalDecay", 0.52), ("modalDamp", 0.38), ("modalInharm", 0.05),
+    ("grainSize", 0.045), ("density", 0.46), ("tone", 0.7),
     ("attack", 0.001), ("decay", 0.45), ("sustain", 0.0), ("release", 0.4),
     ("mod1Src", 8), ("mod1Dst", 76), ("mod1Amt", -0.3), ("mod1Uni", 1),
     ("fx3Type", 3), ("fx3Amount", 24.0), ("fx5Type", 5), ("fx5Amount", 32.0)
 ])
 
 add_preset("Cathedral Bell Resonator", "Swarm & Modal", "Modal", [
-    ("modalMix", 0.75), ("modalRatioMode", 3), ("modalDecay", 2.6), ("modalDamp", 0.2), ("modalInharm", 0.28),
-    ("grainSize", 0.07), ("density", 0.55), ("octave", 1), ("tone", 0.85),
+    ("modalMix", 0.56), ("modalRatioMode", 3), ("modalDecay", 1.9), ("modalDamp", 0.36), ("modalInharm", 0.28),
+    ("grainSize", 0.07), ("density", 0.55), ("octave", 1), ("tone", 0.7),
     ("attack", 0.002), ("decay", 1.6), ("sustain", 0.1), ("release", 2.0),
     ("lfo1Rate", 0.18), ("mod1Src", 1), ("mod1Dst", 77), ("mod1Amt", 0.25),
-    ("fx3Type", 3), ("fx3Amount", 26.0), ("fx5Type", 5), ("fx5Amount", 46.0), ("revDecay", 0.9)
+    ("fx3Type", 3), ("fx3Amount", 26.0), ("fx5Type", 5), ("fx5Amount", 42.0), ("revDecay", 0.84), ("revDamp", 0.42)
 ])
 
 add_preset("Titanium Plate Drone", "Swarm & Modal", "Modal", [
-    ("modalMix", 0.7), ("modalRatioMode", 4), ("modalDecay", 3.2), ("modalDamp", 0.25), ("modalInharm", 0.38),
-    ("grainSize", 0.34), ("density", 0.88), ("speed", 0.12), ("tone", 0.7),
+    ("modalMix", 0.54), ("modalRatioMode", 4), ("modalDecay", 2.0), ("modalDamp", 0.38), ("modalInharm", 0.38),
+    ("grainSize", 0.34), ("density", 0.88), ("speed", 0.12), ("tone", 0.64),
     ("attack", 1.4), ("release", 2.8),
     ("lfo1Rate", 0.12), ("mod1Src", 1), ("mod1Dst", 76), ("mod1Amt", 0.3),
     ("lfo2Rate", 0.07), ("mod2Src", 2), ("mod2Dst", 1), ("mod2Amt", 0.3),
-    ("fx4Type", 4), ("fx4Amount", 32.0), ("frzSize", 320.0), ("fx5Type", 5), ("fx5Amount", 44.0)
+    ("fx4Type", 4), ("fx4Amount", 28.0), ("frzSize", 320.0), ("frzFeedback", 0.78), ("frzDamp", 0.48),
+    ("fx5Type", 5), ("fx5Amount", 40.0), ("revDamp", 0.42)
 ])
 
 add_preset("Harmonic String Body", "Swarm & Modal", "Modal", [
-    ("modalMix", 0.52), ("modalRatioMode", 1), ("modalDecay", 1.3), ("modalDamp", 0.42),
-    ("grainSize", 0.16), ("density", 0.8), ("engineMode", 1), ("tone", 0.78),
+    ("modalMix", 0.48), ("modalRatioMode", 1), ("modalDecay", 1.3), ("modalDamp", 0.42),
+    ("grainSize", 0.16), ("density", 0.8), ("engineMode", 1), ("tone", 0.68),
     ("attack", 0.18), ("release", 1.2),
     ("mod1Src", 12), ("mod1Dst", 75), ("mod1Amt", 0.35), ("mod1Uni", 1),
-    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.25), ("mod2Uni", 1),
+    ("mod2Src", 8), ("mod2Dst", 9), ("mod2Amt", 0.14), ("mod2Uni", 1),
     ("fx2Type", 2), ("fx2Amount", 24.0), ("fx5Type", 5), ("fx5Amount", 38.0)
 ])
 
 add_preset("Bowed Glass Swarm", "Swarm & Modal", "Pad", [
     ("swarmMix", 0.55), ("scaleOn", 1), ("scale", 68),
-    ("modalMix", 0.45), ("modalRatioMode", 0), ("modalDecay", 1.8), ("modalDamp", 0.3),
-    ("grainSize", 0.26), ("density", 0.82), ("tone", 0.72),
+    ("modalMix", 0.42), ("modalRatioMode", 0), ("modalDecay", 1.5), ("modalDamp", 0.36),
+    ("grainSize", 0.26), ("density", 0.82), ("tone", 0.68),
     ("attack", 0.9), ("release", 2.4),
     ("lfo1Rate", 0.14), ("mod1Src", 1), ("mod1Dst", 74), ("mod1Amt", 0.3),
     ("lfo2Rate", 0.2), ("mod2Src", 2), ("mod2Dst", 68), ("mod2Amt", 0.25),
-    ("fx5Type", 5), ("fx5Amount", 46.0), ("revShimmer", 0.72)
+    ("fx5Type", 5), ("fx5Amount", 42.0), ("revShimmer", 0.58), ("revDamp", 0.42)
 ])
 
 add_preset("Gamelan Bronze Pluck", "Swarm & Modal", "Pluck", [
-    ("modalMix", 0.72), ("modalRatioMode", 3), ("modalDecay", 1.1), ("modalDamp", 0.32), ("modalInharm", 0.18),
+    ("modalMix", 0.56), ("modalRatioMode", 3), ("modalDecay", 1.0), ("modalDamp", 0.36), ("modalInharm", 0.18),
     ("swarmMix", 0.32), ("scaleOn", 1), ("scale", 53),
-    ("grainSize", 0.04), ("density", 0.5), ("tone", 0.88),
+    ("grainSize", 0.04), ("density", 0.5), ("tone", 0.7),
     ("attack", 0.001), ("decay", 0.75), ("sustain", 0.0), ("release", 0.75),
     ("mod1Src", 11), ("mod1Dst", 77), ("mod1Amt", 0.22),
     ("fx5Type", 5), ("fx5Amount", 36.0)
@@ -1095,12 +1102,12 @@ add_preset("Gamelan Bronze Pluck", "Swarm & Modal", "Pluck", [
 
 add_preset("Lydian Halo Pad", "Swarm & Modal", "Pad", [
     ("swarmMix", 0.68), ("scaleOn", 1), ("scale", 6),
-    ("modalMix", 0.35), ("modalRatioMode", 0), ("modalDecay", 2.2), ("modalDamp", 0.28),
+    ("modalMix", 0.34), ("modalRatioMode", 0), ("modalDecay", 1.7), ("modalDamp", 0.36),
     ("grainFilterMode", 1), ("grainFilterFreq", 5200.0), ("grainFilterRes", 1.1),
     ("grainSize", 0.3), ("density", 0.85), ("panSpread", 0.95), ("tone", 0.7),
     ("attack", 1.5), ("release", 2.8),
     ("lfo1Rate", 0.16), ("mod1Src", 1), ("mod1Dst", 71), ("mod1Amt", 0.4),
-    ("fx5Type", 5), ("fx5Amount", 48.0), ("revShimmer", 0.75)
+    ("fx5Type", 5), ("fx5Amount", 44.0), ("revShimmer", 0.6), ("revDamp", 0.42)
 ])
 
 # ============================================================
@@ -1119,8 +1126,8 @@ add_preset("Euclid 5/8 Afro Groove", "Euclid & GrainFX", "Euclid", [
 add_preset("Bossa 3/8 Poly Arp", "Euclid & GrainFX", "Euclid", [
     ("arpEnable", 1), ("arpPattern", 6), ("arpRateSync", 12), ("arpOctaves", 2), ("arpGate", 0.65),
     ("arpEuclidEnable", 1), ("arpEuclidSteps", 8), ("arpEuclidFills", 3), ("arpEuclidRot", 2),
-    ("scaleOn", 1), ("scale", 80), ("modalMix", 0.34), ("modalRatioMode", 2), ("modalDecay", 0.45),
-    ("grainSize", 0.06), ("density", 0.56), ("tone", 0.82),
+    ("scaleOn", 1), ("scale", 80), ("modalMix", 0.34), ("modalRatioMode", 2), ("modalDecay", 0.45), ("modalDamp", 0.4),
+    ("grainSize", 0.06), ("density", 0.56), ("tone", 0.72),
     ("attack", 0.002), ("decay", 0.28), ("sustain", 0.0), ("release", 0.25),
     ("fx2Type", 2), ("fx2Amount", 20.0), ("fx3Type", 3), ("fx3Amount", 24.0), ("fx5Type", 5), ("fx5Amount", 30.0)
 ])
@@ -1158,30 +1165,30 @@ add_preset("Reverse Swell Chirp", "Euclid & GrainFX", "Skew & Chirp", [
     ("attack", 0.12), ("release", 1.2),
     ("lfo1Rate", 0.25), ("mod1Src", 1), ("mod1Dst", 70), ("mod1Amt", 0.4),
     ("lfo2Rate", 0.18), ("mod2Src", 2), ("mod2Dst", 7), ("mod2Amt", 0.35),
-    ("fx3Type", 3), ("fx3Amount", 30.0), ("fx5Type", 5), ("fx5Amount", 42.0), ("revShimmer", 0.6)
+    ("fx3Type", 3), ("fx3Amount", 30.0), ("fx5Type", 5), ("fx5Amount", 42.0), ("revShimmer", 0.58), ("revDamp", 0.38)
 ])
 
 add_preset("SVF Bandpass Sparkle", "Euclid & GrainFX", "Per-Grain SVF", [
-    ("grainFilterMode", 2), ("grainFilterFreq", 2200.0), ("grainFilterRes", 3.8), ("grainFilterJitter", 0.75),
+    ("grainFilterMode", 2), ("grainFilterFreq", 2200.0), ("grainFilterRes", 2.8), ("grainFilterJitter", 0.75),
     ("grainSize", 0.1), ("density", 0.86), ("panSpread", 0.95), ("tone", 0.65),
     ("scaleOn", 1), ("scale", 14), ("swarmMix", 0.4),
     ("attack", 0.35), ("release", 1.6),
     ("lfo1Rate", 0.2), ("mod1Src", 1), ("mod1Dst", 71), ("mod1Amt", 0.45),
     ("lfo2Rate", 0.35), ("mod2Src", 2), ("mod2Dst", 73), ("mod2Amt", 0.35),
-    ("fx5Type", 5), ("fx5Amount", 44.0)
+    ("fx5Type", 5), ("fx5Amount", 42.0)
 ])
 
 add_preset("Per-Grain Acid Filter", "Euclid & GrainFX", "Per-Grain SVF", [
-    ("grainFilterMode", 1), ("grainFilterFreq", 1200.0), ("grainFilterRes", 5.2), ("grainFilterJitter", 0.4),
+    ("grainFilterMode", 1), ("grainFilterFreq", 1200.0), ("grainFilterRes", 3.5), ("grainFilterJitter", 0.4),
     ("filterSlope", 1), ("octave", -1), ("grainSize", 0.06), ("density", 0.84), ("tone", 0.72),
     ("attack", 0.002), ("decay", 0.24), ("sustain", 0.35), ("release", 0.2),
     ("env1Attack", 0.002), ("env1Decay", 0.2), ("mod1Src", 5), ("mod1Dst", 71), ("mod1Amt", 0.7), ("mod1Uni", 1),
-    ("lfo1Rate", 0.6), ("mod2Src", 1), ("mod2Dst", 72), ("mod2Amt", 0.3),
+    ("lfo1Rate", 0.6), ("mod2Src", 1), ("mod2Dst", 72), ("mod2Amt", 0.22),
     ("fx1Type", 1), ("fx1Amount", 46.0), ("satAlgo", 5), ("satPreHz", 90.0), ("satDrive", 5.8), ("satTrim", -2.2)
 ])
 
 add_preset("Notch Phase Clouds", "Euclid & GrainFX", "Per-Grain SVF", [
-    ("grainFilterMode", 4), ("grainFilterFreq", 1500.0), ("grainFilterRes", 3.0), ("grainFilterJitter", 0.6),
+    ("grainFilterMode", 4), ("grainFilterFreq", 1500.0), ("grainFilterRes", 2.5), ("grainFilterJitter", 0.6),
     ("grainSize", 0.24), ("density", 0.86), ("panSpread", 0.9), ("tone", 0.62),
     ("attack", 0.8), ("release", 2.2),
     ("lfo1Rate", 0.14), ("mod1Src", 1), ("mod1Dst", 71), ("mod1Amt", 0.55),
@@ -1191,8 +1198,8 @@ add_preset("Notch Phase Clouds", "Euclid & GrainFX", "Per-Grain SVF", [
 
 add_preset("Chaos Attractor Lab", "Euclid & GrainFX", "Chaos", [
     ("grainSize", 0.09), ("density", 0.8), ("grainSkew", 0.35), ("grainChirp", 3.0), ("tone", 0.66),
-    ("grainFilterMode", 2), ("grainFilterFreq", 1600.0), ("grainFilterRes", 2.8), ("grainFilterJitter", 0.65),
-    ("modalMix", 0.3), ("modalRatioMode", 4), ("modalDecay", 1.2), ("modalInharm", 0.35),
+    ("grainFilterMode", 2), ("grainFilterFreq", 1600.0), ("grainFilterRes", 2.2), ("grainFilterJitter", 0.65),
+    ("modalMix", 0.3), ("modalRatioMode", 4), ("modalDecay", 1.2), ("modalDamp", 0.42), ("modalInharm", 0.35),
     ("lfo1Wave", 5), ("lfo1Rate", 0.4), ("mod1Src", 1), ("mod1Dst", 1), ("mod1Amt", 0.45),
     ("lfo2Wave", 5), ("lfo2Rate", 0.28), ("mod2Src", 2), ("mod2Dst", 71), ("mod2Amt", 0.5),
     ("mod3Src", 12), ("mod3Dst", 70), ("mod3Amt", 0.35),
@@ -1261,8 +1268,52 @@ for p in presets:
         print(f"ERROR: High satDrive in '{cat}/{name}' lacks negative satTrim")
         errors += 1
 
+    # v1.2.0 Anti-howling safety validation
+    has_freeze = any(int(pmap.get(f"fx{s}Type", 0)) == 4 for s in range(1, 6))
+    if has_freeze:
+        if "frzFeedback" not in pmap or "frzDamp" not in pmap:
+            print(f"ERROR: Freeze preset '{cat}/{name}' must specify explicit frzFeedback and frzDamp")
+            errors += 1
+        elif float(pmap["frzFeedback"]) > 0.85 or float(pmap["frzDamp"]) < 0.32:
+            print(f"ERROR: Freeze preset '{cat}/{name}' unsafe feedback/damp ({pmap['frzFeedback']}/{pmap['frzDamp']})")
+            errors += 1
+
+    if float(pmap.get("dlyFeedback", 0.35)) > 0.68:
+        print(f"ERROR: Delay feedback too high in '{cat}/{name}': {pmap.get('dlyFeedback')}")
+        errors += 1
+
+    if float(pmap.get("revDecay", 0.7)) > 0.88 or float(pmap.get("revShimmer", 0.4)) > 0.68:
+        print(f"ERROR: Reverb decay/shimmer too high in '{cat}/{name}'")
+        errors += 1
+
+    tone_val = float(pmap.get("tone", 0.5))
+    pos_tone_mod = sum(
+        max(0.0, float(pmap.get(f"mod{m}Amt", 0.0)))
+        for m in range(1, 17)
+        if int(pmap.get(f"mod{m}Dst", 0)) == 9
+    )
+    if tone_val > 0.82 or (tone_val + pos_tone_mod) > 0.90 + 1e-6:
+        print(f"ERROR: Tone too high in '{cat}/{name}': tone={tone_val}, peak={tone_val + pos_tone_mod:.2f}")
+        errors += 1
+
+    modal_mix = float(pmap.get("modalMix", 0.0))
+    if modal_mix > 0.60 or float(pmap.get("modalDecay", 0.8)) > 2.2:
+        print(f"ERROR: Modal mix/decay too high in '{cat}/{name}'")
+        errors += 1
+    if modal_mix >= 0.30:
+        if tone_val > 0.74:
+            print(f"ERROR: Stacked Tone+Modal too hot in '{cat}/{name}': tone={tone_val}, modalMix={modal_mix}")
+            errors += 1
+        if float(pmap.get("modalDamp", 0.4)) < 0.32:
+            print(f"ERROR: Modal damp too low in '{cat}/{name}': {pmap.get('modalDamp')}")
+            errors += 1
+
+    if float(pmap.get("grainFilterRes", 0.7)) > 3.6:
+        print(f"ERROR: Per-grain SVF resonance too high in '{cat}/{name}': {pmap.get('grainFilterRes')}")
+        errors += 1
+
 if errors == 0:
-    print("SUCCESS: All 150 presets passed strict Phase 1-4 validation!")
+    print("SUCCESS: All 150 presets passed strict v1.2.0 anti-howling & Phase 1-4 validation!")
 else:
     print(f"FAILED: {errors} validation errors found!")
     sys.exit(1)
@@ -1315,7 +1366,7 @@ out.append("""        };
 """)
 
 header_content = "\n".join(out)
-with open("d:/VST_Project/Granular/Source/Presets/PresetData.h", "w", encoding="utf-8") as f:
-    f.write(header_content)
+out_path = Path(sys.argv[1]) if len(sys.argv) > 1 else (Path(__file__).resolve().parent / "Source" / "Presets" / "PresetData.h")
+out_path.write_text(header_content, encoding="utf-8")
 
-print("Generated Source/Presets/PresetData.h successfully!")
+print(f"Generated {out_path} successfully!")

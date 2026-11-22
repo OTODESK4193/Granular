@@ -160,6 +160,7 @@ void ModPanel::applyModRing(juce::Slider& s, int dst, ModKind kind, float scale)
 
 void ModPanel::timerCallback()
 {
+    if (!isVisible()) return;
     using D = ModMatrix;
     for (int i = 0; i < ModMatrix::kNumLfos; ++i)
         applyModRing(lfoRateKnob[(size_t)i], D::DstLfo1Rate + i, LinearAdd, 10.0f);
@@ -279,6 +280,12 @@ juce::PopupMenu ModPanel::buildDestMenu(int currentDst)
     return menu;
 }
 
+void ModPanel::focusModView(int srcSubTab, int matrixPageIndex)
+{
+    if (srcSubTab >= 0)       setSourceTab(srcSubTab);
+    if (matrixPageIndex >= 0) setMatrixPage(juce::jlimit(0, 1, matrixPageIndex));
+}
+
 void ModPanel::setupKnob(ValueKnob& s, const juce::String& paramID, juce::Colour accent)
 {
     s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
@@ -288,6 +295,14 @@ void ModPanel::setupKnob(ValueKnob& s, const juce::String& paramID, juce::Colour
     addAndMakeVisible(s);
     sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         proc.apvts, paramID, s));
+
+    juce::Component::SafePointer<ModPanel> safeThis(this);
+    GranularUI::attachKnobModMenu(s, proc.apvts, paramID, paramID,
+        [safeThis](int subTab, int page)
+        {
+            if (safeThis != nullptr)
+                safeThis->focusModView(subTab, page);
+        });
 }
 
 void ModPanel::setupCombo(juce::ComboBox& c, const juce::String& paramID, juce::Component& parent)

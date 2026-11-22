@@ -14,6 +14,7 @@
 #include "GlowToggle.h"
 #include "ModDestSelector.h"
 #include "ColorPalette.h"
+#include "KnobModMenu.h"
 
 class ModPanel : public juce::Component,
                  private juce::Timer
@@ -24,6 +25,11 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void visibilityChanged() override { if (isVisible()) timerCallback(); }
+
+    void focusModView(int srcSubTab, int matrixPageIndex);
+
+    GranularUI::ModTabNavigator onOpenModTab;
 
 private:
     enum ModKind { LinearAdd, ExpOct };

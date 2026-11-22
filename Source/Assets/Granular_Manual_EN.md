@@ -22,7 +22,7 @@
 ## 1. Make a sound
 
 **OTODESK / 24-voice Scale-Quantized Granular Synth (VST3 / Standalone)**  
-**Version:** v1.1.0 (Build 016)
+**Version:** v1.2.0
 
 GRANULAR breaks incoming audio into tiny "grains" and reconstructs them into new musical forms. Even noise or raw field recordings become fully playable instruments in perfect key, powered by a post-modulation scale quantizer, a 16-slot modulation matrix, an arpeggiator, a 5-slot FX rack, and 150 factory presets.
 
@@ -64,8 +64,8 @@ Below are **6 tabs** that switch the lower panel:
 
 ### Handy Operations
 - **Window Resizing**: Drag the resize handle at the bottom-right corner to scale the plugin between **75% and 200%** with a locked aspect ratio. Window size is preserved in your DAW project.
-- **Direct Value Entry**: **Right-click** any knob to type an exact numeric value.
-- **Quick Reset**: **Double-click** any matrix Amount slider to quickly reset it to `0.0`.
+- **Right-Click Knob Modulation Menu**: **Right-click** any modulatable knob to assign or toggle any of the 12 modulation sources, adjust Amount and UNI polarity inline, clear assignments, or jump directly to the MOD tab.
+- **Direct Value Entry & Quick Reset**: **Double-click** any knob to type an exact numeric value, or **Ctrl+Click** to reset it to its default value. **Double-click** any matrix Amount slider to quickly reset it to `0.0`.
 - **Destructive Confirmation**: Actions like INIT or preset deletion prompt a confirmation box to prevent accidental loss.
 
 ---
@@ -88,6 +88,7 @@ Below are **6 tabs** that switch the lower panel:
 - **SAMPLE**: POSITION (playback start point) / START / END (playback boundary). Markers can also be dragged directly on the waveform. ~3ms edge fades prevent boundary clicks.
 - **MOTION**: Playhead movement mode (Forward / Backward / Ping-Pong / Random).
   - **S-SYNC**: Scans the Start–End region locked to host tempo (1 beat to 8 bars).
+  - **RETRIGGER**: When **ON** (default), each new key trigger resets the playhead to Position. When **OFF**, triggering the next key continues advancing from the current playhead position without resetting (paused position is shown on the waveform while idle).
   - **Random mode**: Rather than moving continuously, the playhead jumps randomly across the region at an interval set by SPEED (frozen at 0).
 - **MASTER**: HPF / LPF (TPT state-variable filters with per-sample smoothing) / GAIN / DRY-WET (overall FX rack blend).
 - **LIMITER**: CEILING (brick-wall limiter threshold at the output stage).
@@ -203,7 +204,7 @@ Click **BROWSE** in the header to open the **3-column hierarchical browser**:
 > **Sample References**: Presets do not embed heavy audio files; they record the **sample's file path**. If the file exists on disk, it is automatically reloaded in the background.
 
 ### 150 Factory Presets
-Audited and refined in B016/B017 for scale coherence, unipolar velocity/envelope curves, and saturation gain trim, plus 30 new presets showcasing Phase 4 DSP across 3 categories:
+Audited and rebalanced in v1.2.0 for anti-howling headroom (allpass-diffused Freeze, energy-normalized TONE comb, resonance-compensated per-grain SVF, auto-leveled Modal Resonator), scale coherence, unipolar velocity/envelope curves, and saturation gain trim across 12 categories:
 - **Existing 80 presets**: Across Pads & Ambient, Textures, Rhythmic, Bass, Leads, Cinematic, Glitch, Experimental.
 - **"Pitch" Category (40 presets)**:
   Organized into 8 dedicated subcategories (5 presets each) emphasizing Tone comb resonance and granular timing:
@@ -231,7 +232,7 @@ Audited and refined in B016/B017 for scale coherence, unipolar velocity/envelope
 
 ### Troubleshooting
 - **High CPU or audio dropouts**: Lower **POLY** in CONFIG (e.g. 24 → 12) or lower **DENSITY** in MAIN.
-- **Color theme only partially applied**: Reopen the plugin window to ensure all cached graphics refresh completely.
+- **Stuck notes or long feedback tail**: Click **PANIC** in the header to immediately flush all voices and FX buffers.
 
 ---
 

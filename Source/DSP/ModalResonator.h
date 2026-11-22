@@ -60,6 +60,7 @@ public:
             m.curG = 0.0f;
             m.curK = 0.5f;
         }
+        resEnv = 0.0f;
         activeTail = false;
     }
 
@@ -78,8 +79,10 @@ public:
 
         const float sr = (float)sampleRate;
         const float coeffGlide = 1.0f - std::exp(-1.0f / (0.015f * sr));
+        const float envAtk     = 1.0f - std::exp(-1.0f / (0.004f * sr));
+        const float envRel     = 1.0f - std::exp(-1.0f / (0.120f * sr));
         const float dampGain = juce::jlimit(0.0f, 1.0f, mix);
-        const float dryScale = 1.0f - 0.45f * dampGain;
+        const float dryScale = 1.0f - 0.50f * dampGain;
 
         float* chL = buf.getWritePointer(0);
         float* chR = (numCh > 1) ? buf.getWritePointer(1) : nullptr;
@@ -130,9 +133,14 @@ public:
                 resR += v1R * mode.gainR;
             }
 
-            // Soft limiter on bank sum for resonant safety
-            const float satL = 1.4f * std::tanh(resL * 0.714f);
-            const float satR = 1.4f * std::tanh(resR * 0.714f);
+            // 持続音励起での共振飽和・ハウリングを防ぐ自動レベル制御 + ソフトリミット
+            // （インパルス励起時は resEnv < 0.45 のため 1.0x 無圧縮で透明に響く）
+            const float resMag = juce::jmax(std::abs(resL), std::abs(resR));
+            resEnv = flushDenorm(resEnv + (resMag > resEnv ? envAtk : envRel) * (resMag - resEnv));
+            const float autoGain = (resEnv > 0.45f) ? (0.45f / resEnv) : 1.0f;
+
+            const float satL = 0.90f * std::tanh(resL * autoGain * 0.90f);
+            const float satR = 0.90f * std::tanh(resR * autoGain * 0.90f);
             peakEnergy = juce::jmax(peakEnergy, std::abs(satL) + std::abs(satR));
 
             if (chR != nullptr)
@@ -280,5 +288,6 @@ private:
 
     double sampleRate = 44100.0;
     std::array<ModeState, kNumModes> modes;
+    float resEnv = 0.0f;
     bool activeTail = false;
 };

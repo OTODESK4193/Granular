@@ -1,6 +1,6 @@
 # GRANULAR
 
-![Release](https://img.shields.io/badge/release-v1.1.0-blue)
+![Release](https://img.shields.io/badge/release-v1.2.0-blue)
 ![License](https://img.shields.io/badge/license-AGPLv3-green)
 ![JUCE](https://img.shields.io/badge/JUCE-8.0.x-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
@@ -49,7 +49,7 @@ On top of that sits a complete instrument: multi-engine time stretching (Granula
 * **Root note tracking.** Only the cent deviation is corrected, so audio quality is essentially untouched. The detected note is stored as the root; play it and you hear the sample at its original pitch. Display follows Ableton convention (C3 = MIDI 60).
 * **Material modes:** Auto (Detect) / Percussive / Melodic / Vocal.
 * **Start / End** by knob or by dragging the markers on the waveform, with ~3 ms fades at the region edges so the End→Start wrap never clicks.
-* **MOTION:** Forward / Backward / Ping-Pong / Random playhead movement. With S-SYNC on, the Start–End region is scanned over a musical length (1 beat – 8 bars) locked to host tempo.
+* **MOTION:** Forward / Backward / Ping-Pong / Random playhead movement. With **S-SYNC** on, the Start–End region is scanned over a musical length (1 beat – 8 bars) locked to host tempo. With **RETRIGGER** off, triggering a new note continues advancing from the current playhead position instead of resetting to Position.
 * **Random jump rate.** In Random mode the playhead doesn't travel — it jumps to a new point at a fixed interval set by SPEED (≈30 jumps/sec at SPEED 1, frozen at 0) or by SCAN when S-SYNC is on. Jump timing is independent of DENSITY, so dense grain clusters can lurch slowly from place to place.
 
 ---
@@ -101,6 +101,7 @@ On top of that sits a complete instrument: multi-engine time stretching (Granula
 * **16 slots** across two pages, each with Source → Destination, bipolar Amount (double-click to zero) and a **UNI/BI** polarity toggle.
 * **77 modulatable destinations** — Granular/Engine/Atlas/Swarm/Per-Grain SVF/Modal Resonator parameters, Pitch, Master Filter, Sample Start/End, Arp, Limiter, LFO/ENV rates & stages, and all FX rack parameters.
 * **True Per-Voice Isolation:** Each of the 24 voices evaluates its own ADSR envelopes, Velocity, Note, Random S&H, and Aftertouch independently for voice parameters, while global modulation drives FX and Master stages.
+* **Right-click Knob Modulation Menu.** Right-click any modulatable knob to assign or toggle any of the 12 sources, adjust Amount and UNI polarity inline, clear assignments, or jump directly to the corresponding source and matrix page in the MOD tab. Double-click any knob for direct value entry, or Ctrl+Click to reset to default.
 * **Live range display.** Modulated knobs draw a white arc showing the reachable range plus a dot for the current value, computed through the same function the DSP uses. Position, Spray, Start and End are mirrored on the waveform in real time.
 * **Loopable envelopes.** Turn LOOP on and an ENV becomes an A-D cycling generator — a second class of LFO with an arbitrary shape.
 
@@ -117,7 +118,7 @@ Five slots in series, inserted before the master limiter. Drag any card header t
 * **Saturation (ADAA)** — antiderivative anti-aliased, with **10 algorithms**: Soft Tanh, Hard Clip, Triode, Tape, Transformer, JFET, BJT, Wavefold, Exciter, Cubic. Includes a pre-highpass and output trim.
 * **Ensemble Chorus** — Rate, Depth, Width.
 * **Tape Delay** — tempo-synced time, Feedback, Damp, and Duck (input-triggered ducking).
-* **Freeze** — Size (20–1000 ms), Feedback up to 0.99, Damp.
+* **Freeze** — Allpass-diffused stereo feedback loop with post-loop velvet dispersion: Size (20–1000 ms), Feedback up to 0.96, Damp.
 * **Shimmer Reverb** — 16-channel FDN with an octave shifter. Decay, Shimmer, Damp, Mod.
 * **FormantGate** — rhythmic stutter slicer with vowel formant resonance (Rate, Pattern, Depth, Decay, Vowel).
 
@@ -203,6 +204,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | Start / End | 0.0 – 1.0 | 0.0 / 1.0 | Playback region, ~3 ms edge fades |
 | Motion | Forward / Backward / Ping-Pong / Random | Forward | Playhead behaviour |
 | S-SYNC | Off / On | Off | Scan Start–End over a musical length. In Random mode, jump once per SCAN |
+| RETRIGGER | Off / On | On | On resets playhead to Position on each note; Off continues advancing across notes |
 | Scan | 1 Beat – 8 Bars | 1 Bar | Scan length when S-SYNC is on |
 
 ### Engine & Modal Resonator (ENGINE Tab)
@@ -264,7 +266,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | **Saturation (ADAA)** | ALGO (10 types), DRIVE (1–12×), PRE-HPF (20–2000 Hz), TRIM (±12 dB) |
 | **Ensemble Chorus** | RATE (0.05–4 Hz), DEPTH, WIDTH |
 | **Tape Delay** | TIME (1/2 – 1/16T), FEEDBACK (0–0.95), DUCK, DAMP |
-| **Freeze** | SIZE (20–1000 ms), FEEDBACK (0–0.99), DAMP |
+| **Freeze** | SIZE (20–1000 ms), FEEDBACK (0–0.96), DAMP |
 | **Shimmer Reverb** | DECAY, SHIMMER, DAMP, MOD |
 | **FormantGate** | RATE (1/2 – 1/32), PATTERN (8 types), DEPTH, DECAY, VOWEL |
 
@@ -276,7 +278,7 @@ User presets are stored in **Documents/OTODESK/Granular/Presets/**. Samples are 
 | Lim Release | 1 – 500 ms | 50 ms | Limiter recovery |
 | Poly | 1 – 24 voices | 24 | Max simultaneous voices |
 | Filter Slope | 12 / 24 dB/oct | 12 dB/oct | Master HPF/LPF steepness |
-| Color Theme | 10 themes | Midnight | Fully applied when the UI is reopened |
+| Color Theme | 10 themes | Midnight | Applied immediately across the UI |
 
 
 ## Signal Flow
@@ -331,8 +333,8 @@ Granular synthesis generates clicks for a living, and a click is broadband — i
 * **Grain edge fades.** Reads fade to zero ~3 ms before the Start/End boundary, so the wrap never produces a discontinuity.
 * **Non-destructive voice stealing.** A stolen voice keeps its existing grains so they decay through their own windows; only genuinely free voices clear their grain list and comb buffer.
 * **Position glide.** Position moves are smoothed per-sample (~20 ms), so dragging the knob can't teleport the playhead into a loud region. Note-on seeds the value immediately, so attacks stay tight.
-* **Bounded feedback.** The TONE comb write is soft-clipped (±1.5), delay feedback tops out at 0.95, Freeze at 0.99, and the reverb FDN injects as `in*(1-fb) + loop*fb` so its steady-state gain converges to 1.0 instead of 1/(1-fb).
-* **DC blockers** on the reverb and delay feedback paths (~19 Hz) prevent the slow sub-sonic build-up that otherwise shows up as periodic swells.
+* **Bounded feedback & anti-howling DSP.** The TONE comb resonator uses energy-compensated input scaling (`sqrt(1 - fb^2)`) and soft-clipped feedback; Freeze uses a unity-gain Schroeder allpass diffuser inside its loop (with velvet diffusion strictly post-loop) capped at 0.96; per-grain SVF resonance and the 8-mode Modal Resonator apply smooth gain compensation; delay feedback tops out at 0.95; and the reverb FDN injects as `in*(1-fb) + loop*fb` so its steady-state gain converges to 1.0.
+* **Normalized DC blockers** on the reverb, delay, freeze, and comb feedback paths (~5–15 Hz, strictly unity peak gain) prevent slow sub-sonic build-up without adding loop gain.
 * **Safety soft-clip** between the synth and the FX rack, then a brick-wall limiter at the output.
 * **Smoothed parameters.** Filter cutoff is smoothed per sample in the TPT SVF; output gain is ramped; FX wet amounts are smoothed so a modulated 0↔1 transition can't step.
 * **Background loading.** File decoding and pitch analysis run on a dedicated worker thread, with the ingest state set before the thread starts so re-analysis can't race the audio thread for the shared buffer.
@@ -386,7 +388,7 @@ cmake --build build --config Release
 * **Tempo-locked scanning:** turn S-SYNC on with Scan = 2 Bars and Motion = Ping-Pong for a texture that breathes with the track.
 * **Evolving movement:** assign ENV 1 with LOOP on to Position, and a slow LFO to Grain Size. The white arcs on both knobs show exactly how far each will travel.
 * **Modulate the pitch hard:** route an LFO to `Pitch (st)` at full Amount. Because the quantizer runs after the matrix, even ±24 semitones of movement stays in the selected key.
-* **Precision knob work:** right-click any knob to type an exact value. Double-click a matrix Amount slider to zero it.
+* **Precision knob & modulation workflow:** **right-click** any knob to assign/edit Modulation Matrix slots inline, **double-click** to type an exact value, or **Ctrl+Click** to reset to default. Double-click a matrix Amount slider to zero it.
 
 
 ## License

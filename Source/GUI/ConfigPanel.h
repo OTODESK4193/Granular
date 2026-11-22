@@ -11,6 +11,7 @@
 #include "../PluginProcessor.h"
 #include "ValueKnob.h"
 #include "ColorPalette.h"
+#include "KnobModMenu.h"
 
 class ConfigPanel : public juce::Component,
                     private juce::Timer
@@ -21,6 +22,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void visibilityChanged() override { if (isVisible()) timerCallback(); }
 
     enum ModKind { LinearAdd, ExpOct };
     void timerCallback() override;
@@ -28,6 +30,7 @@ public:
 
     // GUI スケーリング (Wavetable 準拠)
     std::function<void(float scale)> onScaleRequested;
+    GranularUI::ModTabNavigator onOpenModTab;
 
 private:
     GranularAudioProcessor& proc;

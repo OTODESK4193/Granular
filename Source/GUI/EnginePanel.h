@@ -15,6 +15,7 @@
 #include "../PluginProcessor.h"
 #include "ValueKnob.h"
 #include "ColorPalette.h"
+#include "KnobModMenu.h"
 
 class EnginePanel : public juce::Component,
                     private juce::Timer
@@ -25,6 +26,9 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void visibilityChanged() override { if (isVisible()) timerCallback(); }
+
+    GranularUI::ModTabNavigator onOpenModTab;
 
 private:
     enum ModKind { LinearAdd, ExpOct };

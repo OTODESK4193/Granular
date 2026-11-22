@@ -83,6 +83,19 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
         else                              proc.startDryPreview();
     };
 
+    // ノブ右クリックメニューから MOD タブの該当サブタブ/ページへ移動
+    auto openModTab = [this](int srcSubTab, int matrixPage)
+    {
+        setActiveTab(Tab::Mod);
+        modPanel.focusModView(srcSubTab, matrixPage);
+    };
+    mainPanel.onOpenModTab   = openModTab;
+    enginePanel.onOpenModTab = openModTab;
+    arpPanel.onOpenModTab    = openModTab;
+    modPanel.onOpenModTab    = openModTab;
+    fxPanel.onOpenModTab     = openModTab;
+    configPanel.onOpenModTab = openModTab;
+
     // スケーリング切り替えコールバック (Config パネルから呼出)
     configPanel.onScaleRequested = [this](float scale)
     {
@@ -122,34 +135,39 @@ GranularAudioProcessorEditor::GranularAudioProcessorEditor(GranularAudioProcesso
     {
         fileChooser = std::make_unique<juce::FileChooser>(
             "Load a sample", juce::File(), "*.wav;*.aif;*.aiff;*.mp3;*.flac;*.ogg");
+        juce::Component::SafePointer<GranularAudioProcessorEditor> safeThis(this);
         fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [this](const juce::FileChooser& fc)
+            [safeThis](const juce::FileChooser& fc)
             {
+                if (safeThis == nullptr) return;
                 const auto file = fc.getResult();
-                if (file.existsAsFile()) proc.loadFileForIngest(file);
+                if (file.existsAsFile()) safeThis->proc.loadFileForIngest(file);
             });
     };
 
     analyzeButton.onClick = [this]
     {
         if (!proc.hasSampleFile()) return;
+        juce::Component::SafePointer<GranularAudioProcessorEditor> safeThis(this);
         confirmThen("Re-Analyze",
                     juce::String::fromUTF8("\xE7\x8F\xBE\xE5\x9C\xA8\xE3\x81\xAE\xE3\x82\xB5\xE3\x83\xB3\xE3\x83\x97\xE3\x83\xAB\xE3\x82\x92\xE5\x86\x8D\xE8\xA7\xA3\xE6\x9E\x90\xE3\x81\x97\xE3\x81\xBE\xE3\x81\x99\xE3\x81\x8B\xEF\xBC\x9F"),
-                    [this] { proc.reingestCurrentFile(); });
+                    [safeThis] { if (safeThis != nullptr) safeThis->proc.reingestCurrentFile(); });
     };
 
     deleteButton.onClick = [this]
     {
+        juce::Component::SafePointer<GranularAudioProcessorEditor> safeThis(this);
         confirmThen("Delete Sample",
                     juce::String::fromUTF8("\xE8\xAA\xAD\xE3\x81\xBF\xE8\xBE\xBC\xE3\x82\x93\xE3\x81\xA0\xE3\x82\xB5\xE3\x83\xB3\xE3\x83\x97\xE3\x83\xAB\xE3\x82\x92\xE7\xA0\xB4\xE6\xA3\x84\xE3\x81\x97\xE3\x81\xBE\xE3\x81\x99\xE3\x81\x8B\xEF\xBC\x9F"),
-                    [this] { proc.clearSample(); });
+                    [safeThis] { if (safeThis != nullptr) safeThis->proc.clearSample(); });
     };
 
     resetButton.onClick = [this]
     {
+        juce::Component::SafePointer<GranularAudioProcessorEditor> safeThis(this);
         confirmThen("Reset Parameters",
                     juce::String::fromUTF8("\xE3\x81\x99\xE3\x81\xB9\xE3\x81\xA6\xE3\x81\xAE\xE3\x83\x8E\xE3\x83\x96/\xE8\xA8\xAD\xE5\xAE\x9A\xE3\x82\x92\xE3\x83\x87\xE3\x83\x95\xE3\x82\xA9\xE3\x83\xAB\xE3\x83\x88\xE3\x81\xAB\xE6\x88\xBB\xE3\x81\x97\xE3\x81\xBE\xE3\x81\x99\xE3\x81\x8B\xEF\xBC\x9F"),
-                    [this] { resetAllParameters(); });
+                    [safeThis] { if (safeThis != nullptr) safeThis->resetAllParameters(); });
     };
 
     startTimerHz(10); // HUD更新
@@ -244,6 +262,7 @@ void GranularAudioProcessorEditor::timerCallback()
         const bool firstTime = (lastThemeIndex < 0);
         lastThemeIndex = themeIdx;
         GranularColors::setTheme(themeIdx);
+        lnf.refreshColours();
         if (!firstTime) themeMsgFrames = 45; // 約4.5秒バナー表示（初回起動時は出さない）
         repaint();
         for (auto* child : content.getChildren()) child->repaint();
@@ -299,7 +318,7 @@ void GranularAudioProcessorEditor::paintContent(juce::Graphics& g)
 
     g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     g.setColour(GranularColors::mint.withAlpha(0.8f));
-    g.drawText("v1.1.0 B017", 250, 15, 90, 16, juce::Justification::centredLeft);
+    g.drawText("v" GRANULAR_VERSION, 250, 15, 90, 16, juce::Justification::centredLeft);
 
     g.setColour(GranularColors::textDim);
     g.setFont(juce::Font(juce::FontOptions(11.0f)));

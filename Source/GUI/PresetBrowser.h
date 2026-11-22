@@ -416,22 +416,28 @@ private:
         const bool fav = favorites.contains(e.name);
         m.addItem(1, fav ? "Remove from Favorites" : juce::String::fromUTF8(u8"Mark Favorite ★"));
         if (!e.isFactory) m.addItem(2, "Delete Preset...");
+        juce::Component::SafePointer<PresetBrowser> safeThis(this);
         m.showMenuAsync(juce::PopupMenu::Options(),
-            [this, e](int res)
+            [safeThis, e](int res)
             {
-                if (res == 1) toggleFavorite(e.name);
+                if (safeThis == nullptr) return;
+                if (res == 1) safeThis->toggleFavorite(e.name);
                 else if (res == 2)
                 {
                     juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon,
-                        "Delete Preset", "Delete \"" + e.name + "\" ?", "Delete", "Cancel", this,
-                        juce::ModalCallbackFunction::create([this, e](int ok)
+                        "Delete Preset", "Delete \"" + e.name + "\" ?", "Delete", "Cancel", safeThis,
+                        juce::ModalCallbackFunction::create([safeThis, e](int ok)
                         {
-                            if (ok == 1)
+                            if (ok == 1 && safeThis != nullptr)
                             {
                                 e.file.deleteFile();
-                                if (favorites.contains(e.name)) { favorites.removeString(e.name); saveFavorites(); }
-                                updateSubCategories();
-                                rebuild();
+                                if (safeThis->favorites.contains(e.name))
+                                {
+                                    safeThis->favorites.removeString(e.name);
+                                    safeThis->saveFavorites();
+                                }
+                                safeThis->updateSubCategories();
+                                safeThis->rebuild();
                             }
                         }));
                 }

@@ -312,6 +312,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     params.push_back(std::make_unique<juce::AudioParameterBool>("speedSync", "Speed Sync", false));
     params.push_back(std::make_unique<juce::AudioParameterChoice>("speedSyncDiv", "Scan Length",
         juce::StringArray { "1 Beat", "2 Beats", "1 Bar", "2 Bars", "4 Bars", "8 Bars" }, 2));
+    params.push_back(std::make_unique<juce::AudioParameterBool>("playRetrig", "Retrigger", true));
     params.push_back(std::make_unique<juce::AudioParameterBool> ("reverseGrain",  "Rev Grain",  false));
     params.push_back(std::make_unique<juce::AudioParameterChoice>("windowShape",  "Window Shape",
         juce::StringArray { "Hanning", "Triangle", "Square", "Asymmetric" }, 0));
@@ -394,8 +395,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout GranularAudioProcessor::crea
     // Freeze
     params.push_back(std::make_unique<juce::AudioParameterFloat>("frzSize", "Freeze Size",
         juce::NormalisableRange<float>(20.0f, 1000.0f, 1.0f, 0.4f), 100.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("frzFeedback", "Freeze Feedback", 0.0f, 0.99f, 0.9f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("frzDamp", "Freeze Damp", 0.0f, 1.0f, 0.2f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("frzFeedback", "Freeze Feedback", 0.0f, 0.96f, 0.80f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("frzDamp", "Freeze Damp", 0.0f, 1.0f, 0.35f));
     // Reverb
     params.push_back(std::make_unique<juce::AudioParameterFloat>("revDecay",   "Reverb Decay",   0.0f, 1.0f, 0.7f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>("revShimmer", "Reverb Shimmer", 0.0f, 1.0f, 0.4f));
@@ -547,6 +548,7 @@ void GranularAudioProcessor::initParamCache()
     cp.playMode     = getPtr("playMode");
     cp.speedSync    = getPtr("speedSync");
     cp.speedSyncDiv = getPtr("speedSyncDiv");
+    cp.playRetrig   = getPtr("playRetrig");
     cp.reverseGrain = getPtr("reverseGrain");
     cp.windowShape  = getPtr("windowShape");
 
@@ -886,8 +888,10 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     {
         if (auto pos = ph->getPosition())
         {
-            if (pos->getBpm()) bpm = *pos->getBpm();
-            if (pos->getPpqPosition()) ppqPos = *pos->getPpqPosition();
+            if (pos->getBpm() && std::isfinite(*pos->getBpm()) && *pos->getBpm() > 1.0)
+                bpm = *pos->getBpm();
+            if (pos->getPpqPosition() && std::isfinite(*pos->getPpqPosition()))
+                ppqPos = *pos->getPpqPosition();
             isPlaying = pos->getIsPlaying();
         }
     }
@@ -1063,8 +1067,15 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         dryPreviewPlaying = false;
         dryPreviewEnv = 0.0f;
         dryPreviewPos = -1.0;
+        lastActiveSample = nullptr;
         synth.allNotesOff(); // サンプル未ロード/削除時は発音を止める
         return;
+    }
+
+    if (activeSample != lastActiveSample)
+    {
+        lastActiveSample = activeSample;
+        synth.resetPlayhead(); // 新サンプル読み込み時はプレイヘッドを先頭に戻す
     }
 
     const double sr = currentSampleRate.load(std::memory_order_relaxed);
@@ -1101,6 +1112,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     p.playMode      = (int)cp.playMode->load();
     p.speedSync     = cp.speedSync->load() > 0.5f;
     p.speedSyncDiv  = (int)cp.speedSyncDiv->load();
+    p.playRetrig    = cp.playRetrig->load() > 0.5f;
     p.bpm           = bpm;
     p.detectedRoot  = activeSample->detectedRoot;
     p.rootNote      = activeSample->rootMidiNote;
@@ -1231,7 +1243,7 @@ void GranularAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     fxP.dlyDamp     = juce::jlimit(0.0f, 1.0f,      cp.dlyDamp->load()     + modMatrix.get(ModMatrix::DstDlyDamp));
 
     fxP.frzSize     = juce::jlimit(20.0f, 1000.0f,  cp.frzSize->load()     + modMatrix.get(ModMatrix::DstFrzSize) * 500.0f);
-    fxP.frzFeedback = juce::jlimit(0.0f, 0.99f,     cp.frzFeedback->load() + modMatrix.get(ModMatrix::DstFrzFeedback));
+    fxP.frzFeedback = juce::jlimit(0.0f, 0.96f,     cp.frzFeedback->load() + modMatrix.get(ModMatrix::DstFrzFeedback));
     fxP.frzDamp     = juce::jlimit(0.0f, 1.0f,      cp.frzDamp->load()     + modMatrix.get(ModMatrix::DstFrzDamp));
 
     fxP.revDecay    = juce::jlimit(0.0f, 1.0f,      cp.revDecay->load()   + modMatrix.get(ModMatrix::DstRevDecay));
@@ -1980,22 +1992,22 @@ void GranularAudioProcessor::randomizePreset()
         {
             static constexpr int kMusicalDly[] = { 1, 2, 4, 5, 6, 8, 9 };
             setV("dlyTime", (float)kMusicalDly[r.nextInt((int)std::size(kMusicalDly))]);
-            setV("dlyFeedback", rf(0.18f, 0.65f));
-            setV("dlyDuck", rf(0.25f, 0.78f));
-            setV("dlyDamp", rf(0.20f, 0.68f));
+            setV("dlyFeedback", rf(0.18f, 0.60f));
+            setV("dlyDuck", rf(0.32f, 0.80f));
+            setV("dlyDamp", rf(0.30f, 0.72f));
         }
         else if (fxt == FxChain::Freeze)
         {
             setV("frzSize", rfLog(65.0f, 440.0f));
-            setV("frzFeedback", rf(0.62f, 0.88f));
-            setV("frzDamp", rf(0.15f, 0.62f));
+            setV("frzFeedback", rf(0.60f, 0.82f));
+            setV("frzDamp", rf(0.30f, 0.68f));
         }
         else if (fxt == FxChain::Reverb)
         {
-            setV("revDecay", rf(0.45f, 0.88f));
-            setV("revShimmer", (arch == ArchSwarmChoir || arch == ArchPad) ? rf(0.25f, 0.85f) : rf(0.0f, 0.55f));
-            setV("revDamp", rf(0.18f, 0.65f));
-            setV("revMod", rf(0.20f, 0.72f));
+            setV("revDecay", rf(0.42f, 0.84f));
+            setV("revShimmer", (arch == ArchSwarmChoir || arch == ArchPad) ? rf(0.20f, 0.65f) : rf(0.0f, 0.45f));
+            setV("revDamp", rf(0.28f, 0.68f));
+            setV("revMod", rf(0.20f, 0.68f));
         }
         else if (fxt == FxChain::Gate)
         {
@@ -2061,15 +2073,15 @@ void GranularAudioProcessor::randomizePreset()
         setV("position", rf(0.0f, 0.65f));
         setV("positionSpray", rf(0.02f, 0.22f));
         setV("grainSkew", rf(-0.78f, -0.15f));
-        setV("tone", rf(0.18f, 0.85f));
+        setV("tone", rf(0.18f, 0.68f));
         setV("pitchJitter", rf(0.0f, 8.0f));
         setV("pitchSync", 1.0f);
         setV("octave", (float)ri(0, 1));
         const int rMode = (std::array<int, 4>{ 0, 2, 3, 1 })[(size_t)ri(0, 3)];
         setV("modalRatioMode", (float)rMode);
-        setV("modalMix", rf(0.38f, 0.78f));
-        setV("modalDecay", rfLog(0.38f, 2.5f));
-        setV("modalDamp", rf(0.15f, 0.65f));
+        setV("modalMix", rf(0.30f, 0.60f));
+        setV("modalDecay", rfLog(0.35f, 1.85f));
+        setV("modalDamp", rf(0.28f, 0.68f));
         setV("modalInharm", (rMode == 3) ? rf(0.15f, 0.65f) : rf(0.0f, 0.25f));
         setV("attack", rfLog(0.001f, 0.015f));
         setV("decay", rfLog(0.24f, 1.35f));
@@ -2260,14 +2272,15 @@ void GranularAudioProcessor::randomizePreset()
         setV("grainChirp", rf(-6.5f, 6.5f));
         setV("grainFilterMode", (float)ri(1, 4));
         setV("grainFilterFreq", rfLog(380.0f, 7500.0f));
-        setV("grainFilterRes", rf(0.8f, 3.6f));
+        setV("grainFilterRes", rf(0.8f, 3.0f));
         setV("grainFilterJitter", rf(0.25f, 0.92f));
         if (chance(0.55f))
         {
-            setV("modalMix", rf(0.15f, 0.50f));
+            setV("modalMix", rf(0.15f, 0.44f));
             setV("modalRatioMode", chance(0.5f) ? 4.0f : 3.0f); // Plate or Bell
             setV("modalInharm", rf(0.20f, 0.85f));
-            setV("modalDecay", rfLog(0.3f, 2.0f));
+            setV("modalDecay", rfLog(0.3f, 1.6f));
+            setV("modalDamp", rf(0.30f, 0.65f));
         }
         setV("pitchJitter", rf(0.0f, 75.0f));
         setV("attack", rfLog(0.002f, 0.35f));

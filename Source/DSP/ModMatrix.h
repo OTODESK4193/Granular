@@ -210,6 +210,10 @@ public:
                 for (auto& v : voiceStates)
                     if (v.gate) v.aftertouch = aftertouch;
             }
+            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+            {
+                allNotesOff();
+            }
         }
     }
 
@@ -240,6 +244,16 @@ public:
         v.gate = false;
         if (hasLastParams)
             evaluateVoice(v, lastParams);
+    }
+
+    /// Marks a voice's modulation state inactive once its amplitude envelope finishes.
+    void voiceFinished(int voiceIdx) noexcept
+    {
+        if (voiceIdx < 0 || voiceIdx >= kMaxVoices) return;
+        auto& v = voiceStates[(size_t)voiceIdx];
+        v.gate = false;
+        v.active = false;
+        for (auto& e : v.envState) e = {};
     }
 
     /// Clears all per-voice modulation gates immediately.
@@ -362,14 +376,6 @@ public:
             vSrc[SrcAftertouch] = v.aftertouch;
 
             evaluateSlots(p, vSrc, v.voiceAccum, nullptr, nullptr);
-
-            if (!v.gate)
-            {
-                bool anyBusy = false;
-                for (const auto& e : v.envState)
-                    if (e.stage != EnvState::Idle) { anyBusy = true; break; }
-                if (!anyBusy) v.active = false;
-            }
         }
 
         for (size_t i = 0; i < (size_t)NumDsts; ++i)

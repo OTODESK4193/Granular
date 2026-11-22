@@ -11,6 +11,7 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "GUI/KnobModMenu.h"
 #include "Presets/PresetData.h"
 #include "DSP/ScaleQuantizer.h"
 
@@ -1838,6 +1839,534 @@ void testEditorPhase4EnginePanelRendersWithoutError()
     if (ed != nullptr)
         ed->setSize(1080, 640);
 }
+
+void testPlayheadRetriggerOnVsOff()
+{
+    std::cout << "Running testPlayheadRetriggerOnVsOff...\n";
+    juce::File tmpWav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("granular_test_retrig.wav");
+    check(createTempSineWav(tmpWav, 48000.0, 2.0f, 220.0f), "Failed to create 2s temp wav for retrigger test");
+
+    auto procPtr = std::make_unique<GranularAudioProcessor>();
+    auto& proc = *procPtr;
+    proc.prepareToPlay(48000.0, 128);
+    proc.loadFileForIngest(tmpWav);
+    check(waitForSampleReady(proc), "Sample ingest timed out for retrigger test");
+
+    proc.resetAllParametersToDefault();
+    setParamReal(proc, "position", 0.0f);
+    setParamReal(proc, "speed", 1.0f);
+    setParamReal(proc, "playMode", 0.0f);     // Loop
+    setParamReal(proc, "speedSync", 0.0f);
+    setParamReal(proc, "attack", 0.002f);
+    setParamReal(proc, "release", 0.015f);
+    setParamReal(proc, "fxMix", 0.0f);
+
+    juce::AudioBuffer<float> buf(2, 128);
+    juce::MidiBuffer midi;
+
+    auto renderBlocks = [&](int nBlocks)
+    {
+        for (int b = 0; b < nBlocks; ++b)
+        {
+            buf.clear();
+            midi.clear();
+            proc.processBlock(buf, midi);
+        }
+    };
+
+    // --- Case 1: Retrigger ON (default) -> new note resets playhead to Position (0.0) ---
+    setParamReal(proc, "playRetrig", 1.0f);
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.9f), 0);
+    buf.clear();
+    proc.processBlock(buf, midi);
+    renderBlocks(150); // ~0.40 s into 2.0 s sample => playhead ~ 0.20
+    const float phOn1 = proc.synth.playheadDisplay.load(std::memory_order_relaxed);
+    check(phOn1 > 0.15f && phOn1 < 0.30f,
+          "Retrigger ON: playhead should advance to ~0.20 (got " + std::to_string(phOn1) + ")");
+
+    // Release and let voice finish
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+    buf.clear();
+    proc.processBlock(buf, midi);
+    renderBlocks(25);
+
+    // Trigger next note -> must reset back near 0.0
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(1, 64, 0.9f), 0);
+    buf.clear();
+    proc.processBlock(buf, midi);
+    const float phOn2 = proc.synth.playheadDisplay.load(std::memory_order_relaxed);
+    check(phOn2 >= 0.0f && phOn2 < 0.03f,
+          "Retrigger ON: next note must reset playhead near 0.0 (got " + std::to_string(phOn2) + ")");
+
+    // --- Case 2: Retrigger OFF -> next note continues without resetting ---
+    proc.panic();
+    renderBlocks(4);
+    setParamReal(proc, "playRetrig", 0.0f);
+
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.9f), 0);
+    buf.clear();
+    proc.processBlock(buf, midi);
+    renderBlocks(150); // ~0.40 s -> playhead ~ 0.20
+    const float phOff1 = proc.synth.playheadDisplay.load(std::memory_order_relaxed);
+    check(phOff1 > 0.15f && phOff1 < 0.30f,
+          "Retrigger OFF: note 1 playhead should advance to ~0.20 (got " + std::to_string(phOff1) + ")");
+
+    // Release note 1 completely to idle
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+    buf.clear();
+    proc.processBlock(buf, midi);
+    renderBlocks(30); // > release time -> voice idle
+
+    const float pausedPh = proc.synth.pausedPlayheadDisplay.load(std::memory_order_relaxed);
+    check(pausedPh > 0.15f && pausedPh < 0.35f,
+          "Retrigger OFF: pausedPlayheadDisplay must retain position while idle (got " + std::to_string(pausedPh) + ")");
+
+    // Trigger note 2 -> must continue from pausedPh, NOT reset to 0.0!
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(1, 64, 0.9f), 0);
+    buf.clear();
+    proc.processBlock(buf, midi);
+    const float phOff2 = proc.synth.playheadDisplay.load(std::memory_order_relaxed);
+    check(phOff2 >= pausedPh - 0.02f && phOff2 <= pausedPh + 0.05f,
+          "Retrigger OFF: note 2 must resume from paused position (" + std::to_string(pausedPh) +
+          "), got " + std::to_string(phOff2));
+
+    // Legato / overlapping note 3 while note 2 is advancing -> must continue advancing further
+    renderBlocks(120); // +0.32 s -> +0.16
+    const float phOff2Late = proc.synth.playheadDisplay.load(std::memory_order_relaxed);
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(1, 67, 0.9f), 0);
+    buf.clear();
+    proc.processBlock(buf, midi);
+    const float phOff3 = proc.synth.playheadDisplay.load(std::memory_order_relaxed);
+    check(phOff3 >= phOff2Late - 0.02f && phOff3 <= phOff2Late + 0.05f,
+          "Retrigger OFF: overlapping note 3 must continue from current playhead (" + std::to_string(phOff2Late) +
+          "), got " + std::to_string(phOff3));
+
+    // Panic must reset persistent playhead
+    proc.panic();
+    renderBlocks(2);
+    check(proc.synth.pausedPlayheadDisplay.load(std::memory_order_relaxed) < 0.0f,
+          "Panic must clear pausedPlayheadDisplay");
+
+    tmpWav.deleteFile();
+}
+
+void testKnobModMenuMappingAndOps()
+{
+    std::cout << "Running testKnobModMenuMappingAndOps...\n";
+    auto procPtr = std::make_unique<GranularAudioProcessor>();
+    auto& proc = *procPtr;
+    proc.resetAllParametersToDefault();
+
+    // 1. Verify all 77 ModMatrix destinations (1..NumDsts-1) are uniquely reachable via APVTS param IDs
+    std::set<int> mappedDests;
+    for (auto* p : proc.getParameters())
+    {
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*>(p))
+        {
+            const int dst = GranularUI::modDestForParam(rp->getParameterID());
+            if (dst != ModMatrix::DstNone)
+            {
+                check(dst > 0 && dst < ModMatrix::NumDsts, "modDestForParam out of range");
+                check(mappedDests.insert(dst).second,
+                      "Duplicate modDestForParam mapping for dst=" + std::to_string(dst));
+            }
+        }
+    }
+    check((int)mappedDests.size() == ModMatrix::NumDsts - 1,
+          "modDestForParam must map all " + std::to_string(ModMatrix::NumDsts - 1) +
+          " destinations (mapped=" + std::to_string(mappedDests.size()) + ")");
+
+    // 2. Verify ModMatrixOps assign / find / clearPair / clearAllForDest / full-matrix safety
+    using namespace GranularUI::ModMatrixOps;
+    check(countUsedSlots(proc.apvts) == 0, "Fresh default preset should have 0 used mod slots");
+
+    // Assign LFO1 -> MasterLPF with knob near max (norm=0.95 -> negative initial amt -0.45, bipolar)
+    const int s0 = assignSource(proc.apvts, ModMatrix::SrcLfo1, ModMatrix::DstMasterLpf, 0.95f);
+    check(s0 == 0, "First assigned slot should be 0");
+    auto slots = findAssignedSlots(proc.apvts, ModMatrix::DstMasterLpf);
+    check(slots.size() == 1 && slots[0].srcIdx == ModMatrix::SrcLfo1 &&
+          std::abs(slots[0].amount + 0.45f) < 1e-3f && !slots[0].unipolar,
+          "High-knob LFO assign should default to -0.45 bipolar");
+
+    // Assign ENV1 -> MasterLPF with knob low (norm=0.2 -> positive +0.45, unipolar)
+    const int s1 = assignSource(proc.apvts, ModMatrix::SrcEnv1, ModMatrix::DstMasterLpf, 0.2f);
+    check(s1 == 1, "Second assigned slot should be 1");
+    slots = findAssignedSlots(proc.apvts, ModMatrix::DstMasterLpf);
+    check(slots.size() == 2 && slots[1].srcIdx == ModMatrix::SrcEnv1 &&
+          std::abs(slots[1].amount - 0.45f) < 1e-3f && slots[1].unipolar,
+          "Low-knob ENV assign should default to +0.45 unipolar");
+
+    // Clear just LFO1 pair
+    clearPair(proc.apvts, ModMatrix::SrcLfo1, ModMatrix::DstMasterLpf);
+    slots = findAssignedSlots(proc.apvts, ModMatrix::DstMasterLpf);
+    check(slots.size() == 1 && slots[0].srcIdx == ModMatrix::SrcEnv1,
+          "clearPair should remove only matching (src, dst) pair");
+
+    // Clear all for destination
+    clearAllForDest(proc.apvts, ModMatrix::DstMasterLpf);
+    check(findAssignedSlots(proc.apvts, ModMatrix::DstMasterLpf).empty(),
+          "clearAllForDest must remove all slots targeting destination");
+    check(countUsedSlots(proc.apvts) == 0, "All slots should be free after clearAllForDest");
+
+    // Fill all 16 slots and verify 17th fails gracefully (-1)
+    for (int i = 0; i < ModMatrix::kNumSlots; ++i)
+    {
+        const int idx = assignSource(proc.apvts, ModMatrix::SrcLfo1, ModMatrix::DstPosition + i, 0.5f);
+        check(idx == i, "Sequential fill should assign slot " + std::to_string(i));
+    }
+    check(findFreeSlot(proc.apvts) == -1, "Full 16-slot matrix must report no free slot");
+    check(assignSource(proc.apvts, ModMatrix::SrcLfo2, ModMatrix::DstTone, 0.5f) == -1,
+          "assignSource on full matrix must return -1");
+}
+
+void testFreezeFxNoSelfOscillation()
+{
+    std::cout << "Running testFreezeFxNoSelfOscillation...\n";
+    FxChain fx;
+    const double sr = 48000.0;
+    fx.prepare(sr);
+
+    FxChain::Params p;
+    p.type[0]     = FxChain::Freeze;
+    p.amount[0]   = 0.50f;
+    p.frzSize     = 180.0f;
+    p.frzFeedback = 0.94f; // Extreme feedback stress test
+    p.frzDamp     = 0.20f;
+
+    juce::AudioBuffer<float> blk(2, 256);
+    float maxPeak = 0.0f;
+
+    // 0.15s rich harmonic + noise excitation
+    const int exciteBlocks = (int)(0.15 * sr / 256.0);
+    uint32_t rng = 0x13579BDFu;
+    int sampleCursor = 0;
+    for (int b = 0; b < exciteBlocks; ++b)
+    {
+        for (int i = 0; i < 256; ++i)
+        {
+            const float t = (float)(sampleCursor++) / (float)sr;
+            rng = rng * 1664525u + 1013904223u;
+            const float noise = ((float)(int)(rng >> 9) / 4194304.0f - 1.0f) * 0.15f;
+            float s = 0.35f * std::sin(2.0f * juce::MathConstants<float>::pi * 220.0f * t)
+                    + 0.20f * std::sin(2.0f * juce::MathConstants<float>::pi * 660.0f * t)
+                    + 0.12f * std::sin(2.0f * juce::MathConstants<float>::pi * 1540.0f * t)
+                    + noise;
+            blk.setSample(0, i, s);
+            blk.setSample(1, i, s * 0.95f);
+        }
+        fx.process(blk, p);
+    }
+
+    // 4.0s zero-input ring-out: verify smooth decay and zero howling runaway
+    const int tailBlocks = (int)(4.0 * sr / 256.0);
+    double earlySq = 0.0, lateSq = 0.0;
+    int earlyN = 0, lateN = 0;
+    for (int b = 0; b < tailBlocks; ++b)
+    {
+        blk.clear();
+        fx.process(blk, p);
+        const float sec = (float)(b * 256) / (float)sr;
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            const float* d = blk.getReadPointer(ch);
+            for (int i = 0; i < 256; ++i)
+            {
+                const float v = d[i];
+                check(isFiniteFloat(v), "FreezeSmear produced NaN/Inf");
+                maxPeak = juce::jmax(maxPeak, std::abs(v));
+                if (sec >= 0.4f && sec < 1.2f) { earlySq += (double)v * v; ++earlyN; }
+                if (sec >= 3.0f && sec < 3.8f) { lateSq  += (double)v * v; ++lateN;  }
+            }
+        }
+    }
+
+    const float earlyRms = earlyN > 0 ? (float)std::sqrt(earlySq / (double)earlyN) : 0.0f;
+    const float lateRms  = lateN  > 0 ? (float)std::sqrt(lateSq  / (double)lateN)  : 0.0f;
+    std::cout << "  FreezeSmear stress: maxPeak=" << maxPeak
+              << " earlyRms=" << earlyRms << " lateRms=" << lateRms << "\n";
+    check(maxPeak <= 1.25f, "FreezeSmear peak must remain bounded without howling blowup");
+    check(earlyRms > 0.01f, "FreezeSmear should retain audible freeze tail");
+    check(lateRms < earlyRms * 0.75f,
+          "FreezeSmear tail must monotonically decay (no self-oscillating howling)");
+}
+
+void testAll150FactoryPresetsNoHowling()
+{
+    std::cout << "Running testAll150FactoryPresetsNoHowling (acoustic audit of all 150 presets)...\n";
+
+    // Build a rich 1.5s harmonic + broadband test sample (sawtooth partials + gentle texture)
+    juce::File tmpWav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("granular_test_150_howl.wav");
+    {
+        const double sr = 44100.0;
+        const int total = (int)(sr * 1.5);
+        juce::AudioBuffer<float> sampleBuf(2, total);
+        uint32_t rng = 0x2468ACE1u;
+        for (int i = 0; i < total; ++i)
+        {
+            const float t = (float)i / (float)sr;
+            float sig = 0.0f;
+            for (int h = 1; h <= 10; ++h)
+                sig += (0.28f / (float)h) * std::sin(2.0f * juce::MathConstants<float>::pi * 261.6256f * (float)h * t);
+            rng = rng * 1664525u + 1013904223u;
+            const float n = ((float)(int)(rng >> 9) / 4194304.0f - 1.0f) * 0.04f;
+            sampleBuf.setSample(0, i, sig + n);
+            sampleBuf.setSample(1, i, sig * 0.98f - n);
+        }
+        juce::WavAudioFormat wav;
+        tmpWav.deleteFile();
+        std::unique_ptr<juce::OutputStream> st{ tmpWav.createOutputStream() };
+        bool wrote = false;
+        if (st)
+        {
+            auto opts = juce::AudioFormatWriterOptions{}.withSampleRate(sr).withNumChannels(2).withBitsPerSample(16);
+            if (auto w = wav.createWriterFor(st, opts))
+                wrote = w->writeFromAudioSampleBuffer(sampleBuf, 0, total);
+        }
+        check(wrote, "Failed to write rich test sample for 150-preset howling audit");
+    }
+
+    auto procPtr = std::make_unique<GranularAudioProcessor>();
+    auto& proc = *procPtr;
+    const double sr = 44100.0;
+    const int blkSize = 512;
+    proc.prepareToPlay(sr, blkSize);
+    proc.loadFileForIngest(tmpWav);
+    check(waitForSampleReady(proc), "Sample ingest timed out for 150-preset howling audit");
+
+    const auto& presets = GranularPresets::all();
+    juce::AudioBuffer<float> buf(2, blkSize);
+    juce::MidiBuffer midi;
+
+    float worstPeak = 0.0f;
+    float worstHeldRms = 0.0f;
+    float worstTailRatio = 0.0f;
+    std::string worstRatioName;
+    std::string worstRmsName;
+
+    const int heldBlocks = (int)(0.55 * sr / blkSize);  // 0.55s chord hold
+    const int tailBlocks = (int)(3.40 * sr / blkSize);  // 3.40s release & FX tail
+
+    for (size_t idx = 0; idx < presets.size(); ++idx)
+    {
+        const auto& preset = presets[idx];
+        proc.applyFactoryPreset((int)idx);
+        buf.clear();
+        midi.clear();
+        proc.processBlock(buf, midi); // Execute applyFactoryPreset()'s internal async panic before NoteOn
+
+        float peak = 0.0f;
+        double heldSq = 0.0; int heldN = 0;
+        double tailASq = 0.0; int tailAN = 0; // [0.6s..1.4s] post NoteOff
+        double tailBSq = 0.0; int tailBN = 0; // [2.4s..3.3s] post NoteOff
+        bool nonFinite = false;
+
+        // Note On: 2-note fifth (C3 + G3) at vel 0.85
+        for (int b = 0; b < heldBlocks; ++b)
+        {
+            buf.clear();
+            midi.clear();
+            if (b == 0)
+            {
+                midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.85f), 0);
+                midi.addEvent(juce::MidiMessage::noteOn(1, 67, 0.85f), 0);
+            }
+            proc.processBlock(buf, midi);
+            const float sec = (float)(b * blkSize) / (float)sr;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const float* d = buf.getReadPointer(ch);
+                for (int s = 0; s < blkSize; ++s)
+                {
+                    const float v = d[s];
+                    if (!isFiniteFloat(v)) nonFinite = true;
+                    peak = juce::jmax(peak, std::abs(v));
+                    if (sec >= 0.15f) { heldSq += (double)v * v; ++heldN; }
+                }
+            }
+        }
+
+        // Note Off + tail monitoring
+        for (int b = 0; b < tailBlocks; ++b)
+        {
+            buf.clear();
+            midi.clear();
+            if (b == 0)
+            {
+                midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+                midi.addEvent(juce::MidiMessage::noteOff(1, 67), 0);
+            }
+            proc.processBlock(buf, midi);
+            const float sec = (float)(b * blkSize) / (float)sr;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const float* d = buf.getReadPointer(ch);
+                for (int s = 0; s < blkSize; ++s)
+                {
+                    const float v = d[s];
+                    if (!isFiniteFloat(v)) nonFinite = true;
+                    peak = juce::jmax(peak, std::abs(v));
+                    if (sec >= 0.60f && sec < 1.40f) { tailASq += (double)v * v; ++tailAN; }
+                    if (sec >= 2.40f && sec < 3.30f) { tailBSq += (double)v * v; ++tailBN; }
+                }
+            }
+        }
+
+        const float heldRms  = heldN  > 0 ? (float)std::sqrt(heldSq  / (double)heldN)  : 0.0f;
+        const float tailARms = tailAN > 0 ? (float)std::sqrt(tailASq / (double)tailAN) : 0.0f;
+        const float tailBRms = tailBN > 0 ? (float)std::sqrt(tailBSq / (double)tailBN) : 0.0f;
+
+        worstPeak = juce::jmax(worstPeak, peak);
+        if (heldRms > worstHeldRms) { worstHeldRms = heldRms; worstRmsName = preset.name.toStdString(); }
+
+        // If late tail still has audible energy (> -38 dBFS), it MUST NOT grow relative to early tail (no howling!)
+        if (tailBRms > 0.012f && tailARms > 1.0e-5f)
+        {
+            const float ratio = tailBRms / tailARms;
+            if (ratio > worstTailRatio) { worstTailRatio = ratio; worstRatioName = preset.name.toStdString(); }
+            if (ratio > 0.98f)
+            {
+                std::cerr << "  [HOWL WARN] #" << idx << " " << preset.name
+                          << " tailA=" << tailARms << " tailB=" << tailBRms
+                          << " ratio=" << ratio << "\n";
+            }
+            check(ratio <= 0.98f,
+                  "Preset #" + std::to_string(idx) + " '" + preset.name.toStdString() +
+                  "' tail did not decay (howling/self-oscillation risk: tailB/tailA=" + std::to_string(ratio) + ")");
+        }
+
+        check(!nonFinite, "Preset '" + preset.name.toStdString() + "' produced NaN/Inf");
+        check(peak > 0.002f, "Preset '" + preset.name.toStdString() + "' produced silence (peak=" + std::to_string(peak) + ")");
+        check(peak <= 1.08f, "Preset '" + preset.name.toStdString() + "' exceeded limiter ceiling: " + std::to_string(peak));
+        check(heldRms <= 0.78f, "Preset '" + preset.name.toStdString() + "' excessive sustained RMS (possible howling/clip): " + std::to_string(heldRms));
+    }
+
+    std::cout << "  150-preset acoustic audit summary: worstPeak=" << worstPeak
+              << ", worstHeldRms=" << worstHeldRms << " (" << worstRmsName << ")"
+              << ", worstTailRatio=" << worstTailRatio << " (" << worstRatioName << ")\n";
+    check(worstPeak > 0.1f, "150-preset acoustic audit must actually exercise non-zero audio");
+
+    // --- Part B: Long-hold (2.5s) 3-note chord stress test on all Freeze / Modal / High-Feedback / Long-Attack presets ---
+    int stressCount = 0;
+    float stressWorstRatio = 0.0f;
+    float stressWorstRms = 0.0f;
+    std::string stressWorstName;
+    const int longHeldBlocks = (int)(2.50 * sr / blkSize);
+    const int longTailBlocks = (int)(4.00 * sr / blkSize);
+
+    for (size_t idx = 0; idx < presets.size(); ++idx)
+    {
+        const auto& preset = presets[idx];
+        bool isStressCandidate = false;
+        for (const auto& pp : preset.params)
+        {
+            const std::string id(pp.id);
+            if ((id.size() == 7 && id.rfind("fx", 0) == 0 && id.find("Type") == 3 && (int)std::round(pp.v) == FxChain::Freeze)
+                || (id == "modalMix" && pp.v >= 0.30f)
+                || (id == "dlyFeedback" && pp.v >= 0.55f)
+                || (id == "revDecay" && pp.v >= 0.84f)
+                || (id == "grainFilterRes" && pp.v >= 2.2f))
+            {
+                isStressCandidate = true;
+                break;
+            }
+        }
+        if (!isStressCandidate) continue;
+        ++stressCount;
+
+        proc.applyFactoryPreset((int)idx);
+        buf.clear();
+        midi.clear();
+        proc.processBlock(buf, midi);
+
+        double heldSq = 0.0; int heldN = 0;
+        double tailASq = 0.0; int tailAN = 0; // [0.6s..1.6s]
+        double tailBSq = 0.0; int tailBN = 0; // [2.8s..3.9s]
+        float peak = 0.0f;
+
+        for (int b = 0; b < longHeldBlocks; ++b)
+        {
+            buf.clear();
+            midi.clear();
+            if (b == 0)
+            {
+                midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.90f), 0);
+                midi.addEvent(juce::MidiMessage::noteOn(1, 64, 0.90f), 0);
+                midi.addEvent(juce::MidiMessage::noteOn(1, 67, 0.90f), 0);
+            }
+            proc.processBlock(buf, midi);
+            const float sec = (float)(b * blkSize) / (float)sr;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const float* d = buf.getReadPointer(ch);
+                for (int s = 0; s < blkSize; ++s)
+                {
+                    const float v = d[s];
+                    check(isFiniteFloat(v), "Long-hold stress NaN/Inf in " + preset.name.toStdString());
+                    peak = juce::jmax(peak, std::abs(v));
+                    if (sec >= 1.5f) { heldSq += (double)v * v; ++heldN; }
+                }
+            }
+        }
+
+        for (int b = 0; b < longTailBlocks; ++b)
+        {
+            buf.clear();
+            midi.clear();
+            if (b == 0)
+            {
+                midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+                midi.addEvent(juce::MidiMessage::noteOff(1, 64), 0);
+                midi.addEvent(juce::MidiMessage::noteOff(1, 67), 0);
+            }
+            proc.processBlock(buf, midi);
+            const float sec = (float)(b * blkSize) / (float)sr;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const float* d = buf.getReadPointer(ch);
+                for (int s = 0; s < blkSize; ++s)
+                {
+                    const float v = d[s];
+                    peak = juce::jmax(peak, std::abs(v));
+                    if (sec >= 0.6f && sec < 1.6f) { tailASq += (double)v * v; ++tailAN; }
+                    if (sec >= 2.8f && sec < 3.9f) { tailBSq += (double)v * v; ++tailBN; }
+                }
+            }
+        }
+
+        const float heldRms  = heldN  > 0 ? (float)std::sqrt(heldSq  / (double)heldN)  : 0.0f;
+        const float tailARms = tailAN > 0 ? (float)std::sqrt(tailASq / (double)tailAN) : 0.0f;
+        const float tailBRms = tailBN > 0 ? (float)std::sqrt(tailBSq / (double)tailBN) : 0.0f;
+        if (heldRms > stressWorstRms) { stressWorstRms = heldRms; }
+        if (tailBRms > 0.008f && tailARms > 1.0e-5f)
+        {
+            const float ratio = tailBRms / tailARms;
+            if (ratio > stressWorstRatio) { stressWorstRatio = ratio; stressWorstName = preset.name.toStdString(); }
+            if (ratio > 0.92f)
+            {
+                std::cerr << "  [LONG-HOLD HOWL WARN] #" << idx << " " << preset.name
+                          << " heldRms=" << heldRms << " tailA=" << tailARms
+                          << " tailB=" << tailBRms << " ratio=" << ratio << "\n";
+            }
+            check(ratio <= 0.95f,
+                  "Long-hold stress preset '" + preset.name.toStdString() +
+                  "' tail did not decay (ratio=" + std::to_string(ratio) + ")");
+        }
+        check(peak <= 1.08f, "Long-hold peak exceeded limiter in " + preset.name.toStdString());
+        check(heldRms <= 0.78f, "Long-hold sustained RMS too hot in " + preset.name.toStdString() +
+              " (" + std::to_string(heldRms) + ")");
+    }
+    std::cout << "  Long-hold stress (" << stressCount << " presets): worstHeldRms=" << stressWorstRms
+              << ", worstTailRatio=" << stressWorstRatio << " (" << stressWorstName << ")\n";
+    check(stressCount >= 20, "Long-hold stress test should cover >= 20 high-feedback/modal/freeze presets");
+    tmpWav.deleteFile();
+}
 } // namespace
 
 int main()
@@ -1879,6 +2408,10 @@ int main()
         testPerGrainSvfSkewChirpAndPolyModMatrix();
         testModalResonatorScaleTuningAndDamping();
         testEditorPhase4EnginePanelRendersWithoutError();
+        testPlayheadRetriggerOnVsOff();
+        testKnobModMenuMappingAndOps();
+        testFreezeFxNoSelfOscillation();
+        testAll150FactoryPresetsNoHowling();
     }
     catch (const std::exception& e)
     {
