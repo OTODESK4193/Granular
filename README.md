@@ -1,9 +1,18 @@
 # GRANULAR
 
 ![Release](https://img.shields.io/badge/release-v1.2.1-blue)
+[![Downloads](https://img.shields.io/github/downloads/OTODESK4193/Granular/total?color=brightgreen)](https://github.com/OTODESK4193/Granular/releases)
 ![License](https://img.shields.io/badge/license-AGPLv3-green)
 ![JUCE](https://img.shields.io/badge/JUCE-8.0.x-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+
+[![Demo Video](https://img.shields.io/badge/YouTube-Demo%20Video-red?style=for-the-badge&logo=youtube)](https://youtu.be/Tjz-bFFL0Xk)
+
+<a href="https://youtu.be/Tjz-bFFL0Xk">
+  <img src="Source/Assets/Granular_demo.png" width="700" alt="Granular Demo Video">
+</a>
+
+▶ **Demo Video:** https://youtu.be/Tjz-bFFL0Xk
 
 ##
 <img src="Source/Assets/Granular_Main.jpg" width="700">
